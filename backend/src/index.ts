@@ -20,6 +20,7 @@ app.use('/ensembles', ensemblesRouter);
 app.use('/charts', chartsRouter);
 app.use('/device-tokens', deviceTokensRouter);
 app.use('/parts', partsRouter);
+app.use('/player', partsRouter);
 app.use('/notifications', notificationsRouter);
 
 const PORT = process.env.PORT ?? 3000;

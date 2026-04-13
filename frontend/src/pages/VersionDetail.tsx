@@ -1,12 +1,16 @@
 import { useEffect, useState, useCallback } from 'react';
 import { useParams } from 'react-router-dom';
-import { getVersion, deletePart } from '../api/charts';
-import { ChartVersion, Part, VersionDiff, PartDiff } from '../types';
+import { useAuth } from '../hooks/useAuth';
+import { getVersion, deletePart, getAssignments, assignPart, unassignPart, getChart } from '../api/charts';
+import { getMembers } from '../api/ensembles';
+import { ChartVersion, Part, VersionDiff, PartDiff, PartAssignment, EnsembleMember } from '../types';
 import { Layout } from '../components/Layout';
 import { OmrBadge, ActiveBadge } from '../components/Badge';
 import { Button } from '../components/Button';
 import { PdfViewer } from '../components/PdfViewer';
 import { ApiError } from '../api/client';
+
+// ── Diff panel ────────────────────────────────────────────────────────────────
 
 function DiffPanel({ diff, instrument }: { diff: PartDiff; instrument: string }) {
   const [open, setOpen] = useState(true);
@@ -64,11 +68,155 @@ function DiffPanel({ diff, instrument }: { diff: PartDiff; instrument: string })
   );
 }
 
+// ── Link viewer ───────────────────────────────────────────────────────────────
+
+function LinkViewer({ url, name }: { url: string; name: string }) {
+  const [embedMode, setEmbedMode] = useState(false);
+
+  return (
+    <div style={{ marginTop: 8 }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: embedMode ? 10 : 0 }}>
+        <a href={url} target="_blank" rel="noopener noreferrer"
+          style={{ color: 'var(--accent)', fontSize: 13, wordBreak: 'break-all' }}>
+          {url}
+        </a>
+        <button
+          onClick={() => setEmbedMode(m => !m)}
+          style={{ background: 'none', border: '1px solid var(--border)', borderRadius: 4,
+            color: 'var(--text-muted)', cursor: 'pointer', fontSize: 12, padding: '3px 8px', whiteSpace: 'nowrap' }}>
+          {embedMode ? 'Hide preview' : 'Preview in app'}
+        </button>
+      </div>
+      {embedMode && (
+        <div style={{ border: '1px solid var(--border)', borderRadius: 'var(--radius)', overflow: 'hidden', height: 500 }}>
+          <iframe
+            src={url}
+            title={name}
+            style={{ width: '100%', height: '100%', border: 'none', display: 'block' }}
+            sandbox="allow-scripts allow-same-origin allow-forms allow-popups"
+          />
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ── Audio player ──────────────────────────────────────────────────────────────
+
+function AudioPlayer({ pdfUrl }: { pdfUrl: string }) {
+  // pdfUrl points to the same backend proxy — just uses it as audio src with auth
+  const [blobUrl, setBlobUrl] = useState<string | null>(null);
+
+  useEffect(() => {
+    const token = localStorage.getItem('token');
+    const apiUrl = pdfUrl.startsWith('/parts') ? `/api${pdfUrl}` : pdfUrl;
+    fetch(apiUrl, { headers: token ? { Authorization: `Bearer ${token}` } : {} })
+      .then(r => r.blob())
+      .then(blob => setBlobUrl(URL.createObjectURL(blob)))
+      .catch(() => {});
+    return () => { if (blobUrl) URL.revokeObjectURL(blobUrl); };
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [pdfUrl]);
+
+  if (!blobUrl) return <div style={{ color: 'var(--text-muted)', fontSize: 13, marginTop: 8 }}>Loading audio…</div>;
+  return (
+    <audio controls src={blobUrl} style={{ marginTop: 8, width: '100%' }} />
+  );
+}
+
+// ── Assignments panel ─────────────────────────────────────────────────────────
+
+interface AssignmentsPanelProps {
+  chartId: string;
+  ensembleId: string;
+  instrumentName: string;
+  assignments: PartAssignment[];
+  onAssign: (a: PartAssignment) => void;
+  onUnassign: (assignmentId: string) => void;
+  canEdit: boolean;
+}
+
+function AssignmentsPanel({ chartId, ensembleId, instrumentName, assignments, onAssign, onUnassign, canEdit }: AssignmentsPanelProps) {
+  const [members, setMembers] = useState<EnsembleMember[]>([]);
+  const [selectedUserId, setSelectedUserId] = useState('');
+  const [assigning, setAssigning] = useState(false);
+
+  const myAssignments = assignments.filter(a => a.instrument_name === instrumentName);
+
+  useEffect(() => {
+    if (!canEdit) return;
+    getMembers(ensembleId).then(r => setMembers(r.members)).catch(() => {});
+  }, [ensembleId, canEdit]);
+
+  async function handleAssign() {
+    if (!selectedUserId) return;
+    setAssigning(true);
+    try {
+      const { assignment } = await assignPart(chartId, instrumentName, selectedUserId);
+      onAssign(assignment);
+      setSelectedUserId('');
+    } finally {
+      setAssigning(false);
+    }
+  }
+
+  const assignedIds = new Set(myAssignments.map(a => a.user_id));
+  const unassigned = members.filter(m => !assignedIds.has(m.id));
+
+  return (
+    <div style={{ marginTop: 14, paddingTop: 14, borderTop: '1px solid var(--border)' }}>
+      <p style={{ fontSize: 12, color: 'var(--text-muted)', marginBottom: 8 }}>Assigned players</p>
+      {myAssignments.length === 0 ? (
+        <p style={{ fontSize: 13, color: 'var(--text-muted)' }}>No one assigned</p>
+      ) : (
+        <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginBottom: 8 }}>
+          {myAssignments.map(a => (
+            <span key={a.id} style={{
+              display: 'flex', alignItems: 'center', gap: 6,
+              background: 'var(--bg)', border: '1px solid var(--border)',
+              borderRadius: 99, padding: '3px 10px', fontSize: 13,
+            }}>
+              {a.user_name}
+              {canEdit && (
+                <button onClick={() => onUnassign(a.id)} style={{
+                  background: 'none', border: 'none', color: 'var(--text-muted)',
+                  cursor: 'pointer', fontSize: 14, lineHeight: 1, padding: 0,
+                }}>×</button>
+              )}
+            </span>
+          ))}
+        </div>
+      )}
+      {canEdit && unassigned.length > 0 && (
+        <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+          <select value={selectedUserId} onChange={e => setSelectedUserId(e.target.value)}
+            style={{ background: 'var(--bg)', border: '1px solid var(--border)', borderRadius: 4,
+              padding: '5px 8px', color: selectedUserId ? 'var(--text)' : 'var(--text-muted)', fontSize: 13 }}>
+            <option value="">Assign to…</option>
+            {unassigned.map(m => (
+              <option key={m.id} value={m.id}>{m.name} ({m.role})</option>
+            ))}
+          </select>
+          <Button variant="secondary" size="sm" disabled={!selectedUserId} loading={assigning} onClick={handleAssign}>
+            Assign
+          </Button>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ── Main page ─────────────────────────────────────────────────────────────────
+
 export function VersionDetail() {
   const { id: chartId, vId } = useParams<{ id: string; vId: string }>();
+  const { user } = useAuth();
   const [version, setVersion] = useState<ChartVersion | null>(null);
   const [parts, setParts] = useState<Part[]>([]);
   const [diff, setDiff] = useState<VersionDiff | null>(null);
+  const [ensembleId, setEnsembleId] = useState<string | null>(null);
+  const [myRole, setMyRole] = useState<string | null>(null);
+  const [assignments, setAssignments] = useState<PartAssignment[]>([]);
   const [loading, setLoading] = useState(true);
   const [deletingPart, setDeletingPart] = useState<string | null>(null);
   const [deletePartError, setDeletePartError] = useState('');
@@ -81,7 +229,24 @@ export function VersionDetail() {
     setDiff(res.diff);
   }, [chartId, vId]);
 
-  useEffect(() => { load().finally(() => setLoading(false)); }, [load]);
+  useEffect(() => {
+    load().finally(() => setLoading(false));
+  }, [load]);
+
+  // Load ensemble context + assignments
+  useEffect(() => {
+    if (!chartId) return;
+    getChart(chartId).then(({ chart }) => {
+        setEnsembleId(chart.ensemble_id);
+        return Promise.all([
+          getMembers(chart.ensemble_id).then(r => {
+            const member = r.members.find(m => m.id === user?.id);
+            if (member) setMyRole(member.role);
+          }).catch(() => {}),
+          getAssignments(chartId).then(r => setAssignments(r.assignments)).catch(() => {}),
+        ]);
+      }).catch(() => {});
+  }, [chartId]);
 
   async function handleDeletePart(partId: string, instrumentName: string) {
     if (!confirm(`Delete "${instrumentName}"? This cannot be undone.`)) return;
@@ -110,6 +275,7 @@ export function VersionDetail() {
 
   const diffParts = diff?.diff_json?.parts ?? {};
   const omrAllDone = parts.every(p => p.omr_status === 'complete' || p.omr_status === 'failed');
+  const canEdit = myRole === 'owner' || myRole === 'editor';
 
   return (
     <Layout
@@ -126,7 +292,7 @@ export function VersionDetail() {
       </div>
 
       <section>
-        <h2 style={{ marginBottom: 16 }}>Parts</h2>
+        <h2 style={{ marginBottom: 16 }}>Files</h2>
         {deletePartError && <p className="form-error" style={{ marginBottom: 16 }}>{deletePartError}</p>}
         <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
           {parts.map(p => {
@@ -139,47 +305,52 @@ export function VersionDetail() {
                 {/* Header row */}
                 <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 14 }}>
                   <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
-                    <span style={{ fontWeight: 600, fontSize: 15 }}>
-                      {p.instrument_name}
-                    </span>
+                    <span style={{ fontWeight: 600, fontSize: 15 }}>{p.instrument_name}</span>
                     {p.part_type === 'score' && (
-                      <span style={{
-                        fontSize: 11, padding: '2px 7px',
-                        background: 'rgba(99,102,241,0.15)', border: '1px solid rgba(99,102,241,0.4)',
-                        borderRadius: 99, color: 'var(--accent)',
-                      }}>Score</span>
+                      <span style={{ fontSize: 11, padding: '2px 7px', background: 'rgba(99,102,241,0.15)',
+                        border: '1px solid rgba(99,102,241,0.4)', borderRadius: 99, color: 'var(--accent)' }}>Score</span>
+                    )}
+                    {p.part_type === 'audio' && (
+                      <span style={{ fontSize: 11, padding: '2px 7px', background: 'rgba(34,197,94,0.12)',
+                        border: '1px solid rgba(34,197,94,0.4)', borderRadius: 99, color: '#22c55e' }}>Audio</span>
+                    )}
+                    {p.part_type === 'chart' && (
+                      <span style={{ fontSize: 11, padding: '2px 7px', background: 'rgba(251,191,36,0.12)',
+                        border: '1px solid rgba(251,191,36,0.4)', borderRadius: 99, color: '#f59e0b' }}>Chord chart</span>
+                    )}
+                    {p.part_type === 'link' && (
+                      <span style={{ fontSize: 11, padding: '2px 7px', background: 'rgba(99,102,241,0.08)',
+                        border: '1px solid var(--border)', borderRadius: 99, color: 'var(--text-muted)' }}>Link</span>
                     )}
                     {p.part_type === 'other' && (
-                      <span style={{
-                        fontSize: 11, padding: '2px 7px',
-                        background: 'var(--surface)', border: '1px solid var(--border)',
-                        borderRadius: 99, color: 'var(--text-muted)',
-                      }}>Other</span>
+                      <span style={{ fontSize: 11, padding: '2px 7px', background: 'var(--surface)',
+                        border: '1px solid var(--border)', borderRadius: 99, color: 'var(--text-muted)' }}>Other</span>
                     )}
-                    <OmrBadge status={p.omr_status} />
+                    {p.part_type !== 'link' && p.part_type !== 'audio' && (
+                      <OmrBadge status={p.omr_status} />
+                    )}
                     {p.inherited_from_part_id && (
-                      <span style={{
-                        fontSize: 11, padding: '2px 7px',
-                        background: 'var(--surface)', border: '1px solid var(--border)',
-                        borderRadius: 99, color: 'var(--text-muted)',
-                      }}>
+                      <span style={{ fontSize: 11, padding: '2px 7px', background: 'var(--surface)',
+                        border: '1px solid var(--border)', borderRadius: 99, color: 'var(--text-muted)' }}>
                         carried from {p.inherited_from_version_name ?? `v${p.inherited_from_version_number}`}
                       </span>
                     )}
                   </div>
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    loading={deletingPart === p.id}
-                    onClick={() => handleDeletePart(p.id, p.instrument_name)}
-                    style={{ color: 'var(--danger)' }}
-                  >
-                    Delete
-                  </Button>
+                  {canEdit && (
+                    <Button variant="ghost" size="sm" loading={deletingPart === p.id}
+                      onClick={() => handleDeletePart(p.id, p.instrument_name)}
+                      style={{ color: 'var(--danger)' }}>
+                      Delete
+                    </Button>
+                  )}
                 </div>
 
-                {/* PDF viewer thumbnail + fullscreen */}
-                {p.pdfUrl ? (
+                {/* Content by type */}
+                {p.part_type === 'link' && p.url ? (
+                  <LinkViewer url={p.url} name={p.instrument_name} />
+                ) : p.part_type === 'audio' && p.pdfUrl ? (
+                  <AudioPlayer pdfUrl={p.pdfUrl} />
+                ) : p.pdfUrl ? (
                   <PdfViewer
                     url={p.pdfUrl}
                     title={`${p.instrument_name} — ${version.version_name}`}
@@ -187,23 +358,39 @@ export function VersionDetail() {
                     changeDescriptions={partDiff?.changeDescriptions}
                   />
                 ) : (
-                  <div style={{
-                    background: 'var(--bg)', border: '1px solid var(--border)',
+                  <div style={{ background: 'var(--bg)', border: '1px solid var(--border)',
                     borderRadius: 'var(--radius)', padding: '20px', textAlign: 'center',
-                    color: 'var(--text-muted)', fontSize: 13,
-                  }}>
-                    PDF not available
+                    color: 'var(--text-muted)', fontSize: 13 }}>
+                    File not available
                   </div>
                 )}
 
-                {/* Diff panel */}
-                {partDiff ? (
-                  <DiffPanel diff={partDiff} instrument={p.instrument_name} />
-                ) : omrAllDone && !diff ? (
-                  <p style={{ marginTop: 12, fontSize: 13, color: 'var(--text-muted)' }}>
-                    No diff available (first version or OMR unavailable)
-                  </p>
-                ) : null}
+                {/* Diff panel — only for PDF types */}
+                {['score', 'part', 'chart', 'other'].includes(p.part_type) && (
+                  partDiff ? (
+                    <DiffPanel diff={partDiff} instrument={p.instrument_name} />
+                  ) : omrAllDone && !diff ? (
+                    <p style={{ marginTop: 12, fontSize: 13, color: 'var(--text-muted)' }}>
+                      No diff available (first version or OMR unavailable)
+                    </p>
+                  ) : null
+                )}
+
+                {/* Assignment panel */}
+                {ensembleId && (
+                  <AssignmentsPanel
+                    chartId={chartId!}
+                    ensembleId={ensembleId}
+                    instrumentName={p.instrument_name}
+                    assignments={assignments}
+                    onAssign={a => setAssignments(prev => [...prev, a])}
+                    onUnassign={async (id) => {
+                      await unassignPart(chartId!, id).catch(() => {});
+                      setAssignments(prev => prev.filter(a => a.id !== id));
+                    }}
+                    canEdit={canEdit}
+                  />
+                )}
               </div>
             );
           })}

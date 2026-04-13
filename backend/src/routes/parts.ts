@@ -10,6 +10,36 @@ export const partsRouter = Router();
 
 partsRouter.use(requireAuth);
 
+// GET /player/parts — all parts assigned to the current user (from active versions)
+partsRouter.get('/player/parts', async (req: Request, res: Response): Promise<void> => {
+  const result = await db.query(
+    `SELECT
+       a.id AS assignment_id,
+       c.id AS chart_id, c.title AS chart_title,
+       e.id AS ensemble_id, e.name AS ensemble_name,
+       a.instrument_name,
+       p.id AS part_id, p.part_type, p.omr_status, p.url,
+       cv.id AS version_id, cv.version_number, cv.version_name
+     FROM chart_part_assignments a
+     JOIN charts c ON c.id = a.chart_id AND c.deleted_at IS NULL
+     JOIN ensembles e ON e.id = c.ensemble_id
+     JOIN chart_versions cv ON cv.chart_id = c.id AND cv.is_active = true AND cv.deleted_at IS NULL
+     LEFT JOIN parts p ON p.chart_version_id = cv.id
+                       AND p.instrument_name = a.instrument_name
+                       AND p.deleted_at IS NULL
+     WHERE a.user_id = $1
+     ORDER BY e.name, c.title, a.instrument_name`,
+    [req.user!.id]
+  );
+
+  const parts = result.rows.map(row => ({
+    ...row,
+    pdf_url: row.part_id && row.part_type !== 'link' ? `/parts/${row.part_id}/pdf` : null,
+  }));
+
+  res.json({ parts });
+});
+
 function isHttpError(err: unknown): err is { status: number; message: string } {
   return typeof err === 'object' && err !== null && 'status' in err && 'message' in err;
 }

@@ -37,7 +37,7 @@ export function Button({
         fontSize: size === 'sm' ? 12 : 14,
         fontWeight: 500,
         borderRadius: 'var(--radius)',
-        border: 'none',
+        border: variant === 'secondary' ? '1px solid var(--border)' : 'none',
         cursor: disabled || loading ? 'not-allowed' : 'pointer',
         opacity: disabled || loading ? 0.6 : 1,
         background:
@@ -47,7 +47,6 @@ export function Button({
           'transparent',
         color:
           variant === 'ghost' ? 'var(--text-muted)' : 'var(--text)',
-        border: variant === 'secondary' ? '1px solid var(--border)' : 'none',
         transition: 'opacity 0.15s, background 0.15s',
         ...props.style,
       }}

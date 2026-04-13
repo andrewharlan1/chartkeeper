@@ -1,5 +1,5 @@
 import { ReactNode } from 'react';
-import { Link, useNavigate } from 'react-router-dom';
+import { Link, useNavigate, useLocation } from 'react-router-dom';
 import { useAuth } from '../hooks/useAuth';
 import { Button } from './Button';
 
@@ -13,6 +13,8 @@ interface Props {
 export function Layout({ children, title, back, actions }: Props) {
   const { user, logout } = useAuth();
   const navigate = useNavigate();
+  const location = useLocation();
+  const isPlayerView = location.pathname === '/my-parts';
 
   function handleLogout() {
     logout();
@@ -38,6 +40,26 @@ export function Layout({ children, title, back, actions }: Props) {
         </Link>
         {user && (
           <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+            {/* Band / My Parts toggle */}
+            <div style={{
+              display: 'flex', background: 'var(--bg)',
+              border: '1px solid var(--border)', borderRadius: 6, padding: 2,
+            }}>
+              <Link to="/" style={{
+                padding: '4px 12px', borderRadius: 4, fontSize: 12, fontWeight: 500,
+                textDecoration: 'none',
+                background: !isPlayerView ? 'var(--accent)' : 'transparent',
+                color: !isPlayerView ? '#fff' : 'var(--text-muted)',
+                transition: 'background 0.15s, color 0.15s',
+              }}>Band view</Link>
+              <Link to="/my-parts" style={{
+                padding: '4px 12px', borderRadius: 4, fontSize: 12, fontWeight: 500,
+                textDecoration: 'none',
+                background: isPlayerView ? 'var(--accent)' : 'transparent',
+                color: isPlayerView ? '#fff' : 'var(--text-muted)',
+                transition: 'background 0.15s, color 0.15s',
+              }}>My parts</Link>
+            </div>
             <span style={{ color: 'var(--text-muted)', fontSize: 13 }}>{user.email}</span>
             <Button variant="ghost" size="sm" onClick={handleLogout}>Sign out</Button>
           </div>

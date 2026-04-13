@@ -29,7 +29,7 @@ export interface Chart {
 }
 
 export type OmrStatus = 'pending' | 'processing' | 'complete' | 'failed';
-export type PartType = 'score' | 'part' | 'other';
+export type PartType = 'score' | 'part' | 'audio' | 'chart' | 'link' | 'other';
 
 export interface Part {
   id: string;
@@ -39,6 +39,7 @@ export interface Part {
   omr_status: OmrStatus;
   created_at: string;
   pdfUrl?: string;
+  url?: string | null;           // for link-type parts
   inherited_from_part_id?: string | null;
   inherited_from_version_number?: number | null;
   inherited_from_version_name?: string | null;
@@ -54,9 +55,38 @@ export interface PartSummary {
 
 export interface UploadEntry {
   id: string;       // client-only stable key
-  file: File;
+  file?: File;      // undefined for link type
+  url?: string;     // for link type
   name: string;     // user-provided display name, used as instrument_name
   type: PartType;
+}
+
+export interface PartAssignment {
+  id: string;
+  chart_id: string;
+  instrument_name: string;
+  user_id: string;
+  user_name: string;
+  user_email: string;
+  assigned_by: string;
+  created_at: string;
+}
+
+export interface PlayerPart {
+  assignment_id: string;
+  chart_id: string;
+  chart_title: string | null;
+  ensemble_id: string;
+  ensemble_name: string;
+  instrument_name: string;
+  part_type: PartType;
+  part_id: string;
+  pdf_url: string | null;
+  url: string | null;
+  omr_status: OmrStatus;
+  version_id: string;
+  version_number: number;
+  version_name: string;
 }
 
 export interface ChartVersion {

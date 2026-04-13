@@ -14,14 +14,21 @@ chartsRouter.use(requireAuth);
 
 const MAX_SIZE_BYTES = parseInt(process.env.PDF_MAX_SIZE_MB ?? '50') * 1024 * 1024;
 
+const ACCEPTED_MIMETYPES = new Set([
+  'application/pdf',
+  'audio/mpeg', 'audio/mp3', 'audio/wav', 'audio/wave', 'audio/x-wav',
+  'audio/mp4', 'audio/m4a', 'audio/x-m4a', 'audio/aac', 'audio/ogg',
+  'audio/flac', 'audio/x-flac',
+]);
+
 const upload = multer({
   storage: multer.memoryStorage(),
   limits: { fileSize: MAX_SIZE_BYTES },
   fileFilter: (_req, file, cb) => {
-    if (file.mimetype === 'application/pdf') {
+    if (ACCEPTED_MIMETYPES.has(file.mimetype) || file.mimetype.startsWith('audio/')) {
       cb(null, true);
     } else {
-      cb(new Error('Only PDF files are accepted'));
+      cb(new Error('Only PDF and audio files are accepted'));
     }
   },
 });
@@ -130,10 +137,22 @@ chartsRouter.post('/:id/versions', upload.any(), async (req: Request, res: Respo
     ? req.body.versionName
     : undefined;
 
-  // Per-file type metadata: { [instrumentName]: 'score' | 'part' | 'other' }
+  // Per-file type metadata: { [instrumentName]: 'score' | 'part' | 'audio' | 'chart' | 'link' | 'other' }
   let partTypes: Record<string, string> = {};
   if (typeof req.body.partTypes === 'string') {
     try { partTypes = JSON.parse(req.body.partTypes); } catch { /* ignore */ }
+  }
+
+  // Link-type entries: [{ name, url }] — no file upload, just store the URL
+  let linkEntries: Array<{ name: string; url: string }> = [];
+  if (typeof req.body.linkEntries === 'string') {
+    try { linkEntries = JSON.parse(req.body.linkEntries); } catch { /* ignore */ }
+  }
+
+  // Carry-forward checklist: if present, only inherit the named parts
+  let inheritedPartNames: Set<string> | null = null;
+  if (typeof req.body.inheritedPartNames === 'string') {
+    try { inheritedPartNames = new Set(JSON.parse(req.body.inheritedPartNames)); } catch { /* ignore */ }
   }
 
   const client = await db.connect();
@@ -187,15 +206,19 @@ chartsRouter.post('/:id/versions', upload.any(), async (req: Request, res: Respo
     );
     const versionId: string = versionResult.rows[0].id;
 
-    // Upload each new PDF to S3 and create a part row
-    const uploadedInstruments = new Set(files.map(f => f.fieldname));
+    // Upload each file to S3 and create a part row
+    const uploadedInstruments = new Set([
+      ...files.map(f => f.fieldname),
+      ...linkEntries.map(l => l.name),
+    ]);
+
     const newParts = await Promise.all(files.map(async (file) => {
       const instrument = file.fieldname;
-      const partType = ['score', 'part', 'other'].includes(partTypes[instrument]) ? partTypes[instrument] : 'part';
-      // Use a sanitized key for S3 but keep the display name in the DB
+      const partType = ['score', 'part', 'audio', 'chart', 'other'].includes(partTypes[instrument]) ? partTypes[instrument] : 'part';
       const s3SafeName = instrument.replace(/[^a-zA-Z0-9._-]/g, '_');
-      const s3Key = `charts/${req.params.id}/versions/${versionId}/parts/${s3SafeName}.pdf`;
-      await uploadFile(s3Key, file.buffer, 'application/pdf');
+      const ext = file.mimetype.startsWith('audio/') ? '.audio' : '.pdf';
+      const s3Key = `charts/${req.params.id}/versions/${versionId}/parts/${s3SafeName}${ext}`;
+      await uploadFile(s3Key, file.buffer, file.mimetype);
 
       const partResult = await client.query<{ id: string; instrument_name: string; omr_status: string; created_at: string }>(
         `INSERT INTO parts (chart_version_id, instrument_name, part_type, pdf_s3_key, omr_status)
@@ -205,21 +228,36 @@ chartsRouter.post('/:id/versions', upload.any(), async (req: Request, res: Respo
       );
       const part = partResult.rows[0];
 
-      await enqueueJob('omr', {
-        partId: part.id,
-        pdfS3Key: s3Key,
-        chartId: req.params.id,
-        versionId,
-        instrument,
-      });
+      // Only enqueue OMR for PDF parts
+      if (!file.mimetype.startsWith('audio/')) {
+        await enqueueJob('omr', {
+          partId: part.id,
+          pdfS3Key: s3Key,
+          chartId: req.params.id,
+          versionId,
+          instrument,
+        });
+      }
 
       return part;
+    }));
+
+    // Create link-type parts (no file, just a URL)
+    const linkParts = await Promise.all(linkEntries.map(async (entry) => {
+      const partResult = await client.query<{ id: string; instrument_name: string; omr_status: string; created_at: string }>(
+        `INSERT INTO parts (chart_version_id, instrument_name, part_type, url, omr_status)
+         VALUES ($1, $2, 'link', $3, 'complete')
+         RETURNING id, instrument_name, omr_status, created_at`,
+        [versionId, entry.name, entry.url]
+      );
+      return partResult.rows[0];
     }));
 
     // Inherit unchanged parts from the previous active version
     const inheritedParts = await Promise.all(
       prevParts
         .filter(p => !uploadedInstruments.has(p.instrument_name))
+        .filter(p => inheritedPartNames === null || inheritedPartNames.has(p.instrument_name))
         .map(async (p) => {
           const inheritedResult = await client.query<{
             id: string; instrument_name: string; omr_status: string; created_at: string;
@@ -234,7 +272,7 @@ chartsRouter.post('/:id/versions', upload.any(), async (req: Request, res: Respo
         })
     );
 
-    const parts = [...newParts, ...inheritedParts];
+    const parts = [...newParts, ...linkParts, ...inheritedParts];
 
     await client.query('COMMIT');
 
@@ -332,7 +370,7 @@ chartsRouter.get('/:id/versions/:vId', async (req: Request, res: Response): Prom
   }
 
   const parts = await db.query(
-    `SELECT p.id, p.instrument_name, p.part_type, p.omr_status, p.pdf_s3_key, p.created_at,
+    `SELECT p.id, p.instrument_name, p.part_type, p.omr_status, p.pdf_s3_key, p.url, p.created_at,
             p.inherited_from_part_id,
             src_cv.version_number AS inherited_from_version_number,
             src_cv.version_name AS inherited_from_version_name
@@ -479,4 +517,91 @@ chartsRouter.post('/:id/versions/:vId/restore', async (req: Request, res: Respon
   );
 
   res.json({ restoredVersionId: req.params.vId });
+});
+
+// ── Part Assignments ──────────────────────────────────────────────────────────
+
+// GET /charts/:id/assignments
+chartsRouter.get('/:id/assignments', async (req: Request, res: Response): Promise<void> => {
+  const chart = await db.query(
+    `SELECT id, ensemble_id FROM charts WHERE id = $1 AND deleted_at IS NULL`,
+    [req.params.id]
+  );
+  if (!chart.rows[0]) { res.status(404).json({ error: 'Chart not found' }); return; }
+  try { await requireMember(chart.rows[0].ensemble_id, req.user!.id); }
+  catch (err) { handleError(err, res); return; }
+
+  const result = await db.query(
+    `SELECT a.id, a.chart_id, a.instrument_name, a.user_id, a.assigned_by, a.created_at,
+            u.name AS user_name, u.email AS user_email
+     FROM chart_part_assignments a
+     JOIN users u ON u.id = a.user_id
+     WHERE a.chart_id = $1
+     ORDER BY a.instrument_name, u.name`,
+    [req.params.id]
+  );
+  res.json({ assignments: result.rows });
+});
+
+// POST /charts/:id/assignments
+chartsRouter.post('/:id/assignments', async (req: Request, res: Response): Promise<void> => {
+  const chart = await db.query(
+    `SELECT id, ensemble_id FROM charts WHERE id = $1 AND deleted_at IS NULL`,
+    [req.params.id]
+  );
+  if (!chart.rows[0]) { res.status(404).json({ error: 'Chart not found' }); return; }
+
+  let role: string | null = null;
+  try { role = await requireMember(chart.rows[0].ensemble_id, req.user!.id); }
+  catch (err) { handleError(err, res); return; }
+  if (role !== 'owner' && role !== 'editor') {
+    res.status(403).json({ error: 'Only owners and editors can assign parts' });
+    return;
+  }
+
+  const parsed = z.object({
+    instrumentName: z.string().min(1),
+    userId: z.string().uuid(),
+  }).safeParse(req.body);
+  if (!parsed.success) { res.status(400).json({ error: parsed.error.flatten() }); return; }
+
+  // Verify the target user is a member of the ensemble
+  const member = await db.query(
+    `SELECT id FROM ensemble_members WHERE ensemble_id = $1 AND user_id = $2`,
+    [chart.rows[0].ensemble_id, parsed.data.userId]
+  );
+  if (!member.rows[0]) { res.status(400).json({ error: 'User is not a member of this ensemble' }); return; }
+
+  const result = await db.query(
+    `INSERT INTO chart_part_assignments (chart_id, instrument_name, user_id, assigned_by)
+     VALUES ($1, $2, $3, $4)
+     ON CONFLICT (chart_id, instrument_name, user_id) DO UPDATE SET assigned_by = EXCLUDED.assigned_by
+     RETURNING id, chart_id, instrument_name, user_id, assigned_by, created_at`,
+    [req.params.id, parsed.data.instrumentName, parsed.data.userId, req.user!.id]
+  );
+  const u = await db.query(`SELECT name, email FROM users WHERE id = $1`, [parsed.data.userId]);
+  res.status(201).json({ assignment: { ...result.rows[0], user_name: u.rows[0].name, user_email: u.rows[0].email } });
+});
+
+// DELETE /charts/:id/assignments/:assignmentId
+chartsRouter.delete('/:id/assignments/:assignmentId', async (req: Request, res: Response): Promise<void> => {
+  const chart = await db.query(
+    `SELECT id, ensemble_id FROM charts WHERE id = $1 AND deleted_at IS NULL`,
+    [req.params.id]
+  );
+  if (!chart.rows[0]) { res.status(404).json({ error: 'Chart not found' }); return; }
+
+  let role: string | null = null;
+  try { role = await requireMember(chart.rows[0].ensemble_id, req.user!.id); }
+  catch (err) { handleError(err, res); return; }
+  if (role !== 'owner' && role !== 'editor') {
+    res.status(403).json({ error: 'Only owners and editors can remove assignments' });
+    return;
+  }
+
+  await db.query(
+    `DELETE FROM chart_part_assignments WHERE id = $1 AND chart_id = $2`,
+    [req.params.assignmentId, req.params.id]
+  );
+  res.json({ deleted: true });
 });
