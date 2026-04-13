@@ -6,6 +6,7 @@ import { requireAuth } from '../middleware/auth';
 import { requireMember, requireOwnerOrEditor } from '../lib/ensembleAuth';
 import { uploadFile, getSignedDownloadUrl } from '../lib/s3';
 import { enqueueJob } from '../lib/queue';
+import { notifyRestore } from '../lib/notifications';
 
 export const chartsRouter = Router();
 
@@ -340,6 +341,10 @@ chartsRouter.post('/:id/versions/:vId/restore', async (req: Request, res: Respon
   await db.query(
     `UPDATE chart_versions SET is_active = (id = $1) WHERE chart_id = $2`,
     [req.params.vId, req.params.id]
+  );
+
+  notifyRestore(req.params.id, req.params.vId).catch((err) =>
+    console.error('[charts] Restore notification failed:', err)
   );
 
   res.json({ restoredVersionId: req.params.vId });

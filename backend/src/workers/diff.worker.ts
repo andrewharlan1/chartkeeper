@@ -3,6 +3,7 @@ dotenv.config();
 
 import { claimNextJob, completeJob, failJob } from '../lib/queue';
 import { diffVersion, OmrJson } from '../lib/diff';
+import { notifyNewVersion, notifyNewVersionNoDiff } from '../lib/notifications';
 import { db } from '../db';
 
 const POLL_INTERVAL_MS = parseInt(process.env.DIFF_POLL_INTERVAL_MS ?? '5000');
@@ -31,9 +32,11 @@ async function processDiffJob(jobId: string, payload: DiffJobPayload): Promise<v
   );
 
   if (fromParts.rows.length === 0 || toParts.rows.length === 0) {
-    // Nothing to diff — one side has no OMR data
     await completeJob(jobId);
     console.log(`[diff.worker] Skipping diff for ${toVersionId} — insufficient OMR data`);
+    await notifyNewVersionNoDiff(chartId, toVersionId).catch((err) =>
+      console.error('[diff.worker] Notification failed:', err)
+    );
     return;
   }
 
@@ -48,9 +51,11 @@ async function processDiffJob(jobId: string, payload: DiffJobPayload): Promise<v
     }));
 
   if (pairs.length === 0) {
-    // Instrument lineup changed entirely — no common parts to diff
     await completeJob(jobId);
     console.log(`[diff.worker] No matching instruments between versions — skipping diff`);
+    await notifyNewVersionNoDiff(chartId, toVersionId).catch((err) =>
+      console.error('[diff.worker] Notification failed:', err)
+    );
     return;
   }
 
@@ -66,6 +71,10 @@ async function processDiffJob(jobId: string, payload: DiffJobPayload): Promise<v
 
   await completeJob(jobId);
   console.log(`[diff.worker] Diff computed for version ${toVersionId} (${pairs.length} parts)`);
+
+  await notifyNewVersion(chartId, toVersionId, diffJson).catch((err) =>
+    console.error('[diff.worker] Notification failed:', err)
+  );
 }
 
 async function tick(): Promise<void> {
