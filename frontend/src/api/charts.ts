@@ -51,6 +51,22 @@ export function uploadVersion(
   return multipartRequest(`/charts/${chartId}/versions`, form);
 }
 
+export function addPartToVersion(
+  chartId: string,
+  versionId: string,
+  entry: { name: string; type: string; file?: File; url?: string }
+): Promise<{ part: Part }> {
+  const form = new FormData();
+  form.append('name', entry.name);
+  form.append('partType', entry.type);
+  if (entry.type === 'link' && entry.url) {
+    form.append('url', entry.url);
+  } else if (entry.file) {
+    form.append('file', entry.file);
+  }
+  return multipartRequest(`/charts/${chartId}/versions/${versionId}/parts`, form);
+}
+
 export function getAssignments(chartId: string): Promise<{ assignments: PartAssignment[] }> {
   return api.get(`/charts/${chartId}/assignments`);
 }

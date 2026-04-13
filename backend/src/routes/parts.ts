@@ -10,8 +10,14 @@ export const partsRouter = Router();
 
 partsRouter.use(requireAuth);
 
+// ── Player router (mounted at /player) ───────────────────────────────────────
+
+export const playerRouter = Router();
+
+playerRouter.use(requireAuth);
+
 // GET /player/parts — all parts assigned to the current user (from active versions)
-partsRouter.get('/player/parts', async (req: Request, res: Response): Promise<void> => {
+playerRouter.get('/parts', async (req: Request, res: Response): Promise<void> => {
   const result = await db.query(
     `SELECT
        a.id AS assignment_id,

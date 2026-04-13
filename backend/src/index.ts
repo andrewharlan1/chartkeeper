@@ -6,7 +6,7 @@ import { authRouter } from './routes/auth';
 import { ensemblesRouter } from './routes/ensembles';
 import { chartsRouter } from './routes/charts';
 import { deviceTokensRouter } from './routes/deviceTokens';
-import { partsRouter } from './routes/parts';
+import { partsRouter, playerRouter } from './routes/parts';
 import { notificationsRouter } from './routes/notifications';
 
 const app = express();
@@ -20,7 +20,7 @@ app.use('/ensembles', ensemblesRouter);
 app.use('/charts', chartsRouter);
 app.use('/device-tokens', deviceTokensRouter);
 app.use('/parts', partsRouter);
-app.use('/player', partsRouter);
+app.use('/player', playerRouter);
 app.use('/notifications', notificationsRouter);
 
 const PORT = process.env.PORT ?? 3000;

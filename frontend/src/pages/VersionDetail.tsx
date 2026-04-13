@@ -1,7 +1,7 @@
-import { useEffect, useState, useCallback } from 'react';
+import { useEffect, useState, useCallback, useRef } from 'react';
 import { useParams } from 'react-router-dom';
 import { useAuth } from '../hooks/useAuth';
-import { getVersion, deletePart, getAssignments, assignPart, unassignPart, getChart } from '../api/charts';
+import { getVersion, deletePart, getAssignments, assignPart, unassignPart, getChart, addPartToVersion } from '../api/charts';
 import { getMembers } from '../api/ensembles';
 import { ChartVersion, Part, VersionDiff, PartDiff, PartAssignment, EnsembleMember } from '../types';
 import { Layout } from '../components/Layout';
@@ -206,6 +206,82 @@ function AssignmentsPanel({ chartId, ensembleId, instrumentName, assignments, on
   );
 }
 
+// ── Add file inline ───────────────────────────────────────────────────────────
+
+const TYPE_OPTIONS = [
+  { value: 'part', label: 'Part' }, { value: 'score', label: 'Score' },
+  { value: 'audio', label: 'Audio' }, { value: 'chart', label: 'Chord chart' },
+  { value: 'link', label: 'Link' }, { value: 'other', label: 'Other' },
+];
+
+function AddFileButton({ chartId, versionId, onAdded }: {
+  chartId: string; versionId: string; onAdded: (p: Part) => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const [name, setName] = useState('');
+  const [type, setType] = useState('part');
+  const [url, setUrl] = useState('');
+  const [file, setFile] = useState<File | null>(null);
+  const [saving, setSaving] = useState(false);
+  const [err, setErr] = useState('');
+  const fileInputRef = useRef<HTMLInputElement>(null);
+
+  function reset() { setName(''); setType('part'); setUrl(''); setFile(null); setErr(''); setOpen(false); }
+
+  async function handleSave() {
+    if (!name.trim()) { setErr('Name is required.'); return; }
+    if (type === 'link' && !url.trim()) { setErr('URL is required.'); return; }
+    if (type !== 'link' && !file) { setErr('Select a file.'); return; }
+    setSaving(true); setErr('');
+    try {
+      const { part } = await addPartToVersion(chartId, versionId, { name: name.trim(), type, file: file ?? undefined, url: url.trim() || undefined });
+      onAdded(part);
+      reset();
+    } catch {
+      setErr('Failed to add file.');
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  if (!open) {
+    return (
+      <button onClick={() => setOpen(true)} style={{
+        background: 'none', border: '1px solid var(--border)', borderRadius: 6,
+        color: 'var(--text-muted)', cursor: 'pointer', fontSize: 20, lineHeight: 1,
+        width: 32, height: 32, display: 'flex', alignItems: 'center', justifyContent: 'center',
+      }} title="Add file to this version">+</button>
+    );
+  }
+
+  return (
+    <div style={{ background: 'var(--surface)', border: '1px solid var(--accent)', borderRadius: 'var(--radius)', padding: '14px 16px', width: '100%', marginBottom: 8 }}>
+      <div style={{ display: 'grid', gridTemplateColumns: '1fr 130px', gap: 8, marginBottom: 8 }}>
+        <input value={name} onChange={e => setName(e.target.value)} placeholder="Name…"
+          style={{ background: 'var(--bg)', border: '1px solid var(--border)', borderRadius: 4, padding: '6px 8px', color: 'var(--text)', fontSize: 14 }} />
+        <select value={type} onChange={e => setType(e.target.value)}
+          style={{ background: 'var(--bg)', border: '1px solid var(--border)', borderRadius: 4, padding: '6px 8px', color: 'var(--text)', fontSize: 13 }}>
+          {TYPE_OPTIONS.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
+        </select>
+      </div>
+      {type === 'link' ? (
+        <input value={url} onChange={e => setUrl(e.target.value)} placeholder="https://…"
+          style={{ width: '100%', background: 'var(--bg)', border: '1px solid var(--border)', borderRadius: 4, padding: '6px 8px', color: 'var(--text)', fontSize: 13, boxSizing: 'border-box', marginBottom: 8 }} />
+      ) : (
+        <div style={{ marginBottom: 8 }}>
+          <input ref={fileInputRef} type="file" accept=".pdf,.mp3,.wav,.m4a,.aac,.ogg,.flac,application/pdf,audio/*"
+            onChange={e => setFile(e.target.files?.[0] ?? null)} style={{ fontSize: 13, color: 'var(--text-muted)' }} />
+        </div>
+      )}
+      {err && <p style={{ color: 'var(--danger)', fontSize: 13, marginBottom: 8 }}>{err}</p>}
+      <div style={{ display: 'flex', gap: 8 }}>
+        <Button size="sm" loading={saving} onClick={handleSave}>Add</Button>
+        <Button size="sm" variant="ghost" onClick={reset}>Cancel</Button>
+      </div>
+    </div>
+  );
+}
+
 // ── Main page ─────────────────────────────────────────────────────────────────
 
 export function VersionDetail() {
@@ -292,7 +368,10 @@ export function VersionDetail() {
       </div>
 
       <section>
-        <h2 style={{ marginBottom: 16 }}>Files</h2>
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 16 }}>
+          <h2>Files</h2>
+          {canEdit && <AddFileButton chartId={chartId!} versionId={vId!} onAdded={p => setParts(prev => [...prev, p])} />}
+        </div>
         {deletePartError && <p className="form-error" style={{ marginBottom: 16 }}>{deletePartError}</p>}
         <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
           {parts.map(p => {

@@ -127,11 +127,7 @@ chartsRouter.post('/:id/versions', upload.any(), async (req: Request, res: Respo
     return;
   }
 
-  const files = req.files as Express.Multer.File[];
-  if (!files || files.length === 0) {
-    res.status(400).json({ error: 'At least one PDF file is required' });
-    return;
-  }
+  const files = (req.files as Express.Multer.File[]) ?? [];
 
   const versionName: string | undefined = typeof req.body.versionName === 'string'
     ? req.body.versionName
@@ -153,6 +149,11 @@ chartsRouter.post('/:id/versions', upload.any(), async (req: Request, res: Respo
   let inheritedPartNames: Set<string> | null = null;
   if (typeof req.body.inheritedPartNames === 'string') {
     try { inheritedPartNames = new Set(JSON.parse(req.body.inheritedPartNames)); } catch { /* ignore */ }
+  }
+
+  if (files.length === 0 && linkEntries.length === 0) {
+    res.status(400).json({ error: 'At least one file or link is required' });
+    return;
   }
 
   const client = await db.connect();
@@ -177,6 +178,7 @@ chartsRouter.post('/:id/versions', upload.any(), async (req: Request, res: Respo
     let prevParts: Array<{
       id: string;
       instrument_name: string;
+      part_type: string;
       pdf_s3_key: string;
       musicxml_s3_key: string | null;
       omr_status: string;
@@ -184,7 +186,7 @@ chartsRouter.post('/:id/versions', upload.any(), async (req: Request, res: Respo
     }> = [];
     if (prevVersionId) {
       const prevPartsResult = await client.query(
-        `SELECT id, instrument_name, pdf_s3_key, musicxml_s3_key, omr_status, omr_json
+        `SELECT id, instrument_name, part_type, pdf_s3_key, musicxml_s3_key, omr_status, omr_json
          FROM parts WHERE chart_version_id = $1 AND deleted_at IS NULL`,
         [prevVersionId]
       );
@@ -212,14 +214,19 @@ chartsRouter.post('/:id/versions', upload.any(), async (req: Request, res: Respo
       ...linkEntries.map(l => l.name),
     ]);
 
-    const newParts = await Promise.all(files.map(async (file) => {
+    // S3 uploads can run concurrently — DB inserts must be sequential on the same client
+    const s3Uploads = await Promise.all(files.map(async (file) => {
       const instrument = file.fieldname;
       const partType = ['score', 'part', 'audio', 'chart', 'other'].includes(partTypes[instrument]) ? partTypes[instrument] : 'part';
       const s3SafeName = instrument.replace(/[^a-zA-Z0-9._-]/g, '_');
       const ext = file.mimetype.startsWith('audio/') ? '.audio' : '.pdf';
       const s3Key = `charts/${req.params.id}/versions/${versionId}/parts/${s3SafeName}${ext}`;
       await uploadFile(s3Key, file.buffer, file.mimetype);
+      return { instrument, partType, s3Key, mimetype: file.mimetype };
+    }));
 
+    const newParts: Array<{ id: string; instrument_name: string; omr_status: string; created_at: string }> = [];
+    for (const { instrument, partType, s3Key, mimetype } of s3Uploads) {
       const partResult = await client.query<{ id: string; instrument_name: string; omr_status: string; created_at: string }>(
         `INSERT INTO parts (chart_version_id, instrument_name, part_type, pdf_s3_key, omr_status)
          VALUES ($1, $2, $3, $4, 'pending')
@@ -227,50 +234,40 @@ chartsRouter.post('/:id/versions', upload.any(), async (req: Request, res: Respo
         [versionId, instrument, partType, s3Key]
       );
       const part = partResult.rows[0];
-
-      // Only enqueue OMR for PDF parts
-      if (!file.mimetype.startsWith('audio/')) {
-        await enqueueJob('omr', {
-          partId: part.id,
-          pdfS3Key: s3Key,
-          chartId: req.params.id,
-          versionId,
-          instrument,
-        });
+      if (!mimetype.startsWith('audio/')) {
+        await enqueueJob('omr', { partId: part.id, pdfS3Key: s3Key, chartId: req.params.id, versionId, instrument });
       }
+      newParts.push(part);
+    }
 
-      return part;
-    }));
-
-    // Create link-type parts (no file, just a URL)
-    const linkParts = await Promise.all(linkEntries.map(async (entry) => {
+    // Create link-type parts sequentially
+    const linkParts: Array<{ id: string; instrument_name: string; omr_status: string; created_at: string }> = [];
+    for (const entry of linkEntries) {
       const partResult = await client.query<{ id: string; instrument_name: string; omr_status: string; created_at: string }>(
         `INSERT INTO parts (chart_version_id, instrument_name, part_type, url, omr_status)
          VALUES ($1, $2, 'link', $3, 'complete')
          RETURNING id, instrument_name, omr_status, created_at`,
         [versionId, entry.name, entry.url]
       );
-      return partResult.rows[0];
-    }));
+      linkParts.push(partResult.rows[0]);
+    }
 
-    // Inherit unchanged parts from the previous active version
-    const inheritedParts = await Promise.all(
-      prevParts
+    // Inherit unchanged parts from the previous active version (sequential DB inserts)
+    const inheritedParts: Array<{ id: string; instrument_name: string; omr_status: string; created_at: string }> = [];
+    for (const p of prevParts
         .filter(p => !uploadedInstruments.has(p.instrument_name))
-        .filter(p => inheritedPartNames === null || inheritedPartNames.has(p.instrument_name))
-        .map(async (p) => {
-          const inheritedResult = await client.query<{
-            id: string; instrument_name: string; omr_status: string; created_at: string;
-          }>(
-            `INSERT INTO parts
-               (chart_version_id, instrument_name, pdf_s3_key, musicxml_s3_key, omr_status, omr_json, inherited_from_part_id)
-             VALUES ($1, $2, $3, $4, $5, $6, $7)
-             RETURNING id, instrument_name, omr_status, created_at`,
-            [versionId, p.instrument_name, p.pdf_s3_key, p.musicxml_s3_key, p.omr_status, p.omr_json ? JSON.stringify(p.omr_json) : null, p.id]
-          );
-          return inheritedResult.rows[0];
-        })
-    );
+        .filter(p => inheritedPartNames === null || inheritedPartNames.has(p.instrument_name))) {
+      const inheritedResult = await client.query<{
+        id: string; instrument_name: string; omr_status: string; created_at: string;
+      }>(
+        `INSERT INTO parts
+           (chart_version_id, instrument_name, part_type, pdf_s3_key, musicxml_s3_key, omr_status, omr_json, inherited_from_part_id)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+         RETURNING id, instrument_name, omr_status, created_at`,
+        [versionId, p.instrument_name, p.part_type ?? 'part', p.pdf_s3_key, p.musicxml_s3_key, p.omr_status, p.omr_json ? JSON.stringify(p.omr_json) : null, p.id]
+      );
+      inheritedParts.push(inheritedResult.rows[0]);
+    }
 
     const parts = [...newParts, ...linkParts, ...inheritedParts];
 
@@ -336,6 +333,63 @@ chartsRouter.get('/:id/versions', async (req: Request, res: Response): Promise<v
   );
 
   res.json({ versions: versions.rows });
+});
+
+// POST /charts/:id/versions/:vId/parts  — add a single file/link to an existing version
+chartsRouter.post('/:id/versions/:vId/parts', upload.single('file'), async (req: Request, res: Response): Promise<void> => {
+  const chart = await db.query(
+    `SELECT id, ensemble_id FROM charts WHERE id = $1 AND deleted_at IS NULL`,
+    [req.params.id]
+  );
+  if (!chart.rows[0]) { res.status(404).json({ error: 'Chart not found' }); return; }
+
+  try { await requireOwnerOrEditor(chart.rows[0].ensemble_id, req.user!.id); }
+  catch (err) { handleError(err, res); return; }
+
+  const version = await db.query(
+    `SELECT id FROM chart_versions WHERE id = $1 AND chart_id = $2 AND deleted_at IS NULL`,
+    [req.params.vId, req.params.id]
+  );
+  if (!version.rows[0]) { res.status(404).json({ error: 'Version not found' }); return; }
+
+  const name = typeof req.body.name === 'string' ? req.body.name.trim() : '';
+  if (!name) { res.status(400).json({ error: 'name is required' }); return; }
+
+  const partType = ['score', 'part', 'audio', 'chart', 'link', 'other'].includes(req.body.partType)
+    ? req.body.partType : 'part';
+
+  let partRow: { id: string; instrument_name: string; omr_status: string; created_at: string };
+
+  if (partType === 'link') {
+    const url = typeof req.body.url === 'string' ? req.body.url.trim() : '';
+    if (!url) { res.status(400).json({ error: 'url is required for link type' }); return; }
+    const r = await db.query<typeof partRow>(
+      `INSERT INTO parts (chart_version_id, instrument_name, part_type, url, omr_status)
+       VALUES ($1, $2, 'link', $3, 'complete')
+       RETURNING id, instrument_name, omr_status, created_at`,
+      [req.params.vId, name, url]
+    );
+    partRow = r.rows[0];
+  } else {
+    const file = req.file;
+    if (!file) { res.status(400).json({ error: 'file is required' }); return; }
+    const s3SafeName = name.replace(/[^a-zA-Z0-9._-]/g, '_');
+    const ext = file.mimetype.startsWith('audio/') ? '.audio' : '.pdf';
+    const s3Key = `charts/${req.params.id}/versions/${req.params.vId}/parts/${s3SafeName}${ext}`;
+    await uploadFile(s3Key, file.buffer, file.mimetype);
+    const r = await db.query<typeof partRow>(
+      `INSERT INTO parts (chart_version_id, instrument_name, part_type, pdf_s3_key, omr_status)
+       VALUES ($1, $2, $3, $4, 'pending')
+       RETURNING id, instrument_name, omr_status, created_at`,
+      [req.params.vId, name, partType, s3Key]
+    );
+    partRow = r.rows[0];
+    if (!file.mimetype.startsWith('audio/')) {
+      await enqueueJob('omr', { partId: partRow.id, pdfS3Key: s3Key, chartId: req.params.id, versionId: req.params.vId, instrument: name });
+    }
+  }
+
+  res.status(201).json({ part: { ...partRow, pdfUrl: partType !== 'link' ? `/parts/${partRow.id}/pdf` : undefined } });
 });
 
 // GET /charts/:id/versions/:vId
