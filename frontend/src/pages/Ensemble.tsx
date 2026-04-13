@@ -1,7 +1,7 @@
 import { useEffect, useState, FormEvent } from 'react';
 import { useParams, Link, useNavigate } from 'react-router-dom';
 import { getEnsemble, getMembers, inviteMember } from '../api/ensembles';
-import { getChart, createChart } from '../api/charts';
+import { getChart, createChart, deleteChart } from '../api/charts';
 import { useAuth } from '../hooks/useAuth';
 import { Ensemble as EnsembleType, EnsembleMember, Chart } from '../types';
 import { Layout } from '../components/Layout';
@@ -36,6 +36,8 @@ export function EnsemblePage() {
   const [inviting, setInviting] = useState(false);
   const [inviteUrl, setInviteUrl] = useState('');
   const [inviteError, setInviteError] = useState('');
+
+  const [deletingChart, setDeletingChart] = useState<string | null>(null);
 
   const [showCreateChart, setShowCreateChart] = useState(false);
   const [chartTitle, setChartTitle] = useState('');
@@ -75,6 +77,19 @@ export function EnsemblePage() {
       setInviteError(err instanceof ApiError ? err.message : 'Something went wrong');
     } finally {
       setInviting(false);
+    }
+  }
+
+  async function handleDeleteChart(chartId: string, title: string) {
+    if (!confirm(`Delete "${title || 'Untitled'}"? This cannot be undone.`)) return;
+    setDeletingChart(chartId);
+    try {
+      await deleteChart(chartId);
+      setCharts(prev => prev.filter(c => c.id !== chartId));
+    } catch {
+      alert('Failed to delete chart');
+    } finally {
+      setDeletingChart(null);
     }
   }
 
@@ -147,22 +162,36 @@ export function EnsemblePage() {
         ) : (
           <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
             {charts.map(c => (
-              <Link
+              <div
                 key={c.id}
-                to={`/charts/${c.id}`}
                 style={{
                   display: 'flex', alignItems: 'center', justifyContent: 'space-between',
                   padding: '14px 20px', background: 'var(--surface)',
                   border: '1px solid var(--border)', borderRadius: 'var(--radius)',
-                  color: 'var(--text)', textDecoration: 'none',
                 }}
               >
-                <div>
+                <Link
+                  to={`/charts/${c.id}`}
+                  style={{ flex: 1, color: 'var(--text)', textDecoration: 'none' }}
+                >
                   <span style={{ fontWeight: 500 }}>{c.title ?? 'Untitled'}</span>
                   {c.composer && <span style={{ color: 'var(--text-muted)', marginLeft: 10, fontSize: 13 }}>{c.composer}</span>}
+                </Link>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                  <span style={{ color: 'var(--text-muted)', fontSize: 12 }}>→</span>
+                  {myRole === 'owner' && (
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      loading={deletingChart === c.id}
+                      onClick={() => handleDeleteChart(c.id, c.title ?? '')}
+                      style={{ color: 'var(--danger)' }}
+                    >
+                      Delete
+                    </Button>
+                  )}
                 </div>
-                <span style={{ color: 'var(--text-muted)', fontSize: 12 }}>→</span>
-              </Link>
+              </div>
             ))}
           </div>
         )}

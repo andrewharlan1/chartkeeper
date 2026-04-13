@@ -1,10 +1,12 @@
 import { useEffect, useState, useCallback } from 'react';
 import { useParams } from 'react-router-dom';
-import { getVersion } from '../api/charts';
+import { getVersion, deletePart } from '../api/charts';
 import { ChartVersion, Part, VersionDiff, PartDiff } from '../types';
 import { Layout } from '../components/Layout';
 import { OmrBadge, ActiveBadge } from '../components/Badge';
+import { Button } from '../components/Button';
 import { PdfViewer } from '../components/PdfViewer';
+import { ApiError } from '../api/client';
 
 function DiffPanel({ diff, instrument }: { diff: PartDiff; instrument: string }) {
   const [open, setOpen] = useState(true);
@@ -33,7 +35,7 @@ function DiffPanel({ diff, instrument }: { diff: PartDiff; instrument: string })
         }}
       >
         {open ? '▾' : '▸'}
-        {totalChanges} change{totalChanges !== 1 ? 's' : ''} in {instrument.replace(/_/g, ' ')} part
+        {totalChanges} change{totalChanges !== 1 ? 's' : ''} in {instrument} part
       </button>
       {open && (
         <div style={{ marginTop: 8, paddingLeft: 14, borderLeft: '2px solid var(--border)' }}>
@@ -68,6 +70,8 @@ export function VersionDetail() {
   const [parts, setParts] = useState<Part[]>([]);
   const [diff, setDiff] = useState<VersionDiff | null>(null);
   const [loading, setLoading] = useState(true);
+  const [deletingPart, setDeletingPart] = useState<string | null>(null);
+  const [deletePartError, setDeletePartError] = useState('');
 
   const load = useCallback(async () => {
     if (!chartId || !vId) return;
@@ -78,6 +82,20 @@ export function VersionDetail() {
   }, [chartId, vId]);
 
   useEffect(() => { load().finally(() => setLoading(false)); }, [load]);
+
+  async function handleDeletePart(partId: string, instrumentName: string) {
+    if (!confirm(`Delete "${instrumentName}"? This cannot be undone.`)) return;
+    setDeletingPart(partId);
+    setDeletePartError('');
+    try {
+      await deletePart(partId);
+      setParts(prev => prev.filter(p => p.id !== partId));
+    } catch (err) {
+      setDeletePartError(err instanceof ApiError ? err.message : 'Failed to delete part');
+    } finally {
+      setDeletingPart(null);
+    }
+  }
 
   // Poll while OMR is in progress
   useEffect(() => {
@@ -109,6 +127,7 @@ export function VersionDetail() {
 
       <section>
         <h2 style={{ marginBottom: 16 }}>Parts</h2>
+        {deletePartError && <p className="form-error" style={{ marginBottom: 16 }}>{deletePartError}</p>}
         <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
           {parts.map(p => {
             const partDiff = diffParts[p.instrument_name] ?? null;
@@ -118,18 +137,52 @@ export function VersionDetail() {
                 borderRadius: 'var(--radius)', padding: '16px 18px',
               }}>
                 {/* Header row */}
-                <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 14 }}>
-                  <span style={{ fontWeight: 600, fontSize: 15, textTransform: 'capitalize' }}>
-                    {p.instrument_name.replace(/_/g, ' ')}
-                  </span>
-                  <OmrBadge status={p.omr_status} />
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 14 }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
+                    <span style={{ fontWeight: 600, fontSize: 15 }}>
+                      {p.instrument_name}
+                    </span>
+                    {p.part_type === 'score' && (
+                      <span style={{
+                        fontSize: 11, padding: '2px 7px',
+                        background: 'rgba(99,102,241,0.15)', border: '1px solid rgba(99,102,241,0.4)',
+                        borderRadius: 99, color: 'var(--accent)',
+                      }}>Score</span>
+                    )}
+                    {p.part_type === 'other' && (
+                      <span style={{
+                        fontSize: 11, padding: '2px 7px',
+                        background: 'var(--surface)', border: '1px solid var(--border)',
+                        borderRadius: 99, color: 'var(--text-muted)',
+                      }}>Other</span>
+                    )}
+                    <OmrBadge status={p.omr_status} />
+                    {p.inherited_from_part_id && (
+                      <span style={{
+                        fontSize: 11, padding: '2px 7px',
+                        background: 'var(--surface)', border: '1px solid var(--border)',
+                        borderRadius: 99, color: 'var(--text-muted)',
+                      }}>
+                        carried from {p.inherited_from_version_name ?? `v${p.inherited_from_version_number}`}
+                      </span>
+                    )}
+                  </div>
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    loading={deletingPart === p.id}
+                    onClick={() => handleDeletePart(p.id, p.instrument_name)}
+                    style={{ color: 'var(--danger)' }}
+                  >
+                    Delete
+                  </Button>
                 </div>
 
                 {/* PDF viewer thumbnail + fullscreen */}
                 {p.pdfUrl ? (
                   <PdfViewer
                     url={p.pdfUrl}
-                    title={`${p.instrument_name.replace(/_/g, ' ')} — ${version.version_name}`}
+                    title={`${p.instrument_name} — ${version.version_name}`}
                     changedMeasureBounds={partDiff?.changedMeasureBounds}
                     changeDescriptions={partDiff?.changeDescriptions}
                   />

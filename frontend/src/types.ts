@@ -29,20 +29,34 @@ export interface Chart {
 }
 
 export type OmrStatus = 'pending' | 'processing' | 'complete' | 'failed';
+export type PartType = 'score' | 'part' | 'other';
 
 export interface Part {
   id: string;
   chart_version_id: string;
   instrument_name: string;
+  part_type: PartType;
   omr_status: OmrStatus;
   created_at: string;
   pdfUrl?: string;
+  inherited_from_part_id?: string | null;
+  inherited_from_version_number?: number | null;
+  inherited_from_version_name?: string | null;
 }
 
 export interface PartSummary {
   id: string;
   instrumentName: string;
+  partType: PartType;
   omrStatus: OmrStatus;
+  inheritedFromPartId?: string | null;
+}
+
+export interface UploadEntry {
+  id: string;       // client-only stable key
+  file: File;
+  name: string;     // user-provided display name, used as instrument_name
+  type: PartType;
 }
 
 export interface ChartVersion {

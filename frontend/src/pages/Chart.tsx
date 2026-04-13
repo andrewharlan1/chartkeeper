@@ -1,6 +1,7 @@
 import { useEffect, useState, useCallback } from 'react';
 import { useParams, Link } from 'react-router-dom';
-import { getChart, getVersions, restoreVersion } from '../api/charts';
+import { getChart, getVersions, restoreVersion, deleteVersion } from '../api/charts';
+import { getMembers } from '../api/ensembles';
 import { useAuth } from '../hooks/useAuth';
 import { Chart as ChartType, ChartVersion } from '../types';
 import { Layout } from '../components/Layout';
@@ -21,9 +22,11 @@ export function ChartPage() {
   const [chart, setChart] = useState<ChartType | null>(null);
   const [versions, setVersions] = useState<ChartVersion[]>([]);
   const [ensembleId, setEnsembleId] = useState('');
+  const [myRole, setMyRole] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [restoring, setRestoring] = useState<string | null>(null);
   const [restoreError, setRestoreError] = useState('');
+  const [deletingVersion, setDeletingVersion] = useState<string | null>(null);
 
   const loadVersions = useCallback(async () => {
     if (!id) return;
@@ -34,9 +37,13 @@ export function ChartPage() {
 
   useEffect(() => {
     if (!id) return;
-    Promise.all([getChart(id), loadVersions()]).then(([chartRes]) => {
+    Promise.all([getChart(id), loadVersions()]).then(async ([chartRes]) => {
       setChart(chartRes.chart);
-      setEnsembleId(chartRes.chart.ensemble_id);
+      const eid = chartRes.chart.ensemble_id;
+      setEnsembleId(eid);
+      const membersRes = await getMembers(eid).catch(() => ({ members: [] }));
+      const me = membersRes.members.find(m => m.id === user?.id);
+      setMyRole(me?.role ?? null);
     }).finally(() => setLoading(false));
   }, [id, loadVersions]);
 
@@ -59,6 +66,20 @@ export function ChartPage() {
       setRestoreError(err instanceof ApiError ? err.message : 'Failed to restore');
     } finally {
       setRestoring(null);
+    }
+  }
+
+  async function handleDeleteVersion(versionId: string, versionName: string) {
+    if (!id) return;
+    if (!confirm(`Delete "${versionName}"? This cannot be undone.`)) return;
+    setDeletingVersion(versionId);
+    try {
+      await deleteVersion(id, versionId);
+      await loadVersions();
+    } catch (err) {
+      setRestoreError(err instanceof ApiError ? err.message : 'Failed to delete version');
+    } finally {
+      setDeletingVersion(null);
     }
   }
 
@@ -109,14 +130,27 @@ export function ChartPage() {
                     {v.created_by_name && ` · ${v.created_by_name}`}
                   </span>
                   {!v.is_active && (
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      loading={restoring === v.id}
-                      onClick={() => handleRestore(v.id)}
-                    >
-                      Restore
-                    </Button>
+                    <>
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        loading={restoring === v.id}
+                        onClick={() => handleRestore(v.id)}
+                      >
+                        Restore
+                      </Button>
+                      {myRole === 'owner' && (
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          loading={deletingVersion === v.id}
+                          onClick={() => handleDeleteVersion(v.id, v.version_name)}
+                          style={{ color: 'var(--danger)' }}
+                        >
+                          Delete
+                        </Button>
+                      )}
+                    </>
                   )}
                 </div>
               </div>

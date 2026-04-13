@@ -74,7 +74,7 @@ chartsRouter.post('/', async (req: Request, res: Response): Promise<void> => {
 // GET /charts/:id
 chartsRouter.get('/:id', async (req: Request, res: Response): Promise<void> => {
   const chart = await db.query(
-    `SELECT id, ensemble_id, title, composer, metadata_json, created_at FROM charts WHERE id = $1`,
+    `SELECT id, ensemble_id, title, composer, metadata_json, created_at FROM charts WHERE id = $1 AND deleted_at IS NULL`,
     [req.params.id]
   );
   if (!chart.rows[0]) {
@@ -94,7 +94,7 @@ chartsRouter.get('/:id', async (req: Request, res: Response): Promise<void> => {
             COUNT(p.id) AS part_count
      FROM chart_versions cv
      LEFT JOIN parts p ON p.chart_version_id = cv.id
-     WHERE cv.chart_id = $1 AND cv.is_active = true
+     WHERE cv.chart_id = $1 AND cv.is_active = true AND cv.deleted_at IS NULL
      GROUP BY cv.id`,
     [req.params.id]
   );
@@ -130,6 +130,12 @@ chartsRouter.post('/:id/versions', upload.any(), async (req: Request, res: Respo
     ? req.body.versionName
     : undefined;
 
+  // Per-file type metadata: { [instrumentName]: 'score' | 'part' | 'other' }
+  let partTypes: Record<string, string> = {};
+  if (typeof req.body.partTypes === 'string') {
+    try { partTypes = JSON.parse(req.body.partTypes); } catch { /* ignore */ }
+  }
+
   const client = await db.connect();
   try {
     await client.query('BEGIN');
@@ -141,6 +147,30 @@ chartsRouter.post('/:id/versions', upload.any(), async (req: Request, res: Respo
     );
     const versionNumber: number = numResult.rows[0].next;
     const resolvedName = versionName ?? `Version ${versionNumber}`;
+
+    // Find the current active version's visible parts before deactivating
+    const prevActiveResult = await client.query<{ id: string }>(
+      `SELECT id FROM chart_versions WHERE chart_id = $1 AND is_active = true`,
+      [req.params.id]
+    );
+    const prevVersionId = prevActiveResult.rows[0]?.id ?? null;
+
+    let prevParts: Array<{
+      id: string;
+      instrument_name: string;
+      pdf_s3_key: string;
+      musicxml_s3_key: string | null;
+      omr_status: string;
+      omr_json: unknown;
+    }> = [];
+    if (prevVersionId) {
+      const prevPartsResult = await client.query(
+        `SELECT id, instrument_name, pdf_s3_key, musicxml_s3_key, omr_status, omr_json
+         FROM parts WHERE chart_version_id = $1 AND deleted_at IS NULL`,
+        [prevVersionId]
+      );
+      prevParts = prevPartsResult.rows;
+    }
 
     // Deactivate current active version
     await client.query(
@@ -157,17 +187,21 @@ chartsRouter.post('/:id/versions', upload.any(), async (req: Request, res: Respo
     );
     const versionId: string = versionResult.rows[0].id;
 
-    // Upload each PDF to S3 and create a part row
-    const parts = await Promise.all(files.map(async (file) => {
+    // Upload each new PDF to S3 and create a part row
+    const uploadedInstruments = new Set(files.map(f => f.fieldname));
+    const newParts = await Promise.all(files.map(async (file) => {
       const instrument = file.fieldname;
-      const s3Key = `charts/${req.params.id}/versions/${versionId}/parts/${instrument}.pdf`;
+      const partType = ['score', 'part', 'other'].includes(partTypes[instrument]) ? partTypes[instrument] : 'part';
+      // Use a sanitized key for S3 but keep the display name in the DB
+      const s3SafeName = instrument.replace(/[^a-zA-Z0-9._-]/g, '_');
+      const s3Key = `charts/${req.params.id}/versions/${versionId}/parts/${s3SafeName}.pdf`;
       await uploadFile(s3Key, file.buffer, 'application/pdf');
 
       const partResult = await client.query<{ id: string; instrument_name: string; omr_status: string; created_at: string }>(
-        `INSERT INTO parts (chart_version_id, instrument_name, pdf_s3_key, omr_status)
-         VALUES ($1, $2, $3, 'pending')
+        `INSERT INTO parts (chart_version_id, instrument_name, part_type, pdf_s3_key, omr_status)
+         VALUES ($1, $2, $3, $4, 'pending')
          RETURNING id, instrument_name, omr_status, created_at`,
-        [versionId, instrument, s3Key]
+        [versionId, instrument, partType, s3Key]
       );
       const part = partResult.rows[0];
 
@@ -181,6 +215,26 @@ chartsRouter.post('/:id/versions', upload.any(), async (req: Request, res: Respo
 
       return part;
     }));
+
+    // Inherit unchanged parts from the previous active version
+    const inheritedParts = await Promise.all(
+      prevParts
+        .filter(p => !uploadedInstruments.has(p.instrument_name))
+        .map(async (p) => {
+          const inheritedResult = await client.query<{
+            id: string; instrument_name: string; omr_status: string; created_at: string;
+          }>(
+            `INSERT INTO parts
+               (chart_version_id, instrument_name, pdf_s3_key, musicxml_s3_key, omr_status, omr_json, inherited_from_part_id)
+             VALUES ($1, $2, $3, $4, $5, $6, $7)
+             RETURNING id, instrument_name, omr_status, created_at`,
+            [versionId, p.instrument_name, p.pdf_s3_key, p.musicxml_s3_key, p.omr_status, p.omr_json ? JSON.stringify(p.omr_json) : null, p.id]
+          );
+          return inheritedResult.rows[0];
+        })
+    );
+
+    const parts = [...newParts, ...inheritedParts];
 
     await client.query('COMMIT');
 
@@ -206,7 +260,7 @@ chartsRouter.post('/:id/versions', upload.any(), async (req: Request, res: Respo
 // GET /charts/:id/versions
 chartsRouter.get('/:id/versions', async (req: Request, res: Response): Promise<void> => {
   const chart = await db.query(
-    `SELECT id, ensemble_id FROM charts WHERE id = $1`,
+    `SELECT id, ensemble_id FROM charts WHERE id = $1 AND deleted_at IS NULL`,
     [req.params.id]
   );
   if (!chart.rows[0]) {
@@ -224,15 +278,20 @@ chartsRouter.get('/:id/versions', async (req: Request, res: Response): Promise<v
   const versions = await db.query(
     `SELECT cv.id, cv.version_number, cv.version_name, cv.is_active, cv.created_at,
             u.name AS created_by_name,
-            json_agg(json_build_object(
-              'id', p.id,
-              'instrumentName', p.instrument_name,
-              'omrStatus', p.omr_status
-            ) ORDER BY p.instrument_name) AS parts
+            COALESCE(
+              json_agg(json_build_object(
+                'id', p.id,
+                'instrumentName', p.instrument_name,
+                'partType', p.part_type,
+                'omrStatus', p.omr_status,
+                'inheritedFromPartId', p.inherited_from_part_id
+              ) ORDER BY p.instrument_name) FILTER (WHERE p.id IS NOT NULL),
+              '[]'::json
+            ) AS parts
      FROM chart_versions cv
      JOIN users u ON u.id = cv.created_by
-     LEFT JOIN parts p ON p.chart_version_id = cv.id
-     WHERE cv.chart_id = $1
+     LEFT JOIN parts p ON p.chart_version_id = cv.id AND p.deleted_at IS NULL
+     WHERE cv.chart_id = $1 AND cv.deleted_at IS NULL
      GROUP BY cv.id, u.name
      ORDER BY cv.version_number DESC`,
     [req.params.id]
@@ -244,7 +303,7 @@ chartsRouter.get('/:id/versions', async (req: Request, res: Response): Promise<v
 // GET /charts/:id/versions/:vId
 chartsRouter.get('/:id/versions/:vId', async (req: Request, res: Response): Promise<void> => {
   const chart = await db.query(
-    `SELECT id, ensemble_id FROM charts WHERE id = $1`,
+    `SELECT id, ensemble_id FROM charts WHERE id = $1 AND deleted_at IS NULL`,
     [req.params.id]
   );
   if (!chart.rows[0]) {
@@ -264,7 +323,7 @@ chartsRouter.get('/:id/versions/:vId', async (req: Request, res: Response): Prom
             u.name AS created_by_name
      FROM chart_versions cv
      JOIN users u ON u.id = cv.created_by
-     WHERE cv.id = $1 AND cv.chart_id = $2`,
+     WHERE cv.id = $1 AND cv.chart_id = $2 AND cv.deleted_at IS NULL`,
     [req.params.vId, req.params.id]
   );
   if (!version.rows[0]) {
@@ -273,18 +332,22 @@ chartsRouter.get('/:id/versions/:vId', async (req: Request, res: Response): Prom
   }
 
   const parts = await db.query(
-    `SELECT id, instrument_name, omr_status, pdf_s3_key, created_at FROM parts
-     WHERE chart_version_id = $1
-     ORDER BY instrument_name`,
+    `SELECT p.id, p.instrument_name, p.part_type, p.omr_status, p.pdf_s3_key, p.created_at,
+            p.inherited_from_part_id,
+            src_cv.version_number AS inherited_from_version_number,
+            src_cv.version_name AS inherited_from_version_name
+     FROM parts p
+     LEFT JOIN parts src_p ON src_p.id = p.inherited_from_part_id
+     LEFT JOIN chart_versions src_cv ON src_cv.id = src_p.chart_version_id
+     WHERE p.chart_version_id = $1 AND p.deleted_at IS NULL
+     ORDER BY p.part_type, p.instrument_name`,
     [req.params.vId]
   );
 
-  // Generate signed download URLs for each part's PDF
-  const partsWithUrls = await Promise.all(
-    parts.rows.map(async (part) => {
-      return { ...part, pdfUrl: `/parts/${part.id}/pdf` };
-    })
-  );
+  const partsWithUrls = parts.rows.map((part) => ({
+    ...part,
+    pdfUrl: `/parts/${part.id}/pdf`,
+  }));
 
   // Include diff from previous version if it exists
   const diff = await db.query(
@@ -299,6 +362,75 @@ chartsRouter.get('/:id/versions/:vId', async (req: Request, res: Response): Prom
     parts: partsWithUrls,
     diff: diff.rows[0] ?? null,
   });
+});
+
+// DELETE /charts/:id  (owner only, soft delete)
+chartsRouter.delete('/:id', async (req: Request, res: Response): Promise<void> => {
+  const chart = await db.query(
+    `SELECT id, ensemble_id FROM charts WHERE id = $1 AND deleted_at IS NULL`,
+    [req.params.id]
+  );
+  if (!chart.rows[0]) {
+    res.status(404).json({ error: 'Chart not found' });
+    return;
+  }
+
+  const role = await (async () => {
+    try { return await requireMember(chart.rows[0].ensemble_id, req.user!.id); }
+    catch (err) { handleError(err, res); return null; }
+  })();
+  if (!role) return;
+  if (role !== 'owner') {
+    res.status(403).json({ error: 'Only the ensemble owner can delete charts' });
+    return;
+  }
+
+  await db.query(
+    `UPDATE charts SET deleted_at = NOW() WHERE id = $1`,
+    [req.params.id]
+  );
+  res.json({ deleted: true });
+});
+
+// DELETE /charts/:id/versions/:vId  (owner only, soft delete, can't delete active)
+chartsRouter.delete('/:id/versions/:vId', async (req: Request, res: Response): Promise<void> => {
+  const chart = await db.query(
+    `SELECT id, ensemble_id FROM charts WHERE id = $1 AND deleted_at IS NULL`,
+    [req.params.id]
+  );
+  if (!chart.rows[0]) {
+    res.status(404).json({ error: 'Chart not found' });
+    return;
+  }
+
+  const role = await (async () => {
+    try { return await requireMember(chart.rows[0].ensemble_id, req.user!.id); }
+    catch (err) { handleError(err, res); return null; }
+  })();
+  if (!role) return;
+  if (role !== 'owner') {
+    res.status(403).json({ error: 'Only the ensemble owner can delete versions' });
+    return;
+  }
+
+  const version = await db.query(
+    `SELECT id, is_active FROM chart_versions WHERE id = $1 AND chart_id = $2 AND deleted_at IS NULL`,
+    [req.params.vId, req.params.id]
+  );
+  if (!version.rows[0]) {
+    res.status(404).json({ error: 'Version not found' });
+    return;
+  }
+  if (version.rows[0].is_active) {
+    res.status(400).json({ error: 'Cannot delete the active version. Restore another version first.' });
+    return;
+  }
+
+  await db.query(
+    `UPDATE chart_versions SET deleted_at = NOW() WHERE id = $1`,
+    [req.params.vId]
+  );
+  res.json({ deleted: true });
 });
 
 // POST /charts/:id/versions/:vId/restore

@@ -1,5 +1,5 @@
 import { api, multipartRequest } from './client';
-import { Chart, ChartVersion, Part, VersionDiff } from '../types';
+import { Chart, ChartVersion, Part, VersionDiff, UploadEntry } from '../types';
 
 export function createChart(data: {
   ensembleId: string;
@@ -26,14 +26,17 @@ export function getVersion(
 
 export function uploadVersion(
   chartId: string,
-  files: Record<string, File>,
+  entries: UploadEntry[],
   versionName?: string
 ): Promise<{ version: ChartVersion; parts: Part[] }> {
   const form = new FormData();
   if (versionName) form.append('versionName', versionName);
-  for (const [instrument, file] of Object.entries(files)) {
-    form.append(instrument, file);
+  const partTypes: Record<string, string> = {};
+  for (const entry of entries) {
+    form.append(entry.name, entry.file);
+    partTypes[entry.name] = entry.type;
   }
+  form.append('partTypes', JSON.stringify(partTypes));
   return multipartRequest(`/charts/${chartId}/versions`, form);
 }
 
@@ -42,4 +45,16 @@ export function restoreVersion(
   versionId: string
 ): Promise<{ restoredVersionId: string }> {
   return api.post(`/charts/${chartId}/versions/${versionId}/restore`);
+}
+
+export function deleteChart(chartId: string): Promise<{ deleted: boolean }> {
+  return api.delete(`/charts/${chartId}`);
+}
+
+export function deleteVersion(chartId: string, versionId: string): Promise<{ deleted: boolean }> {
+  return api.delete(`/charts/${chartId}/versions/${versionId}`);
+}
+
+export function deletePart(partId: string): Promise<{ deleted: boolean }> {
+  return api.delete(`/parts/${partId}`);
 }
