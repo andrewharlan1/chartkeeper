@@ -5,6 +5,7 @@ import { db } from '../db';
 import { requireAuth } from '../middleware/auth';
 import { requireMember, requireOwnerOrEditor } from '../lib/ensembleAuth';
 import { uploadFile, getSignedDownloadUrl } from '../lib/s3';
+import { enqueueJob } from '../lib/queue';
 
 export const chartsRouter = Router();
 
@@ -161,13 +162,23 @@ chartsRouter.post('/:id/versions', upload.any(), async (req: Request, res: Respo
       const s3Key = `charts/${req.params.id}/versions/${versionId}/parts/${instrument}.pdf`;
       await uploadFile(s3Key, file.buffer, 'application/pdf');
 
-      const partResult = await client.query(
+      const partResult = await client.query<{ id: string; instrument_name: string; omr_status: string; created_at: string }>(
         `INSERT INTO parts (chart_version_id, instrument_name, pdf_s3_key, omr_status)
          VALUES ($1, $2, $3, 'pending')
          RETURNING id, instrument_name, omr_status, created_at`,
         [versionId, instrument, s3Key]
       );
-      return partResult.rows[0];
+      const part = partResult.rows[0];
+
+      await enqueueJob('omr', {
+        partId: part.id,
+        pdfS3Key: s3Key,
+        chartId: req.params.id,
+        versionId,
+        instrument,
+      });
+
+      return part;
     }));
 
     await client.query('COMMIT');
