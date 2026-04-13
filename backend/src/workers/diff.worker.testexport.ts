@@ -3,8 +3,9 @@
  * The main worker file starts a polling loop on import, so we isolate
  * the testable logic here.
  */
-import { completeJob, failJob } from '../lib/queue';
+import { completeJob } from '../lib/queue';
 import { diffVersion, OmrJson } from '../lib/diff';
+import { notifyNewVersion, notifyNewVersionNoDiff } from '../lib/notifications';
 import { db } from '../db';
 
 interface DiffJobPayload {
@@ -30,6 +31,7 @@ export async function processDiffJobForTest(jobId: string, payload: DiffJobPaylo
 
   if (fromParts.rows.length === 0 || toParts.rows.length === 0) {
     await completeJob(jobId);
+    await notifyNewVersionNoDiff(chartId, toVersionId).catch(() => {});
     return;
   }
 
@@ -44,6 +46,7 @@ export async function processDiffJobForTest(jobId: string, payload: DiffJobPaylo
 
   if (pairs.length === 0) {
     await completeJob(jobId);
+    await notifyNewVersionNoDiff(chartId, toVersionId).catch(() => {});
     return;
   }
 
@@ -58,4 +61,5 @@ export async function processDiffJobForTest(jobId: string, payload: DiffJobPaylo
   );
 
   await completeJob(jobId);
+  await notifyNewVersion(chartId, toVersionId, diffJson).catch(() => {});
 }
