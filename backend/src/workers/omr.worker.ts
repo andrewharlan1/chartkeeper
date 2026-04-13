@@ -1,7 +1,7 @@
 import dotenv from 'dotenv';
 dotenv.config();
 
-import { claimNextJob, completeJob, failJob } from '../lib/queue';
+import { claimNextJob, completeJob, failJob, enqueueJob } from '../lib/queue';
 import { uploadFile } from '../lib/s3';
 import { db } from '../db';
 
@@ -71,6 +71,9 @@ async function processOmrJob(jobId: string, payload: OmrJobPayload): Promise<voi
 
   await completeJob(jobId);
   console.log(`[omr.worker] Part ${partId} (${instrument}) processed successfully`);
+
+  // Check if all parts for this version are now complete — if so, enqueue diff
+  await maybeEnqueueDiff(chartId, versionId);
 }
 
 async function tick(): Promise<void> {
@@ -101,6 +104,41 @@ async function tick(): Promise<void> {
       console.warn(`[omr.worker] Part ${payload.partId} marked failed after ${MAX_ATTEMPTS} attempts`);
     }
   }
+}
+
+async function maybeEnqueueDiff(chartId: string, toVersionId: string): Promise<void> {
+  // Are all parts for this version done (complete or failed)?
+  const pending = await db.query<{ count: string }>(
+    `SELECT COUNT(*) AS count FROM parts
+     WHERE chart_version_id = $1 AND omr_status IN ('pending', 'processing')`,
+    [toVersionId]
+  );
+  if (parseInt(pending.rows[0].count) > 0) return;
+
+  // Find the immediately previous version by version_number
+  const prev = await db.query<{ id: string }>(
+    `SELECT cv.id FROM chart_versions cv
+     JOIN chart_versions curr ON curr.id = $1 AND curr.chart_id = cv.chart_id
+     WHERE cv.version_number = curr.version_number - 1`,
+    [toVersionId]
+  );
+  if (!prev.rows[0]) return; // first version — nothing to diff against
+
+  const fromVersionId = prev.rows[0].id;
+
+  // Don't re-enqueue if a diff job already exists for this pair
+  const existing = await db.query(
+    `SELECT id FROM jobs
+     WHERE type = 'diff'
+       AND payload->>'fromVersionId' = $1
+       AND payload->>'toVersionId' = $2
+       AND status != 'failed'`,
+    [fromVersionId, toVersionId]
+  );
+  if (existing.rows.length > 0) return;
+
+  await enqueueJob('diff', { chartId, fromVersionId, toVersionId });
+  console.log(`[omr.worker] Enqueued diff job: ${fromVersionId} → ${toVersionId}`);
 }
 
 async function run(): Promise<void> {
