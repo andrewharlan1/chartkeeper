@@ -2,7 +2,9 @@ import { Router, Request, Response } from 'express';
 import { db } from '../db';
 import { requireAuth } from '../middleware/auth';
 import { requireMember } from '../lib/ensembleAuth';
-import { getSignedDownloadUrl } from '../lib/s3';
+import { s3, BUCKET } from '../lib/s3';
+import { GetObjectCommand } from '@aws-sdk/client-s3';
+import { Readable } from 'stream';
 
 export const partsRouter = Router();
 
@@ -52,10 +54,9 @@ partsRouter.get('/:id', async (req: Request, res: Response): Promise<void> => {
     throw err;
   }
 
-  const pdfUrl = await getSignedDownloadUrl(part.pdf_s3_key);
   const { omr_json: _, ensemble_id: __, chart_id: ___, ...safePart } = part;
-
-  res.json({ part: { ...safePart, pdfUrl } });
+  // pdfUrl points to our own proxy endpoint — no CORS issues, auth enforced
+  res.json({ part: { ...safePart, pdfUrl: `/parts/${part.id}/pdf` } });
 });
 
 // GET /parts/:id/diff
@@ -93,4 +94,24 @@ partsRouter.get('/:id/diff', async (req: Request, res: Response): Promise<void> 
 
   const partDiff = diffJson.parts?.[part.instrument_name] ?? null;
   res.json({ diff: partDiff });
+});
+
+// GET /parts/:id/pdf  — proxies PDF from S3 through the backend (avoids CORS)
+partsRouter.get('/:id/pdf', async (req: Request, res: Response): Promise<void> => {
+  const part = await getPartWithEnsemble(req.params.id);
+  if (!part) { res.status(404).end(); return; }
+
+  try {
+    await requireMember(part.ensemble_id, req.user!.id);
+  } catch (err) {
+    if (isHttpError(err)) { res.status(err.status).end(); return; }
+    throw err;
+  }
+
+  const command = new GetObjectCommand({ Bucket: BUCKET, Key: part.pdf_s3_key });
+  const s3Res = await s3.send(command);
+  res.setHeader('Content-Type', 'application/pdf');
+  res.setHeader('Content-Disposition', `inline; filename="${part.instrument_name}.pdf"`);
+  if (s3Res.ContentLength) res.setHeader('Content-Length', s3Res.ContentLength);
+  (s3Res.Body as Readable).pipe(res);
 });

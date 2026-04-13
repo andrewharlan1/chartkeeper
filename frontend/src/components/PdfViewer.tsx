@@ -124,6 +124,20 @@ function PdfPage({ pdf, pageNum, scale, changedMeasureBounds }: PageProps) {
   );
 }
 
+// ── Authenticated PDF fetch → blob URL ───────────────────────────────────────
+
+async function fetchPdfBlobUrl(url: string): Promise<string> {
+  const token = localStorage.getItem('token');
+  // url is like /parts/:id/pdf — prepend /api for the Vite proxy
+  const apiUrl = url.startsWith('/parts') ? `/api${url}` : url;
+  const res = await fetch(apiUrl, {
+    headers: token ? { Authorization: `Bearer ${token}` } : {},
+  });
+  if (!res.ok) throw new Error(`PDF fetch failed: ${res.status}`);
+  const blob = await res.blob();
+  return URL.createObjectURL(blob);
+}
+
 // ── Thumbnail (first page preview) ───────────────────────────────────────────
 
 interface ThumbnailProps {
@@ -134,22 +148,36 @@ interface ThumbnailProps {
 export function PdfThumbnail({ url, onClick }: ThumbnailProps) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState(false);
 
   useEffect(() => {
     let cancelled = false;
-    pdfjsLib.getDocument(url).promise.then(async (pdf) => {
-      const page = await pdf.getPage(1);
-      const viewport = page.getViewport({ scale: 0.4 });
-      const canvas = canvasRef.current;
-      if (!canvas || cancelled) return;
-      canvas.width = viewport.width;
-      canvas.height = viewport.height;
-      await page.render({ canvasContext: canvas.getContext('2d')!, viewport }).promise;
-      if (!cancelled) setLoading(false);
-    });
-    return () => { cancelled = true; };
+    let blobUrl: string | null = null;
+
+    fetchPdfBlobUrl(url)
+      .then(blob => {
+        blobUrl = blob;
+        return pdfjsLib.getDocument(blob).promise;
+      })
+      .then(async (pdf) => {
+        const page = await pdf.getPage(1);
+        const viewport = page.getViewport({ scale: 0.4 });
+        const canvas = canvasRef.current;
+        if (!canvas || cancelled) return;
+        canvas.width = viewport.width;
+        canvas.height = viewport.height;
+        await page.render({ canvasContext: canvas.getContext('2d')!, viewport }).promise;
+        if (!cancelled) setLoading(false);
+      })
+      .catch(() => { if (!cancelled) setError(true); });
+
+    return () => {
+      cancelled = true;
+      if (blobUrl) URL.revokeObjectURL(blobUrl);
+    };
   }, [url]);
 
+  if (error) return <div className="pdf-loading" style={{ cursor: 'pointer' }} onClick={onClick}>Could not load preview — click to open</div>;
   if (loading) return <div className="pdf-loading">Loading preview…</div>;
 
   return (
@@ -177,12 +205,21 @@ export function PdfViewer({ url, title, changedMeasureBounds, changeDescriptions
   useEffect(() => {
     if (!open) return;
     let cancelled = false;
-    pdfjsLib.getDocument(url).promise.then((doc) => {
+    let blobUrl: string | null = null;
+
+    fetchPdfBlobUrl(url).then(blob => {
+      blobUrl = blob;
+      return pdfjsLib.getDocument(blob).promise;
+    }).then((doc) => {
       if (cancelled) return;
       setPdf(doc);
       setNumPages(doc.numPages);
     });
-    return () => { cancelled = true; };
+
+    return () => {
+      cancelled = true;
+      if (blobUrl) URL.revokeObjectURL(blobUrl);
+    };
   }, [open, url]);
 
   // Close on Escape

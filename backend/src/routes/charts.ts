@@ -4,7 +4,7 @@ import { z } from 'zod';
 import { db } from '../db';
 import { requireAuth } from '../middleware/auth';
 import { requireMember, requireOwnerOrEditor } from '../lib/ensembleAuth';
-import { uploadFile, getSignedDownloadUrl } from '../lib/s3';
+import { uploadFile } from '../lib/s3';
 import { enqueueJob } from '../lib/queue';
 import { notifyRestore } from '../lib/notifications';
 
@@ -282,8 +282,7 @@ chartsRouter.get('/:id/versions/:vId', async (req: Request, res: Response): Prom
   // Generate signed download URLs for each part's PDF
   const partsWithUrls = await Promise.all(
     parts.rows.map(async (part) => {
-      const pdfUrl = await getSignedDownloadUrl(part.pdf_s3_key);
-      return { ...part, pdfUrl };
+      return { ...part, pdfUrl: `/parts/${part.id}/pdf` };
     })
   );
 
