@@ -4,12 +4,13 @@ import { getVersion } from '../api/charts';
 import { ChartVersion, Part, VersionDiff, PartDiff } from '../types';
 import { Layout } from '../components/Layout';
 import { OmrBadge, ActiveBadge } from '../components/Badge';
-import { Button } from '../components/Button';
+import { PdfViewer } from '../components/PdfViewer';
 
 function DiffPanel({ diff, instrument }: { diff: PartDiff; instrument: string }) {
   const [open, setOpen] = useState(true);
   const { changedMeasures, changeDescriptions, structuralChanges } = diff;
-  const totalChanges = changedMeasures.length +
+  const totalChanges =
+    changedMeasures.length +
     structuralChanges.insertedMeasures.length +
     structuralChanges.deletedMeasures.length;
 
@@ -27,7 +28,8 @@ function DiffPanel({ diff, instrument }: { diff: PartDiff; instrument: string })
         onClick={() => setOpen(o => !o)}
         style={{
           background: 'none', border: 'none', color: 'var(--accent)',
-          cursor: 'pointer', fontSize: 13, padding: 0, display: 'flex', alignItems: 'center', gap: 4,
+          cursor: 'pointer', fontSize: 13, padding: 0,
+          display: 'flex', alignItems: 'center', gap: 4,
         }}
       >
         {open ? '▾' : '▸'}
@@ -77,7 +79,7 @@ export function VersionDetail() {
 
   useEffect(() => { load().finally(() => setLoading(false)); }, [load]);
 
-  // Poll if any OMR is still in progress
+  // Poll while OMR is in progress
   useEffect(() => {
     const inProgress = parts.some(p => p.omr_status === 'pending' || p.omr_status === 'processing');
     if (!inProgress) return;
@@ -105,39 +107,53 @@ export function VersionDetail() {
         )}
       </div>
 
-      {/* Parts */}
-      <section style={{ marginBottom: 32 }}>
-        <h2 style={{ marginBottom: 14 }}>Parts</h2>
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-          {parts.map(p => (
-            <div key={p.id} style={{
-              background: 'var(--surface)', border: '1px solid var(--border)',
-              borderRadius: 'var(--radius)', padding: '14px 18px',
-            }}>
-              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-                <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-                  <span style={{ fontWeight: 500, textTransform: 'capitalize' }}>
+      <section>
+        <h2 style={{ marginBottom: 16 }}>Parts</h2>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+          {parts.map(p => {
+            const partDiff = diffParts[p.instrument_name] ?? null;
+            return (
+              <div key={p.id} style={{
+                background: 'var(--surface)', border: '1px solid var(--border)',
+                borderRadius: 'var(--radius)', padding: '16px 18px',
+              }}>
+                {/* Header row */}
+                <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 14 }}>
+                  <span style={{ fontWeight: 600, fontSize: 15, textTransform: 'capitalize' }}>
                     {p.instrument_name.replace(/_/g, ' ')}
                   </span>
                   <OmrBadge status={p.omr_status} />
                 </div>
-                {p.pdfUrl && (
-                  <a href={p.pdfUrl} target="_blank" rel="noopener noreferrer">
-                    <Button variant="secondary" size="sm">Download PDF</Button>
-                  </a>
-                )}
-              </div>
 
-              {/* Diff panel for this part */}
-              {diff && diffParts[p.instrument_name] ? (
-                <DiffPanel diff={diffParts[p.instrument_name]} instrument={p.instrument_name} />
-              ) : omrAllDone && !diff ? (
-                <p style={{ marginTop: 10, fontSize: 13, color: 'var(--text-muted)' }}>
-                  No diff available (first version or OMR unavailable)
-                </p>
-              ) : null}
-            </div>
-          ))}
+                {/* PDF viewer thumbnail + fullscreen */}
+                {p.pdfUrl ? (
+                  <PdfViewer
+                    url={p.pdfUrl}
+                    title={`${p.instrument_name.replace(/_/g, ' ')} — ${version.version_name}`}
+                    changedMeasureBounds={partDiff?.changedMeasureBounds}
+                    changeDescriptions={partDiff?.changeDescriptions}
+                  />
+                ) : (
+                  <div style={{
+                    background: 'var(--bg)', border: '1px solid var(--border)',
+                    borderRadius: 'var(--radius)', padding: '20px', textAlign: 'center',
+                    color: 'var(--text-muted)', fontSize: 13,
+                  }}>
+                    PDF not available
+                  </div>
+                )}
+
+                {/* Diff panel */}
+                {partDiff ? (
+                  <DiffPanel diff={partDiff} instrument={p.instrument_name} />
+                ) : omrAllDone && !diff ? (
+                  <p style={{ marginTop: 12, fontSize: 13, color: 'var(--text-muted)' }}>
+                    No diff available (first version or OMR unavailable)
+                  </p>
+                ) : null}
+              </div>
+            );
+          })}
         </div>
       </section>
     </Layout>

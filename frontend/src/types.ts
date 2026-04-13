@@ -56,6 +56,14 @@ export interface ChartVersion {
   parts: PartSummary[];
 }
 
+export interface MeasureBounds {
+  x: number;
+  y: number;
+  w: number;
+  h: number;
+  page: number;
+}
+
 export interface PartDiff {
   changedMeasures: number[];
   changeDescriptions: Record<number, string>;
@@ -65,6 +73,7 @@ export interface PartDiff {
     sectionLabelChanges: string[];
   };
   measureMapping: Record<number, number | null>;
+  changedMeasureBounds?: Record<number, MeasureBounds>;
 }
 
 export interface VersionDiff {

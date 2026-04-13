@@ -9,10 +9,19 @@ export interface OmrDynamic {
   beat: number;
 }
 
+export interface MeasureBounds {
+  x: number;
+  y: number;
+  w: number;
+  h: number;
+  page: number; // 1-based
+}
+
 export interface OmrMeasure {
   number: number;
   notes: OmrNote[];
   dynamics: OmrDynamic[];
+  bounds?: MeasureBounds; // populated by Audiveris when available
 }
 
 export interface OmrSection {
@@ -35,6 +44,9 @@ export interface PartDiff {
     sectionLabelChanges: string[];
   };
   measureMapping: Record<number, number | null>;
+  // bounds for changed measures in the NEW version, keyed by measure number
+  // populated when OMR provides bounding box data; absent otherwise
+  changedMeasureBounds?: Record<number, MeasureBounds>;
 }
 
 export interface VersionDiffJson {
@@ -192,11 +204,23 @@ export function diffPart(oldOmr: OmrJson, newOmr: OmrJson): PartDiff {
 
   const sectionLabelChanges = describeSectionChanges(oldOmr.sections, newOmr.sections);
 
+  // Collect bounds for changed measures from the new version's OMR data
+  const changedMeasureBounds: Record<number, MeasureBounds> = {};
+  for (const measureNum of changedMeasures) {
+    const newMeasure = newOmr.measures.find(m => m.number === measureNum);
+    if (newMeasure?.bounds) changedMeasureBounds[measureNum] = newMeasure.bounds;
+  }
+  for (const measureNum of insertedMeasures) {
+    const newMeasure = newOmr.measures.find(m => m.number === measureNum);
+    if (newMeasure?.bounds) changedMeasureBounds[measureNum] = newMeasure.bounds;
+  }
+
   return {
     changedMeasures,
     changeDescriptions,
     structuralChanges: { insertedMeasures, deletedMeasures, sectionLabelChanges },
     measureMapping,
+    ...(Object.keys(changedMeasureBounds).length > 0 ? { changedMeasureBounds } : {}),
   };
 }
 
