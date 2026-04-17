@@ -242,6 +242,62 @@ ensemblesRouter.delete('/:id/instruments/:instrumentId/assignments/:assignmentId
   res.json({ deleted: true });
 });
 
+// POST /ensembles/:id/seed-members — dev helper: add dummy players to ensemble
+ensemblesRouter.post('/:id/seed-members', async (req: Request, res: Response): Promise<void> => {
+  const ensembleId = req.params.id;
+  try {
+    await requireOwnerOrEditor(ensembleId, req.user!.id);
+  } catch (err) {
+    handleError(err, res);
+    return;
+  }
+
+  const DUMMY_PLAYERS = [
+    { name: 'Alice Chen', email: `alice.${ensembleId.slice(0,6)}@dummy.scorva` },
+    { name: 'Marcus Webb', email: `marcus.${ensembleId.slice(0,6)}@dummy.scorva` },
+    { name: 'Sofia Reyes', email: `sofia.${ensembleId.slice(0,6)}@dummy.scorva` },
+    { name: 'James Okafor', email: `james.${ensembleId.slice(0,6)}@dummy.scorva` },
+    { name: 'Priya Nair', email: `priya.${ensembleId.slice(0,6)}@dummy.scorva` },
+    { name: 'Leo Fischer', email: `leo.${ensembleId.slice(0,6)}@dummy.scorva` },
+  ];
+
+  const client = await db.connect();
+  let added = 0;
+  try {
+    await client.query('BEGIN');
+    for (const p of DUMMY_PLAYERS) {
+      // Upsert user
+      const userResult = await client.query(
+        `INSERT INTO users (name, email, password_hash)
+         VALUES ($1, $2, 'dummy-not-usable')
+         ON CONFLICT (email) DO UPDATE SET name = EXCLUDED.name
+         RETURNING id`,
+        [p.name, p.email]
+      );
+      const userId = userResult.rows[0].id;
+      // Add to ensemble if not already a member
+      const existing = await client.query(
+        `SELECT id FROM ensemble_members WHERE ensemble_id = $1 AND user_id = $2`,
+        [ensembleId, userId]
+      );
+      if (existing.rows.length === 0) {
+        await client.query(
+          `INSERT INTO ensemble_members (ensemble_id, user_id, role) VALUES ($1, $2, 'player')`,
+          [ensembleId, userId]
+        );
+        added++;
+      }
+    }
+    await client.query('COMMIT');
+    res.json({ added });
+  } catch (err) {
+    await client.query('ROLLBACK');
+    throw err;
+  } finally {
+    client.release();
+  }
+});
+
 // POST /ensembles/:id/invite
 ensemblesRouter.post('/:id/invite', async (req: Request, res: Response): Promise<void> => {
   try {
@@ -296,4 +352,35 @@ ensemblesRouter.post('/:id/invite', async (req: Request, res: Response): Promise
   }
 
   res.status(201).json({ inviteUrl: `/auth/accept-invite/${token}` });
+});
+
+// DELETE /ensembles/:id — owner only, soft-deletes by removing all members + data
+ensemblesRouter.delete('/:id', async (req: Request, res: Response): Promise<void> => {
+  const ensembleId = req.params.id;
+  const userId = req.user!.id;
+
+  // Only the owner can delete
+  const ownerCheck = await db.query(
+    `SELECT id FROM ensembles WHERE id = $1 AND owner_id = $2`,
+    [ensembleId, userId]
+  );
+  if (!ownerCheck.rows[0]) {
+    res.status(403).json({ error: 'Only the ensemble owner can delete it' });
+    return;
+  }
+
+  const client = await db.connect();
+  try {
+    await client.query('BEGIN');
+    // Remove members, instruments, assignments, charts cascade via FK
+    await client.query(`DELETE FROM ensemble_members WHERE ensemble_id = $1`, [ensembleId]);
+    await client.query(`DELETE FROM ensembles WHERE id = $1`, [ensembleId]);
+    await client.query('COMMIT');
+    res.json({ deleted: true });
+  } catch (err) {
+    await client.query('ROLLBACK');
+    throw err;
+  } finally {
+    client.release();
+  }
 });

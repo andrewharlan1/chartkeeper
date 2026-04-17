@@ -25,6 +25,14 @@ export function getMyEnsembles(): Promise<{ ensembles: (Ensemble & { role: strin
   return api.get('/ensembles');
 }
 
+export function deleteEnsemble(ensembleId: string): Promise<{ deleted: boolean }> {
+  return api.delete(`/ensembles/${ensembleId}`);
+}
+
+export function addDummyMembers(ensembleId: string): Promise<{ added: number }> {
+  return api.post(`/ensembles/${ensembleId}/seed-members`, {});
+}
+
 export function getInstruments(ensembleId: string): Promise<{ instruments: EnsembleInstrument[] }> {
   return api.get(`/ensembles/${ensembleId}/instruments`);
 }

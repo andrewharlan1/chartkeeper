@@ -23,6 +23,7 @@ export function Layout({ children, title, back, actions }: Props) {
   const [newName, setNewName] = useState('');
   const [creating, setCreating] = useState(false);
   const [dark, setDark] = useDarkMode();
+  const [sidebarOpen, setSidebarOpen] = useState(true);
 
   useEffect(() => {
     if (!user) return;
@@ -61,44 +62,71 @@ export function Layout({ children, title, back, actions }: Props) {
   return (
     <div style={{ minHeight: '100vh', display: 'flex', background: 'var(--bg)' }}>
 
+      {/* ── Collapse toggle ── */}
+      <button
+        onClick={() => setSidebarOpen(o => !o)}
+        title={sidebarOpen ? 'Collapse sidebar' : 'Open sidebar'}
+        style={{
+          position: 'fixed', top: 14,
+          left: sidebarOpen ? 'calc(var(--sidebar-width) - 14px)' : 6,
+          zIndex: 30,
+          width: 24, height: 24, borderRadius: 99,
+          background: 'var(--surface-raised)',
+          border: '1px solid var(--border)',
+          boxShadow: 'var(--shadow)',
+          color: 'var(--text-muted)',
+          cursor: 'pointer', fontSize: 11, lineHeight: 1,
+          display: 'flex', alignItems: 'center', justifyContent: 'center',
+          transition: 'left 0.2s ease',
+        }}
+      >{sidebarOpen ? '←' : '→'}</button>
+
       {/* ── Sidebar ──────────────────────────────────────────────── */}
       <aside style={{
-        width: 'var(--sidebar-width)', minWidth: 'var(--sidebar-width)',
+        width: sidebarOpen ? 'var(--sidebar-width)' : 0,
+        minWidth: sidebarOpen ? 'var(--sidebar-width)' : 0,
         background: 'var(--sidebar-bg)',
-        borderRight: '1px solid var(--sidebar-border)',
+        borderRight: sidebarOpen ? '1px solid var(--sidebar-border)' : 'none',
         display: 'flex', flexDirection: 'column',
         position: 'fixed', top: 0, left: 0, bottom: 0,
         zIndex: 20,
+        overflow: 'hidden',
+        transition: 'width 0.2s ease, min-width 0.2s ease',
       }}>
 
-        {/* Brand */}
-        <div style={{ padding: '16px 12px 10px' }}>
-          <Link to="/" style={{ textDecoration: 'none', display: 'block' }}>
+        {/* ── Sidebar banner ── */}
+        <div style={{
+          padding: '14px 14px 12px',
+          background: 'linear-gradient(160deg, var(--accent-subtle) 0%, transparent 100%)',
+          borderBottom: '1px solid var(--border-subtle)',
+          flexShrink: 0,
+        }}>
+          <Link to="/" style={{ textDecoration: 'none', display: 'flex', alignItems: 'center', gap: 9 }}>
+            {/* Logo: stacked music lines */}
             <div style={{
-              display: 'flex', alignItems: 'center', gap: 9,
-              padding: '7px 10px',
-              borderRadius: 'var(--radius-sm)',
-              transition: 'background var(--transition)',
-            }}
-              onMouseEnter={e => (e.currentTarget as HTMLElement).style.background = 'var(--surface-hover)'}
-              onMouseLeave={e => (e.currentTarget as HTMLElement).style.background = 'transparent'}
-            >
-              <div style={{
-                width: 26, height: 26, borderRadius: 7, flexShrink: 0,
-                background: 'linear-gradient(145deg, #5b4cf5 0%, #1a9fd4 100%)',
-                display: 'flex', alignItems: 'center', justifyContent: 'center',
-                fontSize: 13, fontWeight: 800, color: '#fff',
-                boxShadow: '0 2px 8px rgba(91,76,245,0.3)',
-              }}>S</div>
-              <span style={{ fontWeight: 700, fontSize: 14, color: 'var(--text)', letterSpacing: '-0.03em' }}>
+              width: 28, height: 28, borderRadius: 8, flexShrink: 0,
+              background: 'linear-gradient(145deg, #5b4cf5 0%, #38b2f5 100%)',
+              display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center',
+              gap: 3.5, padding: '7px 6px',
+              boxShadow: '0 2px 8px rgba(91,76,245,0.35)',
+            }}>
+              {[1, 0.6, 1].map((w, i) => (
+                <div key={i} style={{ width: `${w * 14}px`, height: 1.5, background: '#fff', borderRadius: 1, opacity: 0.9 }} />
+              ))}
+            </div>
+            <div>
+              <div style={{ fontWeight: 700, fontSize: 14, color: 'var(--text)', letterSpacing: '-0.03em', lineHeight: 1.2 }}>
                 Scorva
-              </span>
+              </div>
+              <div style={{ fontSize: 10, color: 'var(--text-muted)', letterSpacing: '0.04em' }}>
+                music management
+              </div>
             </div>
           </Link>
         </div>
 
         {/* View toggle */}
-        <div style={{ padding: '0 10px 10px' }}>
+        <div style={{ padding: '10px 10px 8px' }}>
           <div style={{
             display: 'flex',
             background: 'var(--surface-hover)',
@@ -108,8 +136,8 @@ export function Layout({ children, title, back, actions }: Props) {
             gap: 2,
           }}>
             {[
-              { to: '/', label: '♩ Band', active: !isPlayerView },
-              { to: '/my-parts', label: '♪ My parts', active: isPlayerView },
+              { to: '/', label: 'Band', active: !isPlayerView },
+              { to: '/my-parts', label: 'My parts', active: isPlayerView },
             ].map(item => (
               <Link key={item.to} to={item.to} style={{
                 flex: 1, padding: '5px 0', textAlign: 'center',
@@ -118,7 +146,6 @@ export function Layout({ children, title, back, actions }: Props) {
                 color: item.active ? '#fff' : 'var(--text-muted)',
                 boxShadow: item.active ? '0 2px 8px rgba(91,76,245,0.3)' : 'none',
                 transition: 'all 0.15s',
-                letterSpacing: '-0.01em',
               }}>{item.label}</Link>
             ))}
           </div>
@@ -266,7 +293,7 @@ export function Layout({ children, title, back, actions }: Props) {
       </aside>
 
       {/* ── Main ─────────────────────────────────────────────────── */}
-      <div style={{ marginLeft: 'var(--sidebar-width)', flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column' }}>
+      <div style={{ marginLeft: sidebarOpen ? 'var(--sidebar-width)' : 0, flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column', transition: 'margin-left 0.2s ease' }}>
 
         {/* Top bar */}
         {(title || back || actions) && (

@@ -1,6 +1,6 @@
 import { useEffect, useState, FormEvent } from 'react';
 import { useParams, Link, useNavigate } from 'react-router-dom';
-import { getEnsemble, getMembers, inviteMember, getInstruments, addInstrument, removeInstrument, assignInstrumentMember, unassignInstrumentMember, getInstrumentAssignments } from '../api/ensembles';
+import { getEnsemble, getMembers, inviteMember, getInstruments, addInstrument, removeInstrument, assignInstrumentMember, unassignInstrumentMember, getInstrumentAssignments, deleteEnsemble, addDummyMembers } from '../api/ensembles';
 import { getChart, createChart, deleteChart } from '../api/charts';
 import { useAuth } from '../hooks/useAuth';
 import { Ensemble as EnsembleType, EnsembleMember, Chart, EnsembleInstrument, EnsembleInstrumentAssignment } from '../types';
@@ -55,6 +55,9 @@ export function EnsemblePage() {
   const [addingInstrument, setAddingInstrument] = useState(false);
   const [instrumentError, setInstrumentError] = useState('');
   const [removingInstrument, setRemovingInstrument] = useState<string | null>(null);
+  const [deletingEnsemble, setDeletingEnsemble] = useState(false);
+  const [addingDummies, setAddingDummies] = useState(false);
+  const [instrOpen, setInstrOpen] = useState(true);
 
   const myRole = members.find(m => m.id === user?.id)?.role;
   const isOwnerOrEditor = myRole === 'owner' || myRole === 'editor';
@@ -196,6 +199,41 @@ export function EnsemblePage() {
     }
   }
 
+  async function handleDeleteEnsemble() {
+    if (!id || !ensemble) return;
+    if (!confirm(`Permanently delete "${ensemble.name}"? This cannot be undone.`)) return;
+    setDeletingEnsemble(true);
+    try {
+      await deleteEnsemble(id);
+      // Remove from localStorage and navigate home
+      const key = 'ensemble_ids';
+      try {
+        const ids: string[] = JSON.parse(localStorage.getItem(key) ?? '[]');
+        localStorage.setItem(key, JSON.stringify(ids.filter(i => i !== id)));
+      } catch { /* ignore */ }
+      navigate('/');
+    } catch {
+      alert('Failed to delete ensemble.');
+      setDeletingEnsemble(false);
+    }
+  }
+
+  async function handleAddDummies() {
+    if (!id) return;
+    setAddingDummies(true);
+    try {
+      const { added } = await addDummyMembers(id);
+      // Reload members
+      const memRes = await getMembers(id);
+      setMembers(memRes.members);
+      if (added === 0) alert('Dummy members already added.');
+    } catch {
+      alert('Failed to add dummy members.');
+    } finally {
+      setAddingDummies(false);
+    }
+  }
+
   if (loading) return <Layout><p style={{ color: 'var(--text-muted)' }}>Loading…</p></Layout>;
   if (!ensemble) return null;
 
@@ -206,8 +244,17 @@ export function EnsemblePage() {
       actions={
         isOwnerOrEditor ? (
           <>
-            <Button variant="secondary" size="sm" onClick={() => setShowInvite(true)}>Invite member</Button>
+            <Button variant="ghost" size="sm" loading={addingDummies} onClick={handleAddDummies}
+              title="Add 6 dummy players for testing" style={{ color: 'var(--text-muted)', fontSize: 11 }}>
+              + Test members
+            </Button>
+            <Button variant="secondary" size="sm" onClick={() => setShowInvite(true)}>Invite</Button>
             <Button size="sm" onClick={() => setShowCreateChart(true)}>+ New chart</Button>
+            {myRole === 'owner' && (
+              <Button variant="danger" size="sm" loading={deletingEnsemble} onClick={handleDeleteEnsemble}>
+                Delete ensemble
+              </Button>
+            )}
           </>
         ) : undefined
       }
@@ -234,12 +281,21 @@ export function EnsemblePage() {
 
       {/* Instruments */}
       <section style={{ marginBottom: 36 }}>
-        <h2 style={{ marginBottom: 14 }}>Instruments</h2>
-        {instruments.length === 0 ? (
+        <button
+          onClick={() => setInstrOpen(o => !o)}
+          style={{
+            display: 'flex', alignItems: 'center', gap: 8, marginBottom: instrOpen ? 14 : 0,
+            background: 'none', border: 'none', padding: 0, cursor: 'pointer', width: '100%',
+          }}
+        >
+          <h2 style={{ margin: 0, flex: 1, textAlign: 'left' }}>Instruments <span style={{ fontSize: 11, color: 'var(--text-faint)', fontWeight: 400 }}>({instruments.length})</span></h2>
+          <span style={{ color: 'var(--text-muted)', fontSize: 12 }}>{instrOpen ? '▾' : '▸'}</span>
+        </button>
+        {instrOpen && instruments.length === 0 ? (
           <p style={{ color: 'var(--text-muted)', marginBottom: 12, fontSize: 14 }}>
             No instruments yet.{isOwnerOrEditor ? ' Add your lineup below.' : ''}
           </p>
-        ) : (
+        ) : instrOpen ? (
           <div style={{ display: 'flex', flexDirection: 'column', gap: 8, marginBottom: 16 }}>
             {instruments.map(instr => {
               const assignments = instrAssignments[instr.id] ?? [];
@@ -326,31 +382,53 @@ export function EnsemblePage() {
               );
             })}
           </div>
-        )}
+        ) : null}
 
-        {/* Add instrument — searchable combobox */}
-        {isOwnerOrEditor && (
+        {/* Add instrument — select by family + custom input */}
+        {instrOpen && isOwnerOrEditor && (
           <form onSubmit={handleAddInstrument} style={{ display: 'flex', gap: 8, alignItems: 'flex-start' }}>
-            <div style={{ flex: 1 }}>
-              <input
-                list="instrument-suggestions"
+            <div style={{ flex: 1, display: 'flex', gap: 6 }}>
+              <select
                 value={newInstrumentName}
                 onChange={e => setNewInstrumentName(e.target.value)}
-                placeholder="Add instrument… (type or pick from list)"
-                style={{ width: '100%', borderRadius: 10, fontSize: 14 }}
+                style={{ width: 220, fontSize: 13, borderRadius: 8, padding: '7px 10px', flexShrink: 0 }}
+              >
+                <option value="">Pick from list…</option>
+                <optgroup label="Strings">
+                  {['Violin', 'Violin 1', 'Violin 2', 'Viola', 'Cello', 'Double Bass', 'Harp'].map(n => <option key={n}>{n}</option>)}
+                </optgroup>
+                <optgroup label="Guitar & Bass">
+                  {['Electric Guitar', 'Acoustic Guitar', 'Classical Guitar', 'Bass Guitar', 'Electric Bass', 'Upright Bass', 'Banjo', 'Mandolin', 'Ukulele'].map(n => <option key={n}>{n}</option>)}
+                </optgroup>
+                <optgroup label="Keys">
+                  {['Piano', 'Grand Piano', 'Keyboard', 'Organ', 'Rhodes', 'Wurlitzer', 'Synthesizer', 'Accordion'].map(n => <option key={n}>{n}</option>)}
+                </optgroup>
+                <optgroup label="Brass">
+                  {['Trumpet', 'Trumpet 1', 'Trumpet 2', 'Flugelhorn', 'Cornet', 'Trombone', 'Bass Trombone', 'French Horn', 'Tuba', 'Euphonium', 'Sousaphone'].map(n => <option key={n}>{n}</option>)}
+                </optgroup>
+                <optgroup label="Woodwinds">
+                  {['Alto Saxophone', 'Tenor Saxophone', 'Baritone Saxophone', 'Soprano Saxophone', 'Flute', 'Piccolo', 'Oboe', 'Clarinet', 'Bass Clarinet', 'Bassoon'].map(n => <option key={n}>{n}</option>)}
+                </optgroup>
+                <optgroup label="Percussion">
+                  {['Drums', 'Drum Kit', 'Snare Drum', 'Timpani', 'Marimba', 'Vibraphone', 'Xylophone', 'Congas', 'Bongos', 'Djembe', 'Cajon', 'Shakers'].map(n => <option key={n}>{n}</option>)}
+                </optgroup>
+                <optgroup label="Vocals">
+                  {['Vocals', 'Lead Vocals', 'Backup Vocals', 'Soprano', 'Alto', 'Tenor', 'Baritone', 'Bass', 'Choir'].map(n => <option key={n}>{n}</option>)}
+                </optgroup>
+              </select>
+              <input
+                value={newInstrumentName}
+                onChange={e => setNewInstrumentName(e.target.value)}
+                placeholder="or type custom name…"
+                style={{ flex: 1, fontSize: 13, borderRadius: 8 }}
               />
-              <datalist id="instrument-suggestions">
-                {INSTRUMENT_LIST.map(name => (
-                  <option key={name} value={name} />
-                ))}
-              </datalist>
-              {instrumentError && <p className="form-error" style={{ marginTop: 4 }}>{instrumentError}</p>}
             </div>
             <Button type="submit" loading={addingInstrument} disabled={!newInstrumentName.trim()}>
               Add
             </Button>
           </form>
         )}
+        {instrOpen && instrumentError && <p className="form-error" style={{ marginTop: 4 }}>{instrumentError}</p>}
       </section>
 
       {/* Charts */}
