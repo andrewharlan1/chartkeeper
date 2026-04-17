@@ -1,13 +1,15 @@
 import { useEffect, useState, useCallback, useRef } from 'react';
 import { useParams } from 'react-router-dom';
 import { useAuth } from '../hooks/useAuth';
-import { getVersion, deletePart, getAssignments, assignPart, unassignPart, getChart, addPartToVersion } from '../api/charts';
+import { getVersion, deletePart, getAssignments, getChart, addPartToVersion } from '../api/charts';
 import { getMembers } from '../api/ensembles';
-import { ChartVersion, Part, VersionDiff, PartDiff, PartAssignment, EnsembleMember } from '../types';
+import { getAnnotations, createAnnotation, deleteAnnotation } from '../api/annotations';
+import { ChartVersion, Part, VersionDiff, PartDiff, PartAssignment, EnsembleMember, Annotation } from '../types';
 import { Layout } from '../components/Layout';
 import { OmrBadge, ActiveBadge } from '../components/Badge';
 import { Button } from '../components/Button';
 import { PdfViewer } from '../components/PdfViewer';
+import { InstrumentIcon } from '../components/InstrumentIcon';
 import { ApiError } from '../api/client';
 
 // ── Diff panel ────────────────────────────────────────────────────────────────
@@ -126,80 +128,147 @@ function AudioPlayer({ pdfUrl }: { pdfUrl: string }) {
 
 // ── Assignments panel ─────────────────────────────────────────────────────────
 
-interface AssignmentsPanelProps {
-  chartId: string;
-  ensembleId: string;
-  instrumentName: string;
-  assignments: PartAssignment[];
-  onAssign: (a: PartAssignment) => void;
-  onUnassign: (assignmentId: string) => void;
-  canEdit: boolean;
-}
+// ── Annotation panel ──────────────────────────────────────────────────────────
 
-function AssignmentsPanel({ chartId, ensembleId, instrumentName, assignments, onAssign, onUnassign, canEdit }: AssignmentsPanelProps) {
-  const [members, setMembers] = useState<EnsembleMember[]>([]);
-  const [selectedUserId, setSelectedUserId] = useState('');
-  const [assigning, setAssigning] = useState(false);
-
-  const myAssignments = assignments.filter(a => a.instrument_name === instrumentName);
+function AnnotationPanel({ partId, currentUserId }: { partId: string; currentUserId: string }) {
+  const [annotations, setAnnotations] = useState<Annotation[]>([]);
+  const [open, setOpen] = useState(false);
+  const [measure, setMeasure] = useState('');
+  const [text, setText] = useState('');
+  const [saving, setSaving] = useState(false);
+  const [deletingId, setDeletingId] = useState<string | null>(null);
 
   useEffect(() => {
-    if (!canEdit) return;
-    getMembers(ensembleId).then(r => setMembers(r.members)).catch(() => {});
-  }, [ensembleId, canEdit]);
+    if (!open) return;
+    getAnnotations(partId).then(r => setAnnotations(r.annotations)).catch(() => {});
+  }, [partId, open]);
 
-  async function handleAssign() {
-    if (!selectedUserId) return;
-    setAssigning(true);
+  async function handleAdd() {
+    const m = parseInt(measure);
+    if (!text.trim() || !m || m < 1) return;
+    setSaving(true);
     try {
-      const { assignment } = await assignPart(chartId, instrumentName, selectedUserId);
-      onAssign(assignment);
-      setSelectedUserId('');
+      const { annotation } = await createAnnotation(partId, {
+        anchorType: 'measure',
+        anchorJson: { measureNumber: m },
+        contentType: 'text',
+        contentJson: { text: text.trim() },
+      });
+      setAnnotations(prev => [...prev, annotation].sort((a, b) => {
+        const am = (a.anchor_json as { measureNumber?: number }).measureNumber ?? 0;
+        const bm = (b.anchor_json as { measureNumber?: number }).measureNumber ?? 0;
+        return am - bm;
+      }));
+      setMeasure('');
+      setText('');
     } finally {
-      setAssigning(false);
+      setSaving(false);
     }
   }
 
-  const assignedIds = new Set(myAssignments.map(a => a.user_id));
-  const unassigned = members.filter(m => !assignedIds.has(m.id));
+  async function handleDelete(id: string) {
+    setDeletingId(id);
+    try {
+      await deleteAnnotation(id);
+      setAnnotations(prev => prev.filter(a => a.id !== id));
+    } finally {
+      setDeletingId(null);
+    }
+  }
 
   return (
     <div style={{ marginTop: 14, paddingTop: 14, borderTop: '1px solid var(--border)' }}>
-      <p style={{ fontSize: 12, color: 'var(--text-muted)', marginBottom: 8 }}>Assigned players</p>
-      {myAssignments.length === 0 ? (
-        <p style={{ fontSize: 13, color: 'var(--text-muted)' }}>No one assigned</p>
-      ) : (
-        <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginBottom: 8 }}>
-          {myAssignments.map(a => (
-            <span key={a.id} style={{
-              display: 'flex', alignItems: 'center', gap: 6,
-              background: 'var(--bg)', border: '1px solid var(--border)',
-              borderRadius: 99, padding: '3px 10px', fontSize: 13,
-            }}>
-              {a.user_name}
-              {canEdit && (
-                <button onClick={() => onUnassign(a.id)} style={{
-                  background: 'none', border: 'none', color: 'var(--text-muted)',
-                  cursor: 'pointer', fontSize: 14, lineHeight: 1, padding: 0,
-                }}>×</button>
-              )}
-            </span>
-          ))}
-        </div>
-      )}
-      {canEdit && unassigned.length > 0 && (
-        <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
-          <select value={selectedUserId} onChange={e => setSelectedUserId(e.target.value)}
-            style={{ background: 'var(--bg)', border: '1px solid var(--border)', borderRadius: 4,
-              padding: '5px 8px', color: selectedUserId ? 'var(--text)' : 'var(--text-muted)', fontSize: 13 }}>
-            <option value="">Assign to…</option>
-            {unassigned.map(m => (
-              <option key={m.id} value={m.id}>{m.name} ({m.role})</option>
-            ))}
-          </select>
-          <Button variant="secondary" size="sm" disabled={!selectedUserId} loading={assigning} onClick={handleAssign}>
-            Assign
-          </Button>
+      <button
+        onClick={() => setOpen(o => !o)}
+        style={{
+          background: 'none', border: 'none', color: 'var(--text-muted)',
+          cursor: 'pointer', fontSize: 12, fontWeight: 500, padding: 0,
+          display: 'flex', alignItems: 'center', gap: 5,
+        }}
+      >
+        <span style={{ color: 'var(--accent)', fontSize: 13 }}>{open ? '▾' : '▸'}</span>
+        Notes & annotations
+        {annotations.length > 0 && !open && (
+          <span style={{
+            background: 'var(--accent-subtle)', border: '1px solid rgba(124,106,245,0.3)',
+            borderRadius: 99, padding: '1px 7px', fontSize: 11, color: 'var(--accent)',
+          }}>{annotations.length}</span>
+        )}
+      </button>
+
+      {open && (
+        <div style={{ marginTop: 10 }}>
+          {/* Existing annotations */}
+          {annotations.length > 0 && (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 6, marginBottom: 12 }}>
+              {annotations.map(a => {
+                const measureNum = (a.anchor_json as { measureNumber?: number }).measureNumber;
+                const isUnresolved = a.is_unresolved;
+                return (
+                  <div key={a.id} style={{
+                    display: 'flex', gap: 10, alignItems: 'flex-start',
+                    padding: '8px 10px',
+                    background: isUnresolved ? 'rgba(251,191,36,0.06)' : 'var(--bg)',
+                    border: `1px solid ${isUnresolved ? 'rgba(251,191,36,0.3)' : 'var(--border)'}`,
+                    borderRadius: 'var(--radius-sm)',
+                  }}>
+                    {measureNum && (
+                      <span style={{
+                        flexShrink: 0, fontSize: 10, fontWeight: 700,
+                        background: 'var(--accent-subtle)', border: '1px solid rgba(124,106,245,0.3)',
+                        borderRadius: 4, padding: '2px 6px', color: 'var(--accent)',
+                        marginTop: 1,
+                      }}>m.{measureNum}</span>
+                    )}
+                    <div style={{ flex: 1, minWidth: 0 }}>
+                      {isUnresolved && (
+                        <p style={{ fontSize: 11, color: 'var(--warning)', marginBottom: 3 }}>
+                          ⚠ Measure was removed in this version
+                        </p>
+                      )}
+                      <p style={{ fontSize: 13, color: 'var(--text)', wordBreak: 'break-word' }}>
+                        {a.content_json.text}
+                      </p>
+                      <p style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: 2 }}>
+                        {a.user_name}
+                      </p>
+                    </div>
+                    {a.user_id === currentUserId && (
+                      <button
+                        onClick={() => handleDelete(a.id)}
+                        disabled={deletingId === a.id}
+                        style={{ background: 'none', border: 'none', color: 'var(--text-faint)', cursor: 'pointer', fontSize: 14, padding: 0, flexShrink: 0 }}
+                      >×</button>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+          )}
+          {annotations.length === 0 && (
+            <p style={{ fontSize: 12, color: 'var(--text-muted)', marginBottom: 10 }}>No annotations yet.</p>
+          )}
+          {/* Add new */}
+          <div style={{ display: 'flex', gap: 6 }}>
+            <input
+              type="number"
+              value={measure}
+              onChange={e => setMeasure(e.target.value)}
+              placeholder="m."
+              min={1}
+              style={{ width: 54, padding: '6px 8px', fontSize: 12, flexShrink: 0 }}
+            />
+            <input
+              value={text}
+              onChange={e => setText(e.target.value)}
+              placeholder="Add a note…"
+              onKeyDown={e => { if (e.key === 'Enter') handleAdd(); }}
+              style={{ flex: 1, padding: '6px 10px', fontSize: 12 }}
+            />
+            <Button size="sm" loading={saving} disabled={!text.trim() || !measure} onClick={handleAdd}>
+              Add
+            </Button>
+          </div>
         </div>
       )}
     </div>
@@ -290,7 +359,6 @@ export function VersionDetail() {
   const [version, setVersion] = useState<ChartVersion | null>(null);
   const [parts, setParts] = useState<Part[]>([]);
   const [diff, setDiff] = useState<VersionDiff | null>(null);
-  const [ensembleId, setEnsembleId] = useState<string | null>(null);
   const [myRole, setMyRole] = useState<string | null>(null);
   const [assignments, setAssignments] = useState<PartAssignment[]>([]);
   const [loading, setLoading] = useState(true);
@@ -313,10 +381,9 @@ export function VersionDetail() {
   useEffect(() => {
     if (!chartId) return;
     getChart(chartId).then(({ chart }) => {
-        setEnsembleId(chart.ensemble_id);
         return Promise.all([
           getMembers(chart.ensemble_id).then(r => {
-            const member = r.members.find(m => m.id === user?.id);
+            const member = r.members.find((m: EnsembleMember) => m.id === user?.id);
             if (member) setMyRole(member.role);
           }).catch(() => {}),
           getAssignments(chartId).then(r => setAssignments(r.assignments)).catch(() => {}),
@@ -384,6 +451,7 @@ export function VersionDetail() {
                 {/* Header row */}
                 <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 14 }}>
                   <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
+                    <InstrumentIcon name={p.instrument_name} size={24} />
                     <span style={{ fontWeight: 600, fontSize: 15 }}>{p.instrument_name}</span>
                     {p.part_type === 'score' && (
                       <span style={{ fontSize: 11, padding: '2px 7px', background: 'rgba(99,102,241,0.15)',
@@ -432,6 +500,7 @@ export function VersionDetail() {
                 ) : p.pdfUrl ? (
                   <PdfViewer
                     url={p.pdfUrl}
+                    partId={p.id}
                     title={`${p.instrument_name} — ${version.version_name}`}
                     changedMeasureBounds={partDiff?.changedMeasureBounds}
                     changeDescriptions={partDiff?.changeDescriptions}
@@ -455,21 +524,25 @@ export function VersionDetail() {
                   ) : null
                 )}
 
-                {/* Assignment panel */}
-                {ensembleId && (
-                  <AssignmentsPanel
-                    chartId={chartId!}
-                    ensembleId={ensembleId}
-                    instrumentName={p.instrument_name}
-                    assignments={assignments}
-                    onAssign={a => setAssignments(prev => [...prev, a])}
-                    onUnassign={async (id) => {
-                      await unassignPart(chartId!, id).catch(() => {});
-                      setAssignments(prev => prev.filter(a => a.id !== id));
-                    }}
-                    canEdit={canEdit}
-                  />
-                )}
+                {/* Annotations */}
+                <AnnotationPanel partId={p.id} currentUserId={user?.id ?? ''} />
+
+                {/* Assigned players (display only — manage via ensemble instruments) */}
+                {(() => {
+                  const myAssignments = assignments.filter(a => a.instrument_name === p.instrument_name);
+                  if (myAssignments.length === 0) return null;
+                  return (
+                    <div style={{ marginTop: 12, display: 'flex', flexWrap: 'wrap', gap: 5, alignItems: 'center' }}>
+                      <span style={{ fontSize: 11, color: 'var(--text-muted)', fontWeight: 500 }}>Players:</span>
+                      {myAssignments.map(a => (
+                        <span key={a.id} style={{
+                          fontSize: 12, background: 'var(--bg)', border: '1px solid var(--border)',
+                          borderRadius: 99, padding: '2px 9px', color: 'var(--text-muted)',
+                        }}>{a.user_name}</span>
+                      ))}
+                    </div>
+                  );
+                })()}
               </div>
             );
           })}

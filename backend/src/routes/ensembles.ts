@@ -21,6 +21,19 @@ function handleError(err: unknown, res: Response): void {
   }
 }
 
+// GET /ensembles  — all ensembles the current user is a member of
+ensemblesRouter.get('/', async (req: Request, res: Response): Promise<void> => {
+  const result = await db.query(
+    `SELECT e.id, e.name, e.owner_id, e.created_at, em.role
+     FROM ensembles e
+     JOIN ensemble_members em ON em.ensemble_id = e.id
+     WHERE em.user_id = $1
+     ORDER BY e.created_at`,
+    [req.user!.id]
+  );
+  res.json({ ensembles: result.rows });
+});
+
 // POST /ensembles
 ensemblesRouter.post('/', async (req: Request, res: Response): Promise<void> => {
   const parsed = z.object({ name: z.string().min(1) }).safeParse(req.body);
@@ -90,6 +103,143 @@ ensemblesRouter.get('/:id/members', async (req: Request, res: Response): Promise
     [req.params.id]
   );
   res.json({ members: result.rows });
+});
+
+// GET /ensembles/:id/instruments
+ensemblesRouter.get('/:id/instruments', async (req: Request, res: Response): Promise<void> => {
+  try { await requireMember(req.params.id, req.user!.id); }
+  catch (err) { handleError(err, res); return; }
+
+  const result = await db.query(
+    `SELECT id, name, display_order, created_at
+     FROM ensemble_instruments
+     WHERE ensemble_id = $1
+     ORDER BY display_order, created_at`,
+    [req.params.id]
+  );
+  res.json({ instruments: result.rows });
+});
+
+// POST /ensembles/:id/instruments
+ensemblesRouter.post('/:id/instruments', async (req: Request, res: Response): Promise<void> => {
+  try { await requireOwnerOrEditor(req.params.id, req.user!.id); }
+  catch (err) { handleError(err, res); return; }
+
+  const parsed = z.object({ name: z.string().min(1).max(100) }).safeParse(req.body);
+  if (!parsed.success) { res.status(400).json({ error: parsed.error.flatten() }); return; }
+
+  // Use current max order + 1
+  const orderResult = await db.query<{ next: number }>(
+    `SELECT COALESCE(MAX(display_order), -1) + 1 AS next FROM ensemble_instruments WHERE ensemble_id = $1`,
+    [req.params.id]
+  );
+
+  try {
+    const result = await db.query(
+      `INSERT INTO ensemble_instruments (ensemble_id, name, display_order)
+       VALUES ($1, $2, $3)
+       RETURNING id, name, display_order, created_at`,
+      [req.params.id, parsed.data.name.trim(), orderResult.rows[0].next]
+    );
+    res.status(201).json({ instrument: result.rows[0] });
+  } catch (err: unknown) {
+    if (typeof err === 'object' && err !== null && 'code' in err && (err as { code: string }).code === '23505') {
+      res.status(409).json({ error: 'That instrument already exists in this ensemble' });
+      return;
+    }
+    throw err;
+  }
+});
+
+// PATCH /ensembles/:id/instruments/:instrumentId  (rename)
+ensemblesRouter.patch('/:id/instruments/:instrumentId', async (req: Request, res: Response): Promise<void> => {
+  try { await requireOwnerOrEditor(req.params.id, req.user!.id); }
+  catch (err) { handleError(err, res); return; }
+
+  const parsed = z.object({ name: z.string().min(1).max(100) }).safeParse(req.body);
+  if (!parsed.success) { res.status(400).json({ error: parsed.error.flatten() }); return; }
+
+  const result = await db.query(
+    `UPDATE ensemble_instruments SET name = $1
+     WHERE id = $2 AND ensemble_id = $3
+     RETURNING id, name, display_order, created_at`,
+    [parsed.data.name.trim(), req.params.instrumentId, req.params.id]
+  );
+  if (!result.rows[0]) { res.status(404).json({ error: 'Instrument not found' }); return; }
+  res.json({ instrument: result.rows[0] });
+});
+
+// DELETE /ensembles/:id/instruments/:instrumentId
+ensemblesRouter.delete('/:id/instruments/:instrumentId', async (req: Request, res: Response): Promise<void> => {
+  try { await requireOwnerOrEditor(req.params.id, req.user!.id); }
+  catch (err) { handleError(err, res); return; }
+
+  await db.query(
+    `DELETE FROM ensemble_instruments WHERE id = $1 AND ensemble_id = $2`,
+    [req.params.instrumentId, req.params.id]
+  );
+  res.json({ deleted: true });
+});
+
+// GET /ensembles/:id/instruments/:instrumentId/assignments
+ensemblesRouter.get('/:id/instruments/:instrumentId/assignments', async (req: Request, res: Response): Promise<void> => {
+  try { await requireMember(req.params.id, req.user!.id); }
+  catch (err) { handleError(err, res); return; }
+
+  const result = await db.query(
+    `SELECT eia.id, eia.ensemble_instrument_id, eia.user_id, eia.assigned_by, eia.created_at,
+            u.name AS user_name, u.email AS user_email
+     FROM ensemble_instrument_assignments eia
+     JOIN users u ON u.id = eia.user_id
+     WHERE eia.ensemble_instrument_id = $1`,
+    [req.params.instrumentId]
+  );
+  res.json({ assignments: result.rows });
+});
+
+// POST /ensembles/:id/instruments/:instrumentId/assignments
+ensemblesRouter.post('/:id/instruments/:instrumentId/assignments', async (req: Request, res: Response): Promise<void> => {
+  try { await requireOwnerOrEditor(req.params.id, req.user!.id); }
+  catch (err) { handleError(err, res); return; }
+
+  const parsed = z.object({ userId: z.string().uuid() }).safeParse(req.body);
+  if (!parsed.success) { res.status(400).json({ error: parsed.error.flatten() }); return; }
+
+  const member = await db.query(
+    `SELECT id FROM ensemble_members WHERE ensemble_id = $1 AND user_id = $2`,
+    [req.params.id, parsed.data.userId]
+  );
+  if (!member.rows[0]) { res.status(400).json({ error: 'User is not a member of this ensemble' }); return; }
+
+  try {
+    const result = await db.query(
+      `INSERT INTO ensemble_instrument_assignments (ensemble_instrument_id, user_id, assigned_by)
+       VALUES ($1, $2, $3)
+       ON CONFLICT (ensemble_instrument_id, user_id) DO UPDATE SET assigned_by = EXCLUDED.assigned_by
+       RETURNING id, ensemble_instrument_id, user_id, assigned_by, created_at`,
+      [req.params.instrumentId, parsed.data.userId, req.user!.id]
+    );
+    const u = await db.query(`SELECT name, email FROM users WHERE id = $1`, [parsed.data.userId]);
+    res.status(201).json({ assignment: { ...result.rows[0], user_name: u.rows[0].name, user_email: u.rows[0].email } });
+  } catch (err: unknown) {
+    if (typeof err === 'object' && err !== null && 'code' in err && (err as { code: string }).code === '23503') {
+      res.status(404).json({ error: 'Instrument not found' });
+      return;
+    }
+    throw err;
+  }
+});
+
+// DELETE /ensembles/:id/instruments/:instrumentId/assignments/:assignmentId
+ensemblesRouter.delete('/:id/instruments/:instrumentId/assignments/:assignmentId', async (req: Request, res: Response): Promise<void> => {
+  try { await requireOwnerOrEditor(req.params.id, req.user!.id); }
+  catch (err) { handleError(err, res); return; }
+
+  await db.query(
+    `DELETE FROM ensemble_instrument_assignments WHERE id = $1 AND ensemble_instrument_id = $2`,
+    [req.params.assignmentId, req.params.instrumentId]
+  );
+  res.json({ deleted: true });
 });
 
 // POST /ensembles/:id/invite

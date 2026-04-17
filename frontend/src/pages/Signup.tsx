@@ -35,7 +35,16 @@ export function Signup() {
   return (
     <div style={{ minHeight: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'var(--bg)' }}>
       <div style={{ width: '100%', maxWidth: 380, padding: 32, background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 'var(--radius)' }}>
-        <h1 style={{ marginBottom: 4, textAlign: 'center' }}>ChartKeeper</h1>
+        <div style={{ textAlign: 'center', marginBottom: inviteToken ? 8 : 28 }}>
+          <div style={{
+            width: 40, height: 40, borderRadius: 12, margin: '0 auto 12px',
+            background: 'linear-gradient(135deg, #5b4cf5 0%, #0d82c7 100%)',
+            display: 'flex', alignItems: 'center', justifyContent: 'center',
+            fontSize: 18, fontWeight: 800, color: '#fff',
+            boxShadow: '0 4px 16px rgba(91,76,245,0.3)',
+          }}>S</div>
+          <h1 style={{ fontSize: 24, letterSpacing: '-0.03em' }}>Scorva</h1>
+        </div>
         {inviteToken && (
           <p style={{ textAlign: 'center', color: 'var(--text-muted)', fontSize: 13, marginBottom: 20 }}>
             You've been invited to join an ensemble.

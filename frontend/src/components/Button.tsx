@@ -6,51 +6,38 @@ interface Props extends ButtonHTMLAttributes<HTMLButtonElement> {
   loading?: boolean;
 }
 
-const styles: Record<string, string> = {
-  base: 'btn',
-  primary: 'btn-primary',
-  secondary: 'btn-secondary',
-  danger: 'btn-danger',
-  ghost: 'btn-ghost',
-  sm: 'btn-sm',
-  md: 'btn-md',
-};
+export function Button({ variant = 'primary', size = 'md', loading = false, children, disabled, ...props }: Props) {
+  const isDisabled = disabled || loading;
 
-export function Button({
-  variant = 'primary',
-  size = 'md',
-  loading = false,
-  children,
-  disabled,
-  ...props
-}: Props) {
+  const base: React.CSSProperties = {
+    display: 'inline-flex', alignItems: 'center', gap: 6,
+    fontFamily: 'inherit', fontWeight: 500,
+    cursor: isDisabled ? 'not-allowed' : 'pointer',
+    opacity: isDisabled ? 0.5 : 1,
+    borderRadius: 'var(--radius-sm)',
+    transition: 'background var(--transition), box-shadow var(--transition), opacity var(--transition)',
+    whiteSpace: 'nowrap', flexShrink: 0,
+    ...(size === 'sm' ? { padding: '5px 11px', fontSize: 12 } : { padding: '8px 16px', fontSize: 13 }),
+  };
+
+  const variantStyle: React.CSSProperties =
+    variant === 'primary' ? {
+      background: 'var(--accent)', color: '#fff', border: '1px solid transparent',
+      boxShadow: '0 1px 4px var(--accent-glow)',
+    } :
+    variant === 'danger' ? {
+      background: 'var(--danger)', color: '#fff', border: '1px solid transparent',
+    } :
+    variant === 'secondary' ? {
+      background: 'var(--surface-raised)', color: 'var(--text)',
+      border: '1px solid var(--border)',
+      boxShadow: 'var(--shadow-sm)',
+    } : {
+      background: 'transparent', color: 'var(--text-muted)', border: '1px solid transparent',
+    };
+
   return (
-    <button
-      {...props}
-      disabled={disabled || loading}
-      className={[styles.base, styles[variant], styles[size], props.className].filter(Boolean).join(' ')}
-      style={{
-        display: 'inline-flex',
-        alignItems: 'center',
-        gap: 6,
-        padding: size === 'sm' ? '5px 10px' : '8px 16px',
-        fontSize: size === 'sm' ? 12 : 14,
-        fontWeight: 500,
-        borderRadius: 'var(--radius)',
-        border: variant === 'secondary' ? '1px solid var(--border)' : 'none',
-        cursor: disabled || loading ? 'not-allowed' : 'pointer',
-        opacity: disabled || loading ? 0.6 : 1,
-        background:
-          variant === 'primary' ? 'var(--accent)' :
-          variant === 'danger' ? 'var(--danger)' :
-          variant === 'secondary' ? 'var(--surface)' :
-          'transparent',
-        color:
-          variant === 'ghost' ? 'var(--text-muted)' : 'var(--text)',
-        transition: 'opacity 0.15s, background 0.15s',
-        ...props.style,
-      }}
-    >
+    <button {...props} disabled={isDisabled} style={{ ...base, ...variantStyle, ...props.style }}>
       {loading ? '…' : children}
     </button>
   );

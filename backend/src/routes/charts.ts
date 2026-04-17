@@ -151,6 +151,12 @@ chartsRouter.post('/:id/versions', upload.any(), async (req: Request, res: Respo
     try { inheritedPartNames = new Set(JSON.parse(req.body.inheritedPartNames)); } catch { /* ignore */ }
   }
 
+  // Explicit replaces map: newInstrumentName → oldInstrumentName (for annotation migration)
+  let replacesMap: Record<string, string> = {};
+  if (typeof req.body.replacesMap === 'string') {
+    try { replacesMap = JSON.parse(req.body.replacesMap); } catch { /* ignore */ }
+  }
+
   if (files.length === 0 && linkEntries.length === 0) {
     res.status(400).json({ error: 'At least one file or link is required' });
     return;
@@ -270,6 +276,72 @@ chartsRouter.post('/:id/versions', upload.any(), async (req: Request, res: Respo
     }
 
     const parts = [...newParts, ...linkParts, ...inheritedParts];
+
+    // ── Migrate annotations from previous version ──────────────────────────
+    // Build a reverse replaces map: oldInstrumentName → newInstrumentName
+    const oldToNewName: Record<string, string> = {};
+    for (const [newName, oldName] of Object.entries(replacesMap)) {
+      oldToNewName[oldName] = newName;
+    }
+
+    // Build a map from old part id → new part id
+    // Priority: (1) explicit replacesMap, (2) case-insensitive name match
+    const oldToNewPartId: Record<string, string> = {};
+    for (const oldPart of prevParts) {
+      const explicitNewName = oldToNewName[oldPart.instrument_name];
+      if (explicitNewName) {
+        const newPart = parts.find(p => p.instrument_name === explicitNewName);
+        if (newPart) { oldToNewPartId[oldPart.id] = newPart.id; continue; }
+      }
+      // Case-insensitive + trimmed fallback
+      const normalizedOld = oldPart.instrument_name.trim().toLowerCase();
+      const newPart = parts.find(p => p.instrument_name.trim().toLowerCase() === normalizedOld);
+      if (newPart) oldToNewPartId[oldPart.id] = newPart.id;
+    }
+
+    // Get the measure mapping from the version diff (if it exists yet)
+    const diffResult = await client.query<{ diff_json: { parts: Record<string, { measureMapping?: Record<string, number | null> }> } }>(
+      `SELECT diff_json FROM version_diffs WHERE to_version_id = $1`,
+      [versionId]
+    );
+    const diffJson = diffResult.rows[0]?.diff_json;
+
+    for (const [oldPartId, newPartId] of Object.entries(oldToNewPartId)) {
+      const annotations = await client.query(
+        `SELECT id, anchor_type, anchor_json, content_type, content_json
+         FROM annotations
+         WHERE part_id = $1 AND deleted_at IS NULL`,
+        [oldPartId]
+      );
+
+      for (const ann of annotations.rows) {
+        let newAnchorJson = ann.anchor_json;
+        let isUnresolved = false;
+
+        if (ann.anchor_type === 'measure' || ann.anchor_type === 'beat' || ann.anchor_type === 'note') {
+          const oldMeasure = ann.anchor_json.measureNumber;
+          const partDiff = diffJson?.parts[annotations.rows[0]?.instrument_name];
+          if (partDiff?.measureMapping) {
+            const newMeasure = partDiff.measureMapping[String(oldMeasure)];
+            if (newMeasure === null) {
+              isUnresolved = true;
+            } else if (newMeasure !== undefined) {
+              newAnchorJson = { ...ann.anchor_json, measureNumber: newMeasure };
+            }
+          }
+        }
+        // page and section anchors are copied as-is
+
+        await client.query(
+          `INSERT INTO annotations (part_id, user_id, anchor_type, anchor_json, content_type, content_json,
+                                    migrated_from_annotation_id, is_unresolved)
+           SELECT $1, user_id, $2, $3, $4, $5, $6, $7
+           FROM annotations WHERE id = $8`,
+          [newPartId, ann.anchor_type, JSON.stringify(newAnchorJson), ann.content_type,
+           JSON.stringify(ann.content_json), ann.id, isUnresolved, ann.id]
+        );
+      }
+    }
 
     await client.query('COMMIT');
 

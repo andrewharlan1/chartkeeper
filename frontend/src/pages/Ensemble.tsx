@@ -1,14 +1,15 @@
 import { useEffect, useState, FormEvent } from 'react';
 import { useParams, Link, useNavigate } from 'react-router-dom';
-import { getEnsemble, getMembers, inviteMember } from '../api/ensembles';
+import { getEnsemble, getMembers, inviteMember, getInstruments, addInstrument, removeInstrument, assignInstrumentMember, unassignInstrumentMember, getInstrumentAssignments } from '../api/ensembles';
 import { getChart, createChart, deleteChart } from '../api/charts';
 import { useAuth } from '../hooks/useAuth';
-import { Ensemble as EnsembleType, EnsembleMember, Chart } from '../types';
+import { Ensemble as EnsembleType, EnsembleMember, Chart, EnsembleInstrument, EnsembleInstrumentAssignment } from '../types';
 import { Layout } from '../components/Layout';
 import { Button } from '../components/Button';
 import { Modal } from '../components/Modal';
 import { ApiError } from '../api/client';
 import { addEnsembleId } from './Dashboard';
+import { InstrumentIcon, INSTRUMENT_LIST } from '../components/InstrumentIcon';
 
 // Store chart IDs per ensemble in localStorage
 function getChartIds(ensembleId: string): string[] {
@@ -28,6 +29,10 @@ export function EnsemblePage() {
   const [ensemble, setEnsemble] = useState<EnsembleType | null>(null);
   const [members, setMembers] = useState<EnsembleMember[]>([]);
   const [charts, setCharts] = useState<Chart[]>([]);
+  const [instruments, setInstruments] = useState<EnsembleInstrument[]>([]);
+  const [instrAssignments, setInstrAssignments] = useState<Record<string, EnsembleInstrumentAssignment[]>>({});
+  const [assigningInstr, setAssigningInstr] = useState<string | null>(null);
+  const [selectedMember, setSelectedMember] = useState<Record<string, string>>({});
   const [loading, setLoading] = useState(true);
 
   const [showInvite, setShowInvite] = useState(false);
@@ -45,7 +50,14 @@ export function EnsemblePage() {
   const [creatingChart, setCreatingChart] = useState(false);
   const [chartError, setChartError] = useState('');
 
+  // Instrument management
+  const [newInstrumentName, setNewInstrumentName] = useState('');
+  const [addingInstrument, setAddingInstrument] = useState(false);
+  const [instrumentError, setInstrumentError] = useState('');
+  const [removingInstrument, setRemovingInstrument] = useState<string | null>(null);
+
   const myRole = members.find(m => m.id === user?.id)?.role;
+  const isOwnerOrEditor = myRole === 'owner' || myRole === 'editor';
 
   useEffect(() => {
     if (!id) return;
@@ -53,9 +65,23 @@ export function EnsemblePage() {
     Promise.all([
       getEnsemble(id),
       getMembers(id),
-    ]).then(([ensRes, memRes]) => {
+      getInstruments(id),
+    ]).then(([ensRes, memRes, instrRes]) => {
       setEnsemble(ensRes.ensemble);
       setMembers(memRes.members);
+      setInstruments(instrRes.instruments);
+      // Load assignments for each instrument
+      Promise.all(
+        instrRes.instruments.map((instr: EnsembleInstrument) =>
+          getInstrumentAssignments(id!, instr.id)
+            .then(r => ({ id: instr.id, assignments: r.assignments }))
+            .catch(() => ({ id: instr.id, assignments: [] }))
+        )
+      ).then(results => {
+        const map: Record<string, EnsembleInstrumentAssignment[]> = {};
+        results.forEach(r => { map[r.id] = r.assignments; });
+        setInstrAssignments(map);
+      });
       const chartIds = getChartIds(id);
       return Promise.all(chartIds.map(cid => getChart(cid).then(r => r.chart).catch(() => null)));
     }).then(chartResults => {
@@ -116,10 +142,62 @@ export function EnsemblePage() {
     }
   }
 
+  async function handleAddInstrument(e: FormEvent) {
+    e.preventDefault();
+    if (!id || !newInstrumentName.trim()) return;
+    setInstrumentError('');
+    setAddingInstrument(true);
+    try {
+      const { instrument } = await addInstrument(id, newInstrumentName.trim());
+      setInstruments(prev => [...prev, instrument]);
+      setNewInstrumentName('');
+    } catch (err) {
+      setInstrumentError(err instanceof ApiError ? err.message : 'Something went wrong');
+    } finally {
+      setAddingInstrument(false);
+    }
+  }
+
+  async function handleAssignMember(instrId: string) {
+    if (!id) return;
+    const userId = selectedMember[instrId];
+    if (!userId) return;
+    setAssigningInstr(instrId);
+    try {
+      const { assignment } = await assignInstrumentMember(id, instrId, userId);
+      setInstrAssignments(prev => ({ ...prev, [instrId]: [...(prev[instrId] ?? []), assignment] }));
+      setSelectedMember(prev => ({ ...prev, [instrId]: '' }));
+    } catch (err) {
+      alert(err instanceof Error ? err.message : 'Failed to assign');
+    } finally {
+      setAssigningInstr(null);
+    }
+  }
+
+  async function handleUnassignMember(instrId: string, assignmentId: string) {
+    if (!id) return;
+    try {
+      await unassignInstrumentMember(id, instrId, assignmentId);
+      setInstrAssignments(prev => ({ ...prev, [instrId]: (prev[instrId] ?? []).filter(a => a.id !== assignmentId) }));
+    } catch { /* ignore */ }
+  }
+
+  async function handleRemoveInstrument(instrumentId: string, name: string) {
+    if (!id) return;
+    if (!confirm(`Remove "${name}" from this ensemble's instrument list?`)) return;
+    setRemovingInstrument(instrumentId);
+    try {
+      await removeInstrument(id, instrumentId);
+      setInstruments(prev => prev.filter(i => i.id !== instrumentId));
+    } catch {
+      alert('Failed to remove instrument');
+    } finally {
+      setRemovingInstrument(null);
+    }
+  }
+
   if (loading) return <Layout><p style={{ color: 'var(--text-muted)' }}>Loading…</p></Layout>;
   if (!ensemble) return null;
-
-  const isOwnerOrEditor = myRole === 'owner' || myRole === 'editor';
 
   return (
     <Layout
@@ -152,6 +230,127 @@ export function EnsemblePage() {
             </div>
           ))}
         </div>
+      </section>
+
+      {/* Instruments */}
+      <section style={{ marginBottom: 36 }}>
+        <h2 style={{ marginBottom: 14 }}>Instruments</h2>
+        {instruments.length === 0 ? (
+          <p style={{ color: 'var(--text-muted)', marginBottom: 12, fontSize: 14 }}>
+            No instruments yet.{isOwnerOrEditor ? ' Add your lineup below.' : ''}
+          </p>
+        ) : (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 8, marginBottom: 16 }}>
+            {instruments.map(instr => {
+              const assignments = instrAssignments[instr.id] ?? [];
+              const assignedIds = new Set(assignments.map(a => a.user_id));
+              const unassignedMembers = members.filter(m => !assignedIds.has(m.id));
+              return (
+                <div key={instr.id} style={{
+                  padding: '14px 18px',
+                  background: 'var(--surface-raised)',
+                  border: '1px solid var(--border)',
+                  borderRadius: 14,
+                  boxShadow: 'var(--shadow-sm)',
+                }}>
+                  {/* Header: icon + name + remove */}
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: assignments.length > 0 || (isOwnerOrEditor && unassignedMembers.length > 0) ? 10 : 0 }}>
+                    <div style={{
+                      width: 40, height: 40, borderRadius: 12, flexShrink: 0,
+                      background: 'var(--accent-subtle)',
+                      border: '1px solid var(--accent-glow)',
+                      display: 'flex', alignItems: 'center', justifyContent: 'center',
+                      color: 'var(--accent)',
+                    }}>
+                      <InstrumentIcon name={instr.name} size={24} />
+                    </div>
+                    <span style={{ fontSize: 15, fontWeight: 600, flex: 1 }}>{instr.name}</span>
+                    {isOwnerOrEditor && (
+                      <button
+                        onClick={() => handleRemoveInstrument(instr.id, instr.name)}
+                        disabled={removingInstrument === instr.id}
+                        style={{
+                          background: 'none', border: 'none', color: 'var(--text-faint)',
+                          cursor: 'pointer', fontSize: 13, padding: '3px 6px',
+                          borderRadius: 5, transition: 'color 0.1s',
+                        }}
+                        onMouseEnter={e => (e.currentTarget as HTMLElement).style.color = 'var(--danger)'}
+                        onMouseLeave={e => (e.currentTarget as HTMLElement).style.color = 'var(--text-faint)'}
+                      >
+                        {removingInstrument === instr.id ? '…' : 'Remove'}
+                      </button>
+                    )}
+                  </div>
+
+                  {/* Assigned members */}
+                  {assignments.length > 0 && (
+                    <div style={{ display: 'flex', flexWrap: 'wrap', gap: 5, marginBottom: isOwnerOrEditor && unassignedMembers.length > 0 ? 8 : 0 }}>
+                      {assignments.map(a => (
+                        <span key={a.id} style={{
+                          display: 'flex', alignItems: 'center', gap: 5, fontSize: 12,
+                          background: 'var(--accent-subtle)', border: '1px solid rgba(124,106,245,0.25)',
+                          borderRadius: 99, padding: '3px 10px', color: 'var(--text)',
+                          fontWeight: 500,
+                        }}>
+                          {a.user_name}
+                          {isOwnerOrEditor && (
+                            <button onClick={() => handleUnassignMember(instr.id, a.id)}
+                              style={{ background: 'none', border: 'none', color: 'var(--text-muted)', cursor: 'pointer', fontSize: 13, lineHeight: 1, padding: 0 }}>
+                              ×
+                            </button>
+                          )}
+                        </span>
+                      ))}
+                    </div>
+                  )}
+
+                  {/* Assign dropdown */}
+                  {isOwnerOrEditor && unassignedMembers.length > 0 && (
+                    <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
+                      <select
+                        value={selectedMember[instr.id] ?? ''}
+                        onChange={e => setSelectedMember(prev => ({ ...prev, [instr.id]: e.target.value }))}
+                        style={{ background: 'var(--bg)', border: '1px solid var(--border)', borderRadius: 6, padding: '4px 8px', color: selectedMember[instr.id] ? 'var(--text)' : 'var(--text-muted)', fontSize: 12, width: 'auto' }}
+                      >
+                        <option value="">Assign member…</option>
+                        {unassignedMembers.map(m => (
+                          <option key={m.id} value={m.id}>{m.name} ({m.role})</option>
+                        ))}
+                      </select>
+                      <Button size="sm" variant="secondary" disabled={!selectedMember[instr.id]} loading={assigningInstr === instr.id} onClick={() => handleAssignMember(instr.id)}>
+                        Assign
+                      </Button>
+                    </div>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+        )}
+
+        {/* Add instrument — searchable combobox */}
+        {isOwnerOrEditor && (
+          <form onSubmit={handleAddInstrument} style={{ display: 'flex', gap: 8, alignItems: 'flex-start' }}>
+            <div style={{ flex: 1 }}>
+              <input
+                list="instrument-suggestions"
+                value={newInstrumentName}
+                onChange={e => setNewInstrumentName(e.target.value)}
+                placeholder="Add instrument… (type or pick from list)"
+                style={{ width: '100%', borderRadius: 10, fontSize: 14 }}
+              />
+              <datalist id="instrument-suggestions">
+                {INSTRUMENT_LIST.map(name => (
+                  <option key={name} value={name} />
+                ))}
+              </datalist>
+              {instrumentError && <p className="form-error" style={{ marginTop: 4 }}>{instrumentError}</p>}
+            </div>
+            <Button type="submit" loading={addingInstrument} disabled={!newInstrumentName.trim()}>
+              Add
+            </Button>
+          </form>
+        )}
       </section>
 
       {/* Charts */}

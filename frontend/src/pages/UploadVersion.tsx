@@ -62,14 +62,22 @@ export function UploadVersion() {
     }).catch(() => {});
   }, [chartId]);
 
+  function autoDetectReplaces(name: string): string | undefined {
+    const normalized = name.trim().toLowerCase();
+    const match = activeParts.find(p => p.instrumentName.trim().toLowerCase() === normalized);
+    return match?.instrumentName;
+  }
+
   function addFiles(fileList: FileList) {
     const added: UploadEntry[] = [];
     for (const file of Array.from(fileList)) {
+      const name = humanizeName(file.name);
       added.push({
         id: crypto.randomUUID(),
         file,
-        name: humanizeName(file.name),
+        name,
         type: guessType(file.name),
+        replaces: autoDetectReplaces(name),
       });
     }
     setEntries(prev => [...prev, ...added]);
@@ -79,8 +87,16 @@ export function UploadVersion() {
     setEntries(prev => [...prev, { id: crypto.randomUUID(), name: '', type: 'link', url: '' }]);
   }
 
-  function updateEntry(id: string, patch: Partial<Pick<UploadEntry, 'name' | 'type' | 'url'>>) {
-    setEntries(prev => prev.map(e => e.id === id ? { ...e, ...patch } : e));
+  function updateEntry(id: string, patch: Partial<Pick<UploadEntry, 'name' | 'type' | 'url' | 'replaces'>>) {
+    setEntries(prev => prev.map(e => {
+      if (e.id !== id) return e;
+      const updated = { ...e, ...patch };
+      // Re-detect replaces when name changes (if user hasn't explicitly set it)
+      if (patch.name !== undefined && !patch.replaces) {
+        updated.replaces = autoDetectReplaces(patch.name);
+      }
+      return updated;
+    }));
   }
 
   function removeEntry(id: string) {
@@ -247,6 +263,32 @@ export function UploadVersion() {
                       boxSizing: 'border-box',
                     }}
                   />
+                )}
+
+                {/* "Replaces" selector — only for non-link parts when active parts exist */}
+                {entry.type !== 'link' && activeParts.length > 0 && (
+                  <div style={{ marginTop: 6, display: 'flex', alignItems: 'center', gap: 8 }}>
+                    <span style={{ fontSize: 11, color: 'var(--text-muted)', whiteSpace: 'nowrap' }}>
+                      Carries annotations from:
+                    </span>
+                    <select
+                      value={entry.replaces ?? ''}
+                      onChange={e => updateEntry(entry.id, { replaces: e.target.value || undefined })}
+                      style={{
+                        flex: 1, background: 'var(--bg)', border: '1px solid var(--border)',
+                        borderRadius: 4, padding: '3px 6px',
+                        color: entry.replaces ? 'var(--text)' : 'var(--text-muted)', fontSize: 12,
+                      }}
+                    >
+                      <option value="">— none —</option>
+                      {activeParts.map(p => (
+                        <option key={p.id} value={p.instrumentName}>{p.instrumentName}</option>
+                      ))}
+                    </select>
+                    {entry.replaces && (
+                      <span style={{ fontSize: 11, color: 'var(--success)', whiteSpace: 'nowrap' }}>✓</span>
+                    )}
+                  </div>
                 )}
 
                 {/* File size note for non-link types */}

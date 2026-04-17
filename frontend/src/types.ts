@@ -19,6 +19,48 @@ export interface EnsembleMember {
   joined_at: string;
 }
 
+export interface EnsembleInstrument {
+  id: string;
+  name: string;
+  display_order: number;
+  created_at: string;
+}
+
+export interface EnsembleInstrumentAssignment {
+  id: string;
+  ensemble_instrument_id: string;
+  user_id: string;
+  user_name: string;
+  user_email: string;
+  assigned_by: string;
+  created_at: string;
+}
+
+export type AnchorType = 'measure' | 'beat' | 'note' | 'section' | 'page';
+export type ContentType = 'text' | 'ink' | 'highlight';
+
+export interface MeasureAnchor { measureNumber: number; }
+export interface BeatAnchor { measureNumber: number; beat: number; }
+export interface NoteAnchor { measureNumber: number; beat: number; pitch: string; duration: string; }
+export interface SectionAnchor { sectionLabel: string; measureOffset?: number; }
+export interface PageAnchor { page: number; }
+export type AnchorJson = MeasureAnchor | BeatAnchor | NoteAnchor | SectionAnchor | PageAnchor;
+
+export interface Annotation {
+  id: string;
+  part_id: string;
+  user_id: string;
+  user_name: string;
+  anchor_type: AnchorType;
+  anchor_json: AnchorJson;
+  content_type: ContentType;
+  content_json: { text?: string; color?: string };
+  is_unresolved: boolean;
+  migrated_from_annotation_id: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
 export interface Chart {
   id: string;
   ensemble_id: string;
@@ -59,6 +101,7 @@ export interface UploadEntry {
   url?: string;     // for link type
   name: string;     // user-provided display name, used as instrument_name
   type: PartType;
+  replaces?: string; // optional: instrument_name of the old part this replaces (for annotation migration)
 }
 
 export interface PartAssignment {

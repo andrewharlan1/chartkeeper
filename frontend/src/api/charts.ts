@@ -48,6 +48,13 @@ export function uploadVersion(
   if (linkEntries.length > 0) form.append('linkEntries', JSON.stringify(linkEntries));
   if (inheritedPartNames) form.append('inheritedPartNames', JSON.stringify(inheritedPartNames));
 
+  // Explicit replaces map: newInstrumentName → oldInstrumentName
+  const replacesMap: Record<string, string> = {};
+  for (const entry of entries) {
+    if (entry.replaces) replacesMap[entry.name] = entry.replaces;
+  }
+  if (Object.keys(replacesMap).length > 0) form.append('replacesMap', JSON.stringify(replacesMap));
+
   return multipartRequest(`/charts/${chartId}/versions`, form);
 }
 
