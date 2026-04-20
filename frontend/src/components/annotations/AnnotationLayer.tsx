@@ -126,6 +126,8 @@ export function AnnotationLayer({
   const recolorTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   // Double-click detection for text editing
   const lastClickRef = useRef<{ time: number; id: string | null }>({ time: 0, id: null });
+  // Measure reassignment picker state
+  const [showMeasurePicker, setShowMeasurePicker] = useState(false);
 
   // Fetch annotations on mount
   useEffect(() => {
@@ -572,6 +574,30 @@ export function AnnotationLayer({
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [annotations, onSaveStatusChange]);
 
+  // Reassign an annotation to a different measure
+  const commitReassignMeasure = useCallback(async (annotationId: string, newMeasureNumber: number) => {
+    const ann = annotations.find(a => a.id === annotationId);
+    if (!ann) return;
+
+    const oldAnchor = ann.anchorJson as { measureNumber?: number; pageHint?: number };
+    if (oldAnchor.measureNumber === newMeasureNumber) return;
+
+    const newAnchor = { ...oldAnchor, measureNumber: newMeasureNumber };
+    const updatedAnn = { ...ann, anchorJson: newAnchor };
+    history.pushOperation({ kind: 'update', annotationId, before: ann, after: updatedAnn });
+
+    setAnnotations(prev => prev.map(a => a.id === annotationId ? updatedAnn : a));
+    onSaveStatusChange('saving');
+    try {
+      await updateAnnotation(annotationId, { anchorJson: newAnchor });
+      onSaveStatusChange('saved');
+    } catch {
+      setAnnotations(prev => prev.map(a => a.id === annotationId ? ann : a));
+      onSaveStatusChange('error');
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [annotations, onSaveStatusChange]);
+
   // Start a handle drag from SelectionOverlay
   const handleSelectionHandleDown = useCallback((e: React.PointerEvent, handle: string) => {
     if (!selectedAnnotationId) return;
@@ -651,6 +677,7 @@ export function AnnotationLayer({
 
   // Sync toolbar color and report kind to selected annotation on selection
   useEffect(() => {
+    setShowMeasurePicker(false);
     if (!selectedAnnotationId) {
       onSelectedKindChange?.(null);
       return;
@@ -1153,6 +1180,108 @@ export function AnnotationLayer({
             onHandlePointerDown={handleSelectionHandleDown}
             onDeleteClick={deleteSelectedAnnotation}
           />
+        );
+      })()}
+
+      {/* Measure assignment badge + picker */}
+      {(() => {
+        if (!selectedAnnotationId || mode !== 'select') return null;
+        const ann = pageAnnotations.find(a => a.id === selectedAnnotationId);
+        if (!ann) return null;
+        const anchor = ann.anchorJson as { measureNumber?: number };
+        if (anchor.measureNumber == null) return null;
+        const bounds = getAnnotationBounds(ann);
+        if (!bounds) return null;
+
+        // Position badge at bottom-left of selection
+        const bx = (resizeBounds?.x ?? (bounds.x + (dragOffset?.dx ?? 0))) * canvasWidth;
+        const by = (resizeBounds ? resizeBounds.y + resizeBounds.h : (bounds.y + bounds.h + (dragOffset?.dy ?? 0))) * canvasHeight;
+
+        // Available measures on this page
+        const pageMeasures = measureLayout
+          .filter(m => m.page === currentPage)
+          .sort((a, b) => a.measureNumber - b.measureNumber);
+
+        return (
+          <foreignObject
+            x={bx - 8}
+            y={by + 10}
+            width={showMeasurePicker ? 160 : 80}
+            height={showMeasurePicker ? Math.min(pageMeasures.length * 28 + 40, 220) : 28}
+            style={{ overflow: 'visible' }}
+            onPointerDown={e => e.stopPropagation()}
+          >
+            <div style={{
+              fontFamily: 'system-ui, -apple-system, sans-serif',
+              fontSize: 11,
+              fontWeight: 600,
+            }}>
+              {/* Badge */}
+              <button
+                onClick={() => setShowMeasurePicker(p => !p)}
+                style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: 4,
+                  height: 24,
+                  padding: '0 8px',
+                  borderRadius: 6,
+                  border: '1px solid rgba(124, 111, 247, 0.4)',
+                  background: 'rgba(124, 111, 247, 0.22)',
+                  color: '#c4bcff',
+                  cursor: 'pointer',
+                  fontSize: 11,
+                  fontWeight: 600,
+                  fontFamily: 'inherit',
+                  whiteSpace: 'nowrap',
+                }}
+              >
+                m.{anchor.measureNumber}
+                <span style={{ fontSize: 9, opacity: 0.7 }}>{showMeasurePicker ? '▲' : '▼'}</span>
+              </button>
+
+              {/* Picker dropdown */}
+              {showMeasurePicker && (
+                <div style={{
+                  marginTop: 4,
+                  background: '#16152a',
+                  border: '1px solid rgba(255,255,255,0.08)',
+                  borderRadius: 8,
+                  padding: 4,
+                  maxHeight: 170,
+                  overflowY: 'auto',
+                  boxShadow: '0 4px 16px rgba(0,0,0,0.4)',
+                }}>
+                  {pageMeasures.map(m => (
+                    <button
+                      key={m.measureNumber}
+                      onClick={() => {
+                        commitReassignMeasure(selectedAnnotationId, m.measureNumber);
+                        setShowMeasurePicker(false);
+                      }}
+                      style={{
+                        display: 'block',
+                        width: '100%',
+                        height: 26,
+                        padding: '0 8px',
+                        borderRadius: 5,
+                        border: 'none',
+                        cursor: 'pointer',
+                        fontSize: 11,
+                        fontWeight: 600,
+                        fontFamily: 'inherit',
+                        textAlign: 'left',
+                        background: m.measureNumber === anchor.measureNumber ? 'rgba(124, 111, 247, 0.22)' : 'transparent',
+                        color: m.measureNumber === anchor.measureNumber ? '#c4bcff' : '#888',
+                      }}
+                    >
+                      Measure {m.measureNumber}
+                    </button>
+                  ))}
+                </div>
+              )}
+            </div>
+          </foreignObject>
         );
       })()}
 
