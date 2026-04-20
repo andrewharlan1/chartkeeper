@@ -33,6 +33,9 @@ interface Props {
 const INK_STROKE_WIDTH = 0.002; // normalized to page width
 const ERASE_HIT_PAD = 0.008; // ~8px hit tolerance at 1000px canvas
 
+// Pixel padding for measure clamp boundaries (converted to normalized coords at runtime)
+const MEASURE_CLAMP_PAD = { top: 120, bottom: 80, left: 12, right: 12 };
+
 function rgbToHex(r: string, g: string, b: string): string {
   return '#' + [r, g, b].map(x => parseInt(x).toString(16).padStart(2, '0')).join('');
 }
@@ -112,6 +115,7 @@ export function AnnotationLayer({
     originalBounds: { x: number; y: number; w: number; h: number };
     annotationId: string;
     handle?: string;
+    anchor?: { x: number; y: number }; // Fixed opposite corner for resize
   } | null>(null);
   const [dragOffset, setDragOffset] = useState<{ dx: number; dy: number } | null>(null);
   const [resizeBounds, setResizeBounds] = useState<{ x: number; y: number; w: number; h: number } | null>(null);
@@ -413,13 +417,24 @@ export function AnnotationLayer({
     setTimeout(() => commitErases([id]), 150);
   }, [selectedAnnotationId, onSelectionChange, commitErases]);
 
-  // Get measure layout bounds for clamping during move/resize
+  // Get measure layout bounds for clamping during move/resize (with padding)
   const getMeasureBounds = useCallback((annotation: Annotation) => {
     const anchor = annotation.anchorJson as { measureNumber?: number };
     if (anchor.measureNumber == null) return null;
     const ml = measureLayout.find(m => m.measureNumber === anchor.measureNumber && m.page === currentPage);
-    return ml ? { x: ml.x, y: ml.y, w: ml.w, h: ml.h } : null;
-  }, [measureLayout, currentPage]);
+    if (!ml) return null;
+    // Expand bounds by pixel padding converted to normalized coords
+    const padTop = MEASURE_CLAMP_PAD.top / canvasHeight;
+    const padBottom = MEASURE_CLAMP_PAD.bottom / canvasHeight;
+    const padLeft = MEASURE_CLAMP_PAD.left / canvasWidth;
+    const padRight = MEASURE_CLAMP_PAD.right / canvasWidth;
+    return {
+      x: ml.x - padLeft,
+      y: ml.y - padTop,
+      w: ml.w + padLeft + padRight,
+      h: ml.h + padTop + padBottom,
+    };
+  }, [measureLayout, currentPage, canvasWidth, canvasHeight]);
 
   // Clamp a drag offset so the annotation stays within its measure
   const clampOffset = useCallback((dx: number, dy: number, bounds: { x: number; y: number; w: number; h: number }, measure: { x: number; y: number; w: number; h: number }) => {
@@ -566,12 +581,25 @@ export function AnnotationLayer({
     const rect = svgRef.current!.getBoundingClientRect();
     const pt = { x: (e.clientX - rect.left) / rect.width, y: (e.clientY - rect.top) / rect.height };
 
+    // Compute anchor — the opposite corner/edge that stays fixed during resize
+    const { x, y, w, h } = bounds;
+    let anchor: { x: number; y: number };
+    if (handle === 'nw') anchor = { x: x + w, y: y + h };
+    else if (handle === 'n') anchor = { x: x, y: y + h }; // top edge: anchor bottom-left
+    else if (handle === 'ne') anchor = { x: x, y: y + h };
+    else if (handle === 'e') anchor = { x: x, y: y }; // right edge: anchor top-left
+    else if (handle === 'se') anchor = { x: x, y: y };
+    else if (handle === 's') anchor = { x: x, y: y }; // bottom edge: anchor top-left
+    else if (handle === 'sw') anchor = { x: x + w, y: y };
+    else /* w */ anchor = { x: x + w, y: y }; // left edge: anchor top-right
+
     dragRef.current = {
       type: 'handle',
       startPt: pt,
       originalBounds: bounds,
       annotationId: selectedAnnotationId,
       handle,
+      anchor,
     };
     setResizeBounds(bounds);
     (svgRef.current as Element).setPointerCapture(e.pointerId);
@@ -772,37 +800,46 @@ export function AnnotationLayer({
     if (dragRef.current?.type === 'handle') {
       e.preventDefault();
       const pt = toNormalized(e);
-      const { originalBounds: ob, handle } = dragRef.current;
-      const dx = pt.x - dragRef.current.startPt.x;
-      const dy = pt.y - dragRef.current.startPt.y;
+      const { originalBounds: ob, handle, anchor } = dragRef.current;
+      if (!anchor) return;
       const minW = 10 / canvasWidth;
       const minH = 10 / canvasHeight;
 
-      let nx = ob.x, ny = ob.y, nw = ob.w, nh = ob.h;
-      // Shift key for aspect ratio lock
-      const shiftKey = (e.nativeEvent as PointerEvent).shiftKey;
-      const aspect = ob.w / (ob.h || 1);
+      // Compute the "free" point — the dragged corner/edge position
+      // Start from the original dragged corner/edge, add delta from pointer movement
+      const dx = pt.x - dragRef.current.startPt.x;
+      const dy = pt.y - dragRef.current.startPt.y;
 
-      if (handle === 'se') { nw = ob.w + dx; nh = ob.h + dy; }
-      else if (handle === 'nw') { nx = ob.x + dx; ny = ob.y + dy; nw = ob.w - dx; nh = ob.h - dy; }
-      else if (handle === 'ne') { nw = ob.w + dx; ny = ob.y + dy; nh = ob.h - dy; }
-      else if (handle === 'sw') { nx = ob.x + dx; nw = ob.w - dx; nh = ob.h + dy; }
-      else if (handle === 'e') { nw = ob.w + dx; }
-      else if (handle === 'w') { nx = ob.x + dx; nw = ob.w - dx; }
-      else if (handle === 's') { nh = ob.h + dy; }
-      else if (handle === 'n') { ny = ob.y + dy; nh = ob.h - dy; }
+      // For each handle, compute the free point (the moving edge/corner)
+      let freeX: number, freeY: number;
+      if (handle === 'nw') { freeX = ob.x + dx; freeY = ob.y + dy; }
+      else if (handle === 'ne') { freeX = ob.x + ob.w + dx; freeY = ob.y + dy; }
+      else if (handle === 'se') { freeX = ob.x + ob.w + dx; freeY = ob.y + ob.h + dy; }
+      else if (handle === 'sw') { freeX = ob.x + dx; freeY = ob.y + ob.h + dy; }
+      else if (handle === 'n') { freeX = anchor.x; freeY = ob.y + dy; }
+      else if (handle === 's') { freeX = anchor.x; freeY = ob.y + ob.h + dy; }
+      else if (handle === 'e') { freeX = ob.x + ob.w + dx; freeY = anchor.y; }
+      else /* w */ { freeX = ob.x + dx; freeY = anchor.y; }
+
+      // Derive bounds from anchor + free point
+      let nx = Math.min(anchor.x, freeX);
+      let ny = Math.min(anchor.y, freeY);
+      let nw = Math.abs(freeX - anchor.x);
+      let nh = Math.abs(freeY - anchor.y);
 
       // Enforce minimum size
-      if (nw < minW) { if (handle?.includes('w')) nx = ob.x + ob.w - minW; nw = minW; }
-      if (nh < minH) { if (handle?.includes('n')) ny = ob.y + ob.h - minH; nh = minH; }
+      if (nw < minW) nw = minW;
+      if (nh < minH) nh = minH;
 
       // Shift: lock aspect ratio for corner handles
+      const shiftKey = (e.nativeEvent as PointerEvent).shiftKey;
+      const aspect = ob.w / (ob.h || 1);
       if (shiftKey && (handle === 'nw' || handle === 'ne' || handle === 'se' || handle === 'sw')) {
         if (nw / nh > aspect) { nw = nh * aspect; }
         else { nh = nw / aspect; }
       }
 
-      // Clamp to measure bounds
+      // Clamp to measure bounds (already includes padding from getMeasureBounds)
       const ann = annotations.find(a => a.id === dragRef.current!.annotationId);
       if (ann) {
         const measure = getMeasureBounds(ann);
