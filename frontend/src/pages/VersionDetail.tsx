@@ -322,19 +322,11 @@ export function VersionDetail() {
               </div>
 
               {/* PDF viewer */}
-              {p.pdfUrl ? (
-                <PdfViewer
-                  url={p.pdfUrl}
-                  partId={p.id}
-                  title={`${p.name} — ${version.name}`}
-                />
-              ) : (
-                <div style={{ background: 'var(--bg)', border: '1px solid var(--border)',
-                  borderRadius: 'var(--radius)', padding: '20px', textAlign: 'center',
-                  color: 'var(--text-muted)', fontSize: 13 }}>
-                  PDF not available
-                </div>
-              )}
+              <PdfViewer
+                url={`/parts/${p.id}/pdf`}
+                partId={p.id}
+                title={`${p.name} — ${version.name}`}
+              />
 
               {/* Annotations */}
               <AnnotationPanel partId={p.id} currentUserId={user?.id ?? ''} />
