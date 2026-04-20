@@ -1,0 +1,30 @@
+import { api } from './client';
+import { Version } from '../types';
+
+export function getVersions(chartId: string): Promise<{ versions: Version[] }> {
+  return api.get(`/versions?chartId=${chartId}`);
+}
+
+export function getVersion(id: string): Promise<{ version: Version }> {
+  return api.get(`/versions/${id}`);
+}
+
+export function createVersion(data: {
+  chartId: string;
+  name: string;
+  notes?: string;
+  seededFromVersionId?: string;
+}): Promise<{ version: Version }> {
+  return api.post('/versions', data);
+}
+
+export function updateVersion(id: string, data: {
+  name?: string;
+  notes?: string | null;
+}): Promise<{ version: Version }> {
+  return api.patch(`/versions/${id}`, data);
+}
+
+export function deleteVersion(id: string): Promise<{ deleted: boolean }> {
+  return api.delete(`/versions/${id}`);
+}
