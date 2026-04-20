@@ -4,10 +4,12 @@ import { createVersion } from '../api/versions';
 import { uploadPart } from '../api/parts';
 import { getChart } from '../api/charts';
 import { getEnsemble } from '../api/ensembles';
-import { UploadEntry, PartKind } from '../types';
+import { getInstrumentSlots } from '../api/instrumentSlots';
+import { UploadEntry, PartKind, InstrumentSlot } from '../types';
 import { Layout } from '../components/Layout';
 import { Button } from '../components/Button';
 import { FileDropZone } from '../components/FileDropZone';
+import { SlotAssignmentPicker } from '../components/SlotAssignmentPicker';
 import { ApiError } from '../api/client';
 
 function humanizeName(filename: string): string {
@@ -21,16 +23,21 @@ export function UploadVersion() {
   const [chartName, setChartName] = useState('');
   const [ensembleName, setEnsembleName] = useState('');
   const [ensembleId, setEnsembleId] = useState('');
+  const [slots, setSlots] = useState<InstrumentSlot[]>([]);
 
   useEffect(() => {
     if (!chartId) return;
     getChart(chartId).then(async ({ chart }) => {
       setChartName(chart.name);
       try {
-        const { ensemble } = await getEnsemble(chart.ensembleId);
+        const [{ ensemble }, { instrumentSlots }] = await Promise.all([
+          getEnsemble(chart.ensembleId),
+          getInstrumentSlots(chart.ensembleId),
+        ]);
         setEnsembleName(ensemble.name);
         setEnsembleId(chart.ensembleId);
-      } catch { /* breadcrumb will be partial */ }
+        setSlots(instrumentSlots);
+      } catch { /* breadcrumb / slots will be partial */ }
     }).catch(() => {});
   }, [chartId]);
 
@@ -49,7 +56,7 @@ export function UploadVersion() {
     setEntries(prev => [...prev, ...added]);
   }
 
-  function updateEntry(id: string, patch: Partial<Pick<UploadEntry, 'name' | 'kind'>>) {
+  function updateEntry(id: string, patch: Partial<Pick<UploadEntry, 'name' | 'kind' | 'slotIds'>>) {
     setEntries(prev => prev.map(e => e.id === id ? { ...e, ...patch } : e));
   }
 
@@ -166,6 +173,11 @@ export function UploadVersion() {
                 <p style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: 4, marginBottom: 0 }}>
                   {entry.file.name} {'\u00B7'} {(entry.file.size / 1024).toFixed(0)} KB
                 </p>
+                <SlotAssignmentPicker
+                  slots={slots}
+                  selectedIds={entry.slotIds}
+                  onChange={ids => updateEntry(entry.id, { slotIds: ids })}
+                />
               </div>
             ))}
           </div>
