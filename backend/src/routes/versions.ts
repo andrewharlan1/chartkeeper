@@ -6,6 +6,7 @@ import { versions, charts, parts } from '../schema';
 import { requireAuth } from '../middleware/auth';
 import { requireEnsembleMember, requireEnsembleAdmin } from '../lib/ensembleAuth';
 import { getChartEnsembleId } from './charts';
+import { getAnnotationSources, migratePartAnnotations } from '../lib/annotation-migration';
 
 export const versionsRouter = Router();
 versionsRouter.use(requireAuth);
@@ -168,4 +169,67 @@ versionsRouter.delete('/:id', async (req: Request, res: Response): Promise<void>
     .where(eq(versions.id, req.params.id));
 
   res.json({ deleted: true });
+});
+
+// GET /versions/:id/annotation-sources
+// Returns available annotation sources for each part in this version
+versionsRouter.get('/:id/annotation-sources', async (req: Request, res: Response): Promise<void> => {
+  const ensembleId = await getVersionEnsembleId(req.params.id);
+  if (!ensembleId) { res.status(404).json({ error: 'Version not found' }); return; }
+
+  try {
+    await requireEnsembleMember(ensembleId, req.user!.id);
+  } catch (err) {
+    handleError(err, res);
+    return;
+  }
+
+  const sources = await getAnnotationSources(req.params.id);
+  const partRows = await dz.select({ id: parts.id, name: parts.name, kind: parts.kind })
+    .from(parts)
+    .where(and(eq(parts.versionId, req.params.id), isNull(parts.deletedAt)));
+
+  res.json({ parts: partRows, sources });
+});
+
+// POST /versions/:id/migrate
+// Trigger annotation migration for selected source→target part pairs
+versionsRouter.post('/:id/migrate', async (req: Request, res: Response): Promise<void> => {
+  const ensembleId = await getVersionEnsembleId(req.params.id);
+  if (!ensembleId) { res.status(404).json({ error: 'Version not found' }); return; }
+
+  try {
+    await requireEnsembleAdmin(ensembleId, req.user!.id);
+  } catch (err) {
+    handleError(err, res);
+    return;
+  }
+
+  const parsed = z.object({
+    migrations: z.array(z.object({
+      targetPartId: z.string().uuid(),
+      sourcePartId: z.string().uuid(),
+    })),
+  }).safeParse(req.body);
+  if (!parsed.success) { res.status(400).json({ error: parsed.error.flatten() }); return; }
+
+  // Verify all target parts belong to this version
+  const versionParts = await dz.select({ id: parts.id })
+    .from(parts)
+    .where(and(eq(parts.versionId, req.params.id), isNull(parts.deletedAt)));
+  const versionPartIds = new Set(versionParts.map(p => p.id));
+
+  for (const m of parsed.data.migrations) {
+    if (!versionPartIds.has(m.targetPartId)) {
+      res.status(400).json({ error: `Part ${m.targetPartId} does not belong to this version` });
+      return;
+    }
+  }
+
+  // Run migrations in parallel
+  const results = await Promise.all(
+    parsed.data.migrations.map(m => migratePartAnnotations(m.sourcePartId, m.targetPartId)),
+  );
+
+  res.json({ results });
 });
