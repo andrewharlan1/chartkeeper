@@ -105,6 +105,7 @@ export function AnnotationLayer({
     handle?: string;
   } | null>(null);
   const [dragOffset, setDragOffset] = useState<{ dx: number; dy: number } | null>(null);
+  const [resizeBounds, setResizeBounds] = useState<{ x: number; y: number; w: number; h: number } | null>(null);
 
   // Fetch annotations on mount
   useEffect(() => {
@@ -430,6 +431,75 @@ export function AnnotationLayer({
     (svgRef.current as Element).setPointerCapture(e.pointerId);
   }, [selectedAnnotationId, annotations]);
 
+  // Commit a resize — apply per-type geometry changes and save
+  const commitResize = useCallback(async (annotationId: string, newBounds: { x: number; y: number; w: number; h: number }) => {
+    const ann = annotations.find(a => a.id === annotationId);
+    if (!ann) return;
+
+    let updatedContent: typeof ann.contentJson;
+    if (ann.kind === 'ink') {
+      const c = ann.contentJson as InkContent;
+      const ob = c.boundingBox;
+      // Scale stroke points: (oldPt - oldOrigin) / oldSize * newSize + newOrigin
+      updatedContent = {
+        strokes: c.strokes.map(s => ({
+          ...s,
+          points: s.points.map(p => ({
+            x: ob.width > 0 ? (p.x - ob.x) / ob.width * newBounds.w + newBounds.x : newBounds.x,
+            y: ob.height > 0 ? (p.y - ob.y) / ob.height * newBounds.h + newBounds.y : newBounds.y,
+          })),
+        })),
+        boundingBox: { x: newBounds.x, y: newBounds.y, width: newBounds.w, height: newBounds.h },
+      } as InkContent;
+    } else if (ann.kind === 'highlight') {
+      const c = ann.contentJson as HighlightContent;
+      updatedContent = {
+        ...c,
+        boundingBox: { x: newBounds.x, y: newBounds.y, width: newBounds.w, height: newBounds.h },
+      } as HighlightContent;
+    } else if (ann.kind === 'text') {
+      const c = ann.contentJson as TextContent;
+      updatedContent = {
+        ...c,
+        boundingBox: { ...c.boundingBox, x: newBounds.x, y: newBounds.y, widthPageUnits: newBounds.w, heightPageUnits: newBounds.h },
+      } as TextContent;
+    } else {
+      return;
+    }
+
+    setAnnotations(prev => prev.map(a => a.id === annotationId ? { ...a, contentJson: updatedContent! } : a));
+    onSaveStatusChange('saving');
+    try {
+      await updateAnnotation(annotationId, { contentJson: updatedContent });
+      onSaveStatusChange('saved');
+    } catch {
+      setAnnotations(prev => prev.map(a => a.id === annotationId ? ann : a));
+      onSaveStatusChange('error');
+    }
+  }, [annotations, onSaveStatusChange]);
+
+  // Start a handle drag from SelectionOverlay
+  const handleSelectionHandleDown = useCallback((e: React.PointerEvent, handle: string) => {
+    if (!selectedAnnotationId) return;
+    const ann = annotations.find(a => a.id === selectedAnnotationId);
+    if (!ann) return;
+    const bounds = getAnnotationBounds(ann);
+    if (!bounds) return;
+
+    const rect = svgRef.current!.getBoundingClientRect();
+    const pt = { x: (e.clientX - rect.left) / rect.width, y: (e.clientY - rect.top) / rect.height };
+
+    dragRef.current = {
+      type: 'handle',
+      startPt: pt,
+      originalBounds: bounds,
+      annotationId: selectedAnnotationId,
+      handle,
+    };
+    setResizeBounds(bounds);
+    (svgRef.current as Element).setPointerCapture(e.pointerId);
+  }, [selectedAnnotationId, annotations]);
+
   // Keyboard shortcuts
   useEffect(() => {
     function handleKeyDown(e: KeyboardEvent) {
@@ -502,6 +572,55 @@ export function AnnotationLayer({
   }
 
   function handlePointerMove(e: ReactPointerEvent<SVGSVGElement>) {
+    // Handle drag (resize) in select mode
+    if (dragRef.current?.type === 'handle') {
+      e.preventDefault();
+      const pt = toNormalized(e);
+      const { originalBounds: ob, handle } = dragRef.current;
+      const dx = pt.x - dragRef.current.startPt.x;
+      const dy = pt.y - dragRef.current.startPt.y;
+      const minW = 10 / canvasWidth;
+      const minH = 10 / canvasHeight;
+
+      let nx = ob.x, ny = ob.y, nw = ob.w, nh = ob.h;
+      // Shift key for aspect ratio lock
+      const shiftKey = (e.nativeEvent as PointerEvent).shiftKey;
+      const aspect = ob.w / (ob.h || 1);
+
+      if (handle === 'se') { nw = ob.w + dx; nh = ob.h + dy; }
+      else if (handle === 'nw') { nx = ob.x + dx; ny = ob.y + dy; nw = ob.w - dx; nh = ob.h - dy; }
+      else if (handle === 'ne') { nw = ob.w + dx; ny = ob.y + dy; nh = ob.h - dy; }
+      else if (handle === 'sw') { nx = ob.x + dx; nw = ob.w - dx; nh = ob.h + dy; }
+      else if (handle === 'e') { nw = ob.w + dx; }
+      else if (handle === 'w') { nx = ob.x + dx; nw = ob.w - dx; }
+      else if (handle === 's') { nh = ob.h + dy; }
+      else if (handle === 'n') { ny = ob.y + dy; nh = ob.h - dy; }
+
+      // Enforce minimum size
+      if (nw < minW) { if (handle?.includes('w')) nx = ob.x + ob.w - minW; nw = minW; }
+      if (nh < minH) { if (handle?.includes('n')) ny = ob.y + ob.h - minH; nh = minH; }
+
+      // Shift: lock aspect ratio for corner handles
+      if (shiftKey && (handle === 'nw' || handle === 'ne' || handle === 'se' || handle === 'sw')) {
+        if (nw / nh > aspect) { nw = nh * aspect; }
+        else { nh = nw / aspect; }
+      }
+
+      // Clamp to measure bounds
+      const ann = annotations.find(a => a.id === dragRef.current!.annotationId);
+      if (ann) {
+        const measure = getMeasureBounds(ann);
+        if (measure) {
+          nx = Math.max(measure.x, nx);
+          ny = Math.max(measure.y, ny);
+          nw = Math.min(nw, measure.x + measure.w - nx);
+          nh = Math.min(nh, measure.y + measure.h - ny);
+        }
+      }
+
+      setResizeBounds({ x: nx, y: ny, w: nw, h: nh });
+      return;
+    }
     // Body drag in select mode
     if (dragRef.current?.type === 'body') {
       e.preventDefault();
@@ -549,6 +668,18 @@ export function AnnotationLayer({
   }
 
   function handlePointerUp(e: ReactPointerEvent<SVGSVGElement>) {
+    // Complete handle drag (resize)
+    if (dragRef.current?.type === 'handle') {
+      e.preventDefault();
+      const bounds = resizeBounds;
+      const id = dragRef.current.annotationId;
+      dragRef.current = null;
+      setResizeBounds(null);
+      if (bounds) {
+        commitResize(id, bounds);
+      }
+      return;
+    }
     // Complete body drag
     if (dragRef.current?.type === 'body') {
       e.preventDefault();
@@ -633,6 +764,7 @@ export function AnnotationLayer({
     setHoveredId(null);
     dragRef.current = null;
     setDragOffset(null);
+    setResizeBounds(null);
     // Commit any pending erases immediately on mode switch
     const eraseIds = [...pendingDeletes.current];
     pendingDeletes.current = new Set();
@@ -768,8 +900,9 @@ export function AnnotationLayer({
             canvasWidth={canvasWidth}
             canvasHeight={canvasHeight}
             dragOffset={dragOffset}
+            resizeBounds={resizeBounds}
             onBodyPointerDown={handleSelectionBodyDown}
-            onHandlePointerDown={() => {}}
+            onHandlePointerDown={handleSelectionHandleDown}
           />
         );
       })()}
