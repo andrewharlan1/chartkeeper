@@ -22,9 +22,13 @@ interface Props {
 
 const INK_STROKE_WIDTH = 0.002; // normalized to page width
 
+function rgbToHex(r: string, g: string, b: string): string {
+  return '#' + [r, g, b].map(x => parseInt(x).toString(16).padStart(2, '0')).join('');
+}
+
 function parseRgba(rgba: string): { color: string; opacity: number } {
   const m = rgba.match(/rgba?\(\s*(\d+)\s*,\s*(\d+)\s*,\s*(\d+)\s*(?:,\s*([\d.]+)\s*)?\)/);
-  if (m) return { color: `rgb(${m[1]}, ${m[2]}, ${m[3]})`, opacity: m[4] ? parseFloat(m[4]) : 1 };
+  if (m) return { color: rgbToHex(m[1], m[2], m[3]), opacity: m[4] ? parseFloat(m[4]) : 1 };
   return { color: rgba, opacity: 1 };
 }
 
