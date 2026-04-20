@@ -1,7 +1,7 @@
 import { useEffect, useState, useRef, useCallback, PointerEvent as ReactPointerEvent } from 'react';
 import { MeasureLayoutItem, Annotation, Stroke, StrokePoint, InkContent, HighlightContent, TextContent } from '../../types';
 import { getAnnotations, createAnnotation } from '../../api/annotations';
-import { AnnotationMode, Tool } from '../../hooks/useAnnotationMode';
+import { AnnotationMode } from '../../hooks/useAnnotationMode';
 import { SaveStatus } from './SaveStatusIndicator';
 import { InkRenderer } from './InkRenderer';
 import { HighlightRenderer } from './HighlightRenderer';
@@ -14,7 +14,6 @@ interface Props {
   canvasWidth: number;
   canvasHeight: number;
   mode: AnnotationMode;
-  tool: Tool;
   inkColor: string;
   highlightColor: string;
   textColor: string;
@@ -41,7 +40,6 @@ export function AnnotationLayer({
   canvasWidth,
   canvasHeight,
   mode,
-  tool,
   inkColor,
   highlightColor,
   textColor,
@@ -106,11 +104,9 @@ export function AnnotationLayer({
     // Group all stroke points by measure
     const byMeasure = new Map<number, Stroke[]>();
     for (const stroke of strokes) {
-      // Determine which measure the stroke's midpoint falls in
       const mid = stroke.points[Math.floor(stroke.points.length / 2)];
       const measureNum = findMeasure(mid.x, mid.y);
 
-      // Split: group points by which measure they fall in
       const segments = new Map<number, StrokePoint[]>();
       for (const pt of stroke.points) {
         const m = findMeasure(pt.x, pt.y) ?? measureNum;
@@ -120,7 +116,7 @@ export function AnnotationLayer({
       }
 
       for (const [m, pts] of segments) {
-        if (pts.length < 2) continue; // skip single-point fragments
+        if (pts.length < 2) continue;
         if (!byMeasure.has(m)) byMeasure.set(m, []);
         byMeasure.get(m)!.push({
           points: pts,
@@ -133,7 +129,6 @@ export function AnnotationLayer({
     try {
       const newAnnotations: Annotation[] = [];
       for (const [measureNum, measureStrokes] of byMeasure) {
-        // Compute tight bounding box
         const allPts = measureStrokes.flatMap(s => s.points);
         const xs = allPts.map(p => p.x);
         const ys = allPts.map(p => p.y);
@@ -169,7 +164,6 @@ export function AnnotationLayer({
     const width = Math.abs(end.x - start.x);
     const height = Math.abs(end.y - start.y);
 
-    // Skip tiny accidental drags
     if (width < 0.005 && height < 0.005) return;
 
     const measureNum = findMeasure(x + width / 2, y + height / 2);
@@ -232,13 +226,13 @@ export function AnnotationLayer({
     }
   }, [textColor, partId, findMeasure, onSaveStatusChange]);
 
-  // Pointer handlers
+  // Pointer handlers — mode is now 'ink', 'text', 'highlight' directly
   function handlePointerDown(e: ReactPointerEvent<SVGSVGElement>) {
-    if (mode !== 'draw') return;
+    if (mode !== 'ink' && mode !== 'highlight' && mode !== 'text') return;
     e.preventDefault();
     const pt = toNormalized(e);
 
-    if (tool === 'ink') {
+    if (mode === 'ink') {
       (e.target as Element).setPointerCapture(e.pointerId);
       isDrawing.current = true;
       if (commitTimer.current) {
@@ -246,12 +240,12 @@ export function AnnotationLayer({
         commitTimer.current = null;
       }
       setLivePoints([pt]);
-    } else if (tool === 'highlight') {
+    } else if (mode === 'highlight') {
       (e.target as Element).setPointerCapture(e.pointerId);
       isDrawing.current = true;
       hlStartRef.current = pt;
       setHlLiveEnd(pt);
-    } else if (tool === 'text') {
+    } else if (mode === 'text') {
       textTapRef.current = pt;
     }
   }
@@ -260,23 +254,22 @@ export function AnnotationLayer({
     if (!isDrawing.current) return;
     e.preventDefault();
     const pt = toNormalized(e);
-    if (tool === 'ink') {
+    if (mode === 'ink') {
       setLivePoints(prev => [...prev, pt]);
-    } else if (tool === 'highlight') {
+    } else if (mode === 'highlight') {
       setHlLiveEnd(pt);
     }
   }
 
   function handlePointerUp(e: ReactPointerEvent<SVGSVGElement>) {
-    // Text tool: tap detection (no drag)
-    if (tool === 'text' && textTapRef.current) {
+    // Text mode: tap detection
+    if (mode === 'text' && textTapRef.current) {
       e.preventDefault();
       const up = toNormalized(e);
       const start = textTapRef.current;
       textTapRef.current = null;
       const dist = Math.sqrt((up.x - start.x) ** 2 + (up.y - start.y) ** 2);
       if (dist < 0.01) {
-        // Commit any existing text, then open new input at tap point
         if (activeText && activeText.text.trim()) {
           commitText(activeText);
         }
@@ -289,7 +282,7 @@ export function AnnotationLayer({
     e.preventDefault();
     isDrawing.current = false;
 
-    if (tool === 'ink') {
+    if (mode === 'ink') {
       const pts = [...livePoints];
       setLivePoints([]);
       if (pts.length >= 2) {
@@ -303,7 +296,7 @@ export function AnnotationLayer({
         commitTimer.current = null;
         commitStrokes();
       }, 500);
-    } else if (tool === 'highlight') {
+    } else if (mode === 'highlight') {
       const start = hlStartRef.current;
       const end = toNormalized(e);
       hlStartRef.current = null;
@@ -312,7 +305,7 @@ export function AnnotationLayer({
     }
   }
 
-  // Commit pending work / reset state on mode/tool change
+  // Commit pending work / reset state on mode change
   useEffect(() => {
     if (pendingStrokes.current.length > 0) {
       if (commitTimer.current) {
@@ -323,14 +316,13 @@ export function AnnotationLayer({
     }
     hlStartRef.current = null;
     setHlLiveEnd(null);
-    // Auto-commit active text when switching away
     setActiveText(prev => {
       if (prev && prev.text.trim()) commitText(prev);
       return null;
     });
     textTapRef.current = null;
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [mode, tool]);
+  }, [mode]);
 
   // Cleanup timer on unmount
   useEffect(() => {
@@ -352,7 +344,7 @@ export function AnnotationLayer({
     return (anchor.page ?? anchor.pageHint) === currentPage;
   });
 
-  const isDrawMode = mode === 'draw';
+  const isDrawMode = mode === 'ink' || mode === 'highlight' || mode === 'text';
 
   // Build the live stroke SVG path
   let livePath = '';

@@ -334,17 +334,17 @@ function FullscreenViewer({
   const [numPages, setNumPages]       = useState(0);
   const [currentPage, setCurrentPage] = useState(1);
   const [loading, setLoading]         = useState(true);
-  const [tool, setTool]               = useState<Tool>('pointer');
-  const [color, setColor]             = useState(() =>
+  const [tool]               = useState<Tool>('pointer');
+  const [color]             = useState(() =>
     document.documentElement.getAttribute('data-theme') === 'dark'
       ? DARK_PEN_COLORS[1] : LIGHT_PEN_COLORS[1]
   );
-  const [hlColor, setHlColor]         = useState(() =>
+  const [hlColor]         = useState(() =>
     document.documentElement.getAttribute('data-theme') === 'dark'
       ? DARK_HL_COLORS[0] : LIGHT_HL_COLORS[0]
   );
-  const [strokeWidth, setStrokeWidth] = useState(PEN_WIDTHS[0]);
-  const [saving, setSaving]           = useState(false);
+  const [strokeWidth] = useState(PEN_WIDTHS[0]);
+  const [, setSaving]           = useState(false);
   const [hasUnsaved, setHasUnsaved]   = useState(false);
   const [notesOpen, setNotesOpen]     = useState(false);
   const [scoreInverted, setScoreInverted] = useState(isDark);
@@ -770,7 +770,8 @@ function FullscreenViewer({
     }
   }, [partId]);
 
-  // Save click: in edit mode with measure boxes, save directly. Otherwise use anchor dialog.
+  // Save click: legacy edit mode — retained for old canvas drawing pipeline
+  // @ts-expect-error unused while old edit toolbar is removed
   async function handleSaveClick() {
     if (!hasUnsaved || !partId) return;
 
@@ -914,8 +915,10 @@ function FullscreenViewer({
     setHasUnsaved(true);
   }
 
+  // @ts-expect-error legacy edit mode — retained for old canvas drawing pipeline
   const [deletingAnnotation, setDeletingAnnotation] = useState(false);
 
+  // @ts-expect-error legacy edit mode — retained for old canvas drawing pipeline
   async function handleDeleteAnnotation() {
     const annId = pageAnnotationIds.current.get(currentPage);
     if (!annId) return;
@@ -943,19 +946,16 @@ function FullscreenViewer({
       if (ev.key === 'ArrowRight' || ev.key === 'ArrowDown') goToPage(currentPage + 1);
       else if (ev.key === 'ArrowLeft' || ev.key === 'ArrowUp') goToPage(currentPage - 1);
       else if (ev.key === 'Escape') handleClose();
-      else if (ev.key === 'e') setMode(m => m === 'edit' ? 'view' : 'edit');
-      else if (mode === 'edit' && ev.key === 'p') setTool('pen');
-      else if (mode === 'edit' && ev.key === 'h') setTool('highlight');
-      else if (mode === 'edit' && ev.key === 'v') setTool('pointer');
+      else if ((ev.metaKey || ev.ctrlKey) && ev.key === 'e') {
+        ev.preventDefault();
+        setMode(m => m === 'edit' ? 'view' : 'edit');
+      }
       else if (mode === 'edit' && (ev.metaKey || ev.ctrlKey) && ev.key === 'z') { ev.preventDefault(); handleUndo(); }
     }
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [currentPage, numPages, hasUnsaved, tool, mode]);
-
-  const penPalette = isDark ? DARK_PEN_COLORS : LIGHT_PEN_COLORS;
-  const hlPalette  = isDark ? DARK_HL_COLORS  : LIGHT_HL_COLORS;
 
   return (
     <div style={{ position: 'fixed', inset: 0, zIndex: 1000, background: '#080812', display: 'flex', flexDirection: 'column' }}>
@@ -979,64 +979,7 @@ function FullscreenViewer({
 
         <div style={{ width: 1, height: 20, background: 'rgba(255,255,255,0.08)', flexShrink: 0 }} />
 
-        {/* ── Edit mode tools ── */}
-        {mode === 'edit' && (
-          <>
-            <button onClick={() => setTool('pointer')} style={tbBtn(tool === 'pointer')}>Pointer <span style={{ opacity: 0.4, fontSize: 9 }}>V</span></button>
-            <button onClick={() => setTool('pen')} style={tbBtn(tool === 'pen')}>Pen <span style={{ opacity: 0.4, fontSize: 9 }}>P</span></button>
-            <button onClick={() => setTool('highlight')} style={tbBtn(tool === 'highlight')}>Highlight <span style={{ opacity: 0.4, fontSize: 9 }}>H</span></button>
-
-            {/* Color palette */}
-            {(tool === 'pen' || tool === 'highlight') && (
-              <>
-                <div style={{ width: 1, height: 20, background: 'rgba(255,255,255,0.08)', flexShrink: 0 }} />
-                {(tool === 'pen' ? penPalette : hlPalette).map(c => (
-                  <button key={c} onClick={() => tool === 'pen' ? setColor(c) : setHlColor(c)} style={{
-                    width: 16, height: 16, borderRadius: '50%', border: 'none', cursor: 'pointer', flexShrink: 0,
-                    background: tool === 'highlight' ? c + '99' : c === '#1c1c28' ? '#e8e8e8' : c,
-                    outline: (tool === 'pen' ? color : hlColor) === c ? '2px solid #fff' : '2px solid transparent',
-                    outlineOffset: 2,
-                  }} />
-                ))}
-              </>
-            )}
-
-            {tool === 'pen' && (
-              <>
-                <div style={{ width: 1, height: 20, background: 'rgba(255,255,255,0.08)', flexShrink: 0 }} />
-                {PEN_WIDTHS.map(w => (
-                  <button key={w} onClick={() => setStrokeWidth(w)} style={{
-                    width: 26, height: 26, borderRadius: 5, border: 'none', flexShrink: 0,
-                    background: strokeWidth === w ? 'rgba(255,255,255,0.1)' : 'transparent',
-                    cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center',
-                  }}>
-                    <div style={{ width: w * 2.5, height: w * 2.5, borderRadius: '50%', background: color === '#1c1c28' ? '#e8e8e8' : color }} />
-                  </button>
-                ))}
-              </>
-            )}
-
-            <button onClick={handleUndo} style={{
-              ...tbBtn(false),
-              fontSize: 11, padding: '3px 8px',
-            }}>Undo <span style={{ opacity: 0.4, fontSize: 9 }}>⌘Z</span></button>
-
-            {pageAnnotationIds.current.has(currentPage) && (
-              <button
-                onClick={handleDeleteAnnotation}
-                disabled={deletingAnnotation}
-                style={{
-                  fontSize: 11, padding: '3px 8px', borderRadius: 5, cursor: 'pointer', flexShrink: 0,
-                  background: 'rgba(255,60,60,0.08)', border: '1px solid rgba(255,60,60,0.15)',
-                  color: '#e55', fontWeight: 500,
-                  opacity: deletingAnnotation ? 0.5 : 1,
-                }}
-              >
-                {deletingAnnotation ? 'Deleting…' : 'Delete'}
-              </button>
-            )}
-          </>
-        )}
+        {/* Old edit mode tools removed — annotation toolbar handles all modes now */}
 
         <div style={{ flex: 1 }} />
 
@@ -1064,49 +1007,7 @@ function FullscreenViewer({
           Notes
         </button>
 
-        {/* Edit / Done toggle */}
-        {partId && mode === 'view' && (
-          <button
-            onClick={() => { setMode('edit'); setTool('pen'); }}
-            style={{
-              background: 'rgba(52,211,153,0.12)',
-              border: '1px solid rgba(52,211,153,0.35)',
-              borderRadius: 6, color: '#6ee7b7',
-              cursor: 'pointer', fontSize: 11, fontWeight: 600,
-              padding: '4px 14px', flexShrink: 0,
-            }}
-          >
-            Edit <span style={{ opacity: 0.4, fontSize: 9 }}>E</span>
-          </button>
-        )}
-
-        {mode === 'edit' && (
-          <>
-            {partId && (
-              <button onClick={handleSaveClick} disabled={saving || !hasUnsaved} style={{
-                background: hasUnsaved ? '#5b4cf5' : 'rgba(255,255,255,0.04)',
-                border: `1px solid ${hasUnsaved ? 'rgba(124,111,247,0.4)' : 'rgba(255,255,255,0.07)'}`,
-                borderRadius: 6, color: hasUnsaved ? '#fff' : '#444',
-                cursor: hasUnsaved ? 'pointer' : 'default',
-                fontSize: 11, fontWeight: 600, padding: '4px 12px', flexShrink: 0,
-              }}>
-                {saving ? '…' : hasUnsaved ? 'Save' : '✓ Saved'}
-              </button>
-            )}
-            <button
-              onClick={() => { setMode('view'); setTool('pointer'); }}
-              style={{
-                background: 'rgba(255,255,255,0.06)',
-                border: '1px solid rgba(255,255,255,0.12)',
-                borderRadius: 6, color: '#999',
-                cursor: 'pointer', fontSize: 11, fontWeight: 500,
-                padding: '4px 12px', flexShrink: 0,
-              }}
-            >
-              Done
-            </button>
-          </>
-        )}
+        {/* Edit / Done toggle — old buttons removed, annotation toolbar handles mode switching */}
 
         <button onClick={handleClose} style={{
           background: 'none', border: 'none', color: '#555',
@@ -1130,8 +1031,6 @@ function FullscreenViewer({
             <AnnotationToolbar
               mode={annotationMode.mode}
               onModeChange={annotationMode.setMode}
-              tool={annotationMode.tool}
-              onToolChange={annotationMode.setTool}
               inkColor={annotationMode.inkColor}
               onInkColorChange={annotationMode.setInkColor}
               textColor={annotationMode.textColor}
@@ -1176,7 +1075,6 @@ function FullscreenViewer({
                   canvasWidth={canvasDims.w}
                   canvasHeight={canvasDims.h}
                   mode={annotationMode.mode}
-                  tool={annotationMode.tool}
                   inkColor={annotationMode.inkColor}
                   highlightColor={annotationMode.highlightColor}
                   textColor={annotationMode.textColor}

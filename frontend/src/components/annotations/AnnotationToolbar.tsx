@@ -1,5 +1,4 @@
-import { AnnotationMode, Tool } from '../../hooks/useAnnotationMode';
-import { ColorPicker } from './ColorPicker';
+import { AnnotationMode } from '../../hooks/useAnnotationMode';
 import { SaveStatusIndicator, SaveStatus } from './SaveStatusIndicator';
 
 const INK_COLORS = [
@@ -19,8 +18,6 @@ const HIGHLIGHT_COLORS = [
 interface Props {
   mode: AnnotationMode;
   onModeChange: (mode: AnnotationMode) => void;
-  tool: Tool;
-  onToolChange: (tool: Tool) => void;
   inkColor: string;
   onInkColorChange: (color: string) => void;
   textColor: string;
@@ -32,38 +29,36 @@ interface Props {
 
 const MODES: { value: AnnotationMode; label: string }[] = [
   { value: 'read', label: 'Read' },
-  { value: 'draw', label: 'Draw' },
+  { value: 'ink', label: 'Ink' },
+  { value: 'text', label: 'Text' },
+  { value: 'highlight', label: 'Highlight' },
   { value: 'select', label: 'Select' },
   { value: 'erase', label: 'Erase' },
 ];
 
-const TOOLS: { value: Tool; label: string }[] = [
-  { value: 'ink', label: 'Ink' },
-  { value: 'text', label: 'Text' },
-  { value: 'highlight', label: 'Highlight' },
-];
+const ACCENT = '#7c6ff7';
+const ACCENT_BG = 'rgba(124, 111, 247, 0.22)';
+const ACCENT_BORDER = 'rgba(124, 111, 247, 0.4)';
+const SURFACE = '#16152a';
+const SURFACE_BORDER = 'rgba(255,255,255,0.08)';
 
 export function AnnotationToolbar({
   mode, onModeChange,
-  tool, onToolChange,
   inkColor, onInkColorChange,
   textColor, onTextColorChange,
   highlightColor, onHighlightColorChange,
   saveStatus,
 }: Props) {
-  const activeColors =
-    tool === 'ink' ? INK_COLORS :
-    tool === 'text' ? INK_COLORS :
-    HIGHLIGHT_COLORS;
-
+  // Determine which color palette and handler to show
+  const showColors = mode === 'ink' || mode === 'text' || mode === 'highlight';
+  const activeColors = mode === 'highlight' ? HIGHLIGHT_COLORS : INK_COLORS;
   const activeColor =
-    tool === 'ink' ? inkColor :
-    tool === 'text' ? textColor :
+    mode === 'ink' ? inkColor :
+    mode === 'text' ? textColor :
     highlightColor;
-
   const onColorChange =
-    tool === 'ink' ? onInkColorChange :
-    tool === 'text' ? onTextColorChange :
+    mode === 'ink' ? onInkColorChange :
+    mode === 'text' ? onTextColorChange :
     onHighlightColorChange;
 
   return (
@@ -83,11 +78,11 @@ export function AnnotationToolbar({
         display: 'flex',
         alignItems: 'center',
         gap: 2,
-        background: '#fff',
-        border: '1px solid var(--border)',
+        background: SURFACE,
+        border: `1px solid ${SURFACE_BORDER}`,
         borderRadius: 12,
         padding: 3,
-        boxShadow: '0 2px 12px rgba(0,0,0,0.08)',
+        boxShadow: '0 4px 20px rgba(0,0,0,0.35)',
         pointerEvents: 'auto',
       }}>
         {MODES.map(m => (
@@ -95,77 +90,68 @@ export function AnnotationToolbar({
             key={m.value}
             onClick={() => onModeChange(m.value)}
             style={{
-              height: 36,
-              padding: '0 16px',
-              fontSize: 13,
+              height: 34,
+              padding: '0 14px',
+              fontSize: 12,
               fontWeight: 600,
               fontFamily: 'inherit',
-              border: 'none',
+              border: mode === m.value ? `1px solid ${ACCENT_BORDER}` : '1px solid transparent',
               borderRadius: 9,
               cursor: 'pointer',
               transition: 'all 0.12s',
-              background: mode === m.value ? '#1f2937' : 'transparent',
-              color: mode === m.value ? '#fff' : '#374151',
+              background: mode === m.value ? ACCENT_BG : 'transparent',
+              color: mode === m.value ? '#c4bcff' : '#777',
             }}
           >
             {m.label}
           </button>
         ))}
-        <div style={{ width: 1, height: 20, background: 'var(--border)', margin: '0 4px' }} />
+        <div style={{ width: 1, height: 20, background: SURFACE_BORDER, margin: '0 4px' }} />
         <SaveStatusIndicator status={saveStatus} />
       </div>
 
-      {/* Tool row — only when Draw mode */}
-      {mode === 'draw' && (
+      {/* Color picker row — shown for ink, text, highlight */}
+      {showColors && (
         <div style={{
           display: 'flex',
           alignItems: 'center',
-          gap: 8,
-          background: '#fff',
-          border: '1px solid var(--border)',
+          gap: 6,
+          background: SURFACE,
+          border: `1px solid ${SURFACE_BORDER}`,
           borderRadius: 10,
-          padding: '4px 10px',
-          boxShadow: '0 2px 8px rgba(0,0,0,0.06)',
+          padding: '5px 12px',
+          boxShadow: '0 4px 16px rgba(0,0,0,0.3)',
           marginTop: 4,
           pointerEvents: 'auto',
           animation: 'toolRowSlideIn 0.15s ease-out',
         }}>
-          {/* Tool buttons */}
-          {TOOLS.map(t => (
-            <button
-              key={t.value}
-              onClick={() => onToolChange(t.value)}
-              style={{
-                height: 30,
-                padding: '0 12px',
-                fontSize: 12,
-                fontWeight: 600,
-                fontFamily: 'inherit',
-                border: 'none',
-                borderRadius: 7,
-                cursor: 'pointer',
-                transition: 'all 0.12s',
-                background: tool === t.value ? '#e5e7eb' : 'transparent',
-                color: tool === t.value ? '#111827' : '#6b7280',
-              }}
-            >
-              {t.label}
-            </button>
-          ))}
-
-          {/* Separator */}
-          <div style={{ width: 1, height: 18, background: 'var(--border)' }} />
-
-          {/* Color picker */}
-          <ColorPicker
-            colors={activeColors}
-            selected={activeColor}
-            onChange={onColorChange}
-          />
+          {activeColors.map(c => {
+            const isActive = c === activeColor;
+            return (
+              <button
+                key={c}
+                onClick={() => onColorChange(c)}
+                style={{
+                  width: 22,
+                  height: 22,
+                  borderRadius: 99,
+                  border: 'none',
+                  outline: isActive ? `2px solid ${ACCENT}` : '2px solid transparent',
+                  outlineOffset: 2,
+                  background: c,
+                  cursor: 'pointer',
+                  padding: 0,
+                  boxSizing: 'border-box',
+                  transition: 'outline-color 0.1s',
+                  flexShrink: 0,
+                  boxShadow: isActive ? `0 0 8px ${ACCENT}44` : 'none',
+                }}
+              />
+            );
+          })}
         </div>
       )}
 
-      {/* Keyframe for slide-in animation */}
       <style>{`
         @keyframes toolRowSlideIn {
           from { opacity: 0; transform: translateY(-4px); }
