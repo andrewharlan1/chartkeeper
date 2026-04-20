@@ -126,6 +126,7 @@ export function PlayerView() {
                               </p>
                               <PdfViewer
                                 url={`/parts/${p.partId}/pdf`}
+                                partId={p.partId}
                                 title={`${p.partName} — ${versionName}`}
                               />
                             </div>
