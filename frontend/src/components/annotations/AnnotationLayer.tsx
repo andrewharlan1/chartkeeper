@@ -23,6 +23,7 @@ interface Props {
   fontFamily: FontFamily;
   selectedAnnotationId: string | null;
   onSelectionChange: (id: string | null) => void;
+  onSelectedKindChange?: (kind: 'ink' | 'text' | 'highlight' | null) => void;
   onSaveStatusChange: (status: SaveStatus) => void;
   onHistoryChange?: (canUndo: boolean, canRedo: boolean, undo: () => void, redo: () => void) => void;
   onInkColorChange?: (color: string) => void;
@@ -86,6 +87,7 @@ export function AnnotationLayer({
   fontFamily,
   selectedAnnotationId,
   onSelectionChange,
+  onSelectedKindChange,
   onSaveStatusChange,
   onHistoryChange,
   onInkColorChange,
@@ -647,11 +649,17 @@ export function AnnotationLayer({
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, [history.canUndo, history.canRedo, handleUndo, handleRedo, selectedAnnotationId, activeText, deleteSelectedAnnotation]);
 
-  // Sync toolbar color to selected annotation's color on selection
+  // Sync toolbar color and report kind to selected annotation on selection
   useEffect(() => {
-    if (!selectedAnnotationId) return;
+    if (!selectedAnnotationId) {
+      onSelectedKindChange?.(null);
+      return;
+    }
     const ann = annotations.find(a => a.id === selectedAnnotationId);
-    if (!ann) return;
+    if (!ann) { onSelectedKindChange?.(null); return; }
+    if (ann.kind === 'ink' || ann.kind === 'text' || ann.kind === 'highlight') {
+      onSelectedKindChange?.(ann.kind);
+    }
     if (ann.kind === 'ink') {
       const c = ann.contentJson as InkContent;
       const color = c.strokes[0]?.color;
@@ -749,15 +757,22 @@ export function AnnotationLayer({
         const bb = getAnnotationBBox(a);
         if (bb && pointInBBox(pt.x, pt.y, bb)) { hit = a; break; }
       }
-      // Double-click on text annotation → enter edit mode
+      // Double-click detection
       const now = Date.now();
-      if (hit && hit.kind === 'text' && hit.id === lastClickRef.current.id && now - lastClickRef.current.time < 400) {
-        const tc = hit.contentJson as TextContent;
-        onSelectionChange(null);
-        setActiveText({ x: tc.boundingBox.x, y: tc.boundingBox.y, text: tc.text });
-        // Delete the old annotation — commitText will create a new one on blur
-        setAnnotations(prev => prev.filter(a => a.id !== hit!.id));
-        deleteAnnotation(hit.id).catch(() => {});
+      if (hit && hit.id === lastClickRef.current.id && now - lastClickRef.current.time < 400) {
+        if (hit.kind === 'text') {
+          // Double-click text → enter edit mode
+          const tc = hit.contentJson as TextContent;
+          onSelectionChange(null);
+          setActiveText({ x: tc.boundingBox.x, y: tc.boundingBox.y, text: tc.text });
+          setAnnotations(prev => prev.filter(a => a.id !== hit!.id));
+          deleteAnnotation(hit.id).catch(() => {});
+        } else {
+          // Double-click non-text → delete
+          onSelectionChange(null);
+          setFadingIds(prev => new Set(prev).add(hit!.id));
+          setTimeout(() => commitErases([hit!.id]), 150);
+        }
         lastClickRef.current = { time: 0, id: null };
         return;
       }
@@ -1254,6 +1269,8 @@ export function AnnotationLayer({
           from { opacity: 0; }
           to { opacity: 1; }
         }
+        .sel-delete-btn { color: #999; transition: color 0.12s; }
+        .sel-delete-btn:hover { color: #DC2626; }
       `}</style>
     </svg>
   );

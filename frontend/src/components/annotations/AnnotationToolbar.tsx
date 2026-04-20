@@ -43,6 +43,8 @@ interface Props {
   canRedo?: boolean;
   onUndo?: () => void;
   onRedo?: () => void;
+  /** Kind of the currently selected annotation (for showing color picker in select mode) */
+  selectedAnnotationKind?: 'ink' | 'text' | 'highlight' | null;
 }
 
 const MODES: { value: AnnotationMode; label: string }[] = [
@@ -95,16 +97,19 @@ export function AnnotationToolbar({
   fontFamily, onFontFamilyChange,
   saveStatus,
   canUndo, canRedo, onUndo, onRedo,
+  selectedAnnotationKind,
 }: Props) {
-  const showColors = mode === 'ink' || mode === 'text' || mode === 'highlight';
-  const activeColors = mode === 'highlight' ? HIGHLIGHT_COLORS : INK_COLORS;
+  // Effective kind: use selected annotation's kind in select mode, otherwise the current mode
+  const effectiveKind = mode === 'select' && selectedAnnotationKind ? selectedAnnotationKind : mode;
+  const showColors = effectiveKind === 'ink' || effectiveKind === 'text' || effectiveKind === 'highlight';
+  const activeColors = effectiveKind === 'highlight' ? HIGHLIGHT_COLORS : INK_COLORS;
   const activeColor =
-    mode === 'ink' ? inkColor :
-    mode === 'text' ? textColor :
+    effectiveKind === 'ink' ? inkColor :
+    effectiveKind === 'text' ? textColor :
     highlightColor;
   const onColorChange =
-    mode === 'ink' ? onInkColorChange :
-    mode === 'text' ? onTextColorChange :
+    effectiveKind === 'ink' ? onInkColorChange :
+    effectiveKind === 'text' ? onTextColorChange :
     onHighlightColorChange;
 
   // Find current font size index for +/- buttons

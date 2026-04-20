@@ -113,17 +113,27 @@ export function SelectionOverlay({
         />
       ))}
 
-      {/* Delete button — top-right, outside handles */}
+      {/* Delete button — bottom-right, hand-drawn trash icon */}
       {onDeleteClick && (
         <g
-          transform={`translate(${rx + rw + 10}, ${ry - 2})`}
+          className="sel-delete-btn"
+          transform={`translate(${rx + rw + 10}, ${ry + rh + 2})`}
           style={{ cursor: 'pointer' }}
           onPointerDown={e => e.stopPropagation()}
           onClick={e => { e.stopPropagation(); onDeleteClick(); }}
         >
-          <circle cx={0} cy={0} r={9} fill="#DC2626" opacity={0.9} />
-          <line x1={-3} y1={-3} x2={3} y2={3} stroke="white" strokeWidth={1.5} strokeLinecap="round" />
-          <line x1={3} y1={-3} x2={-3} y2={3} stroke="white" strokeWidth={1.5} strokeLinecap="round" />
+          <circle cx={0} cy={0} r={11} fill="transparent" />
+          {/* Trash can: lid */}
+          <line x1={-5} y1={-4} x2={5} y2={-4} stroke="currentColor" strokeWidth={1.5} strokeLinecap="round" />
+          <line x1={-1} y1={-6} x2={1} y2={-6} stroke="currentColor" strokeWidth={1.5} strokeLinecap="round" />
+          <line x1={-1} y1={-6} x2={-1} y2={-4} stroke="currentColor" strokeWidth={1.3} strokeLinecap="round" />
+          <line x1={1} y1={-6} x2={1} y2={-4} stroke="currentColor" strokeWidth={1.3} strokeLinecap="round" />
+          {/* Trash can: body */}
+          <path d="M-4,-4 L-3.5,5 Q-3.5,6 -2.5,6 L2.5,6 Q3.5,6 3.5,5 L4,-4"
+            fill="none" stroke="currentColor" strokeWidth={1.5} strokeLinecap="round" strokeLinejoin="round" />
+          {/* Trash can: lines */}
+          <line x1={-1.5} y1={-1} x2={-1.5} y2={4} stroke="currentColor" strokeWidth={1} strokeLinecap="round" />
+          <line x1={1.5} y1={-1} x2={1.5} y2={4} stroke="currentColor" strokeWidth={1} strokeLinecap="round" />
         </g>
       )}
     </g>
