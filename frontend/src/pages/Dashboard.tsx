@@ -1,47 +1,12 @@
-import { useEffect, useState, FormEvent, useRef } from 'react';
+import { useEffect, useState, FormEvent } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
-import { getEnsemble, createEnsemble, deleteEnsemble } from '../api/ensembles';
+import { getEnsembles, createEnsemble, deleteEnsemble } from '../api/ensembles';
 import { useAuth } from '../hooks/useAuth';
 import { Ensemble } from '../types';
 import { Layout } from '../components/Layout';
 import { Button } from '../components/Button';
 import { Modal } from '../components/Modal';
 import { ApiError } from '../api/client';
-
-const ENSEMBLE_IDS_KEY = 'ensemble_ids';
-const ENSEMBLE_ORDER_KEY = 'ensemble_order';
-
-function getStoredEnsembleIds(): string[] {
-  try { return JSON.parse(localStorage.getItem(ENSEMBLE_IDS_KEY) ?? '[]'); }
-  catch { return []; }
-}
-
-export function addEnsembleId(id: string) {
-  const ids = getStoredEnsembleIds();
-  if (!ids.includes(id)) localStorage.setItem(ENSEMBLE_IDS_KEY, JSON.stringify([...ids, id]));
-}
-
-function removeEnsembleId(id: string) {
-  const ids = getStoredEnsembleIds();
-  localStorage.setItem(ENSEMBLE_IDS_KEY, JSON.stringify(ids.filter(i => i !== id)));
-  try {
-    const order: string[] = JSON.parse(localStorage.getItem(ENSEMBLE_ORDER_KEY) ?? '[]');
-    localStorage.setItem(ENSEMBLE_ORDER_KEY, JSON.stringify(order.filter(i => i !== id)));
-  } catch { /* ignore */ }
-}
-
-function getSavedOrder(): string[] {
-  try { return JSON.parse(localStorage.getItem(ENSEMBLE_ORDER_KEY) ?? '[]'); }
-  catch { return []; }
-}
-
-function applyOrder(ensembles: Ensemble[], order: string[]): Ensemble[] {
-  if (!order.length) return ensembles;
-  const map = new Map(ensembles.map(e => [e.id, e]));
-  const ordered = order.map(id => map.get(id)).filter(Boolean) as Ensemble[];
-  const rest = ensembles.filter(e => !order.includes(e.id));
-  return [...ordered, ...rest];
-}
 
 function greeting(name: string | undefined): string {
   const h = new Date().getHours();
@@ -51,7 +16,6 @@ function greeting(name: string | undefined): string {
   return `Good evening, ${first}`;
 }
 
-// Deterministic gradient from ensemble name
 function ensembleGradient(name: string): string {
   let hash = 0;
   for (let i = 0; i < name.length; i++) hash = name.charCodeAt(i) + ((hash << 5) - hash);
@@ -61,7 +25,7 @@ function ensembleGradient(name: string): string {
 }
 
 export function Dashboard() {
-  const { user } = useAuth();
+  const { user, workspaceId } = useAuth();
   const navigate = useNavigate();
   const [ensembles, setEnsembles] = useState<Ensemble[]>([]);
   const [loading, setLoading] = useState(true);
@@ -69,26 +33,18 @@ export function Dashboard() {
   const [newName, setNewName] = useState('');
   const [creating, setCreating] = useState(false);
   const [createError, setCreateError] = useState('');
-  const [menuOpen, setMenuOpen] = useState<string | null>(null);
   const [deletingId, setDeletingId] = useState<string | null>(null);
-
-  // Drag-to-reorder state
-  const dragId   = useRef<string | null>(null);
-  const dragOver = useRef<string | null>(null);
+  const [menuOpen, setMenuOpen] = useState<string | null>(null);
 
   useEffect(() => {
     if (!user) { navigate('/login'); return; }
-    const ids = getStoredEnsembleIds();
-    Promise.all(ids.map(id => getEnsemble(id).then(r => r.ensemble).catch(() => null)))
-      .then(results => {
-        const valid = results.filter(Boolean) as Ensemble[];
-        const ordered = applyOrder(valid, getSavedOrder());
-        setEnsembles(ordered);
-      })
+    if (!workspaceId) { setLoading(false); return; }
+    getEnsembles(workspaceId)
+      .then(r => setEnsembles(r.ensembles))
+      .catch(() => {})
       .finally(() => setLoading(false));
-  }, [user, navigate]);
+  }, [user, workspaceId, navigate]);
 
-  // Close menu on outside click
   useEffect(() => {
     if (!menuOpen) return;
     const close = () => setMenuOpen(null);
@@ -98,11 +54,11 @@ export function Dashboard() {
 
   async function handleCreate(e: FormEvent) {
     e.preventDefault();
+    if (!workspaceId) return;
     setCreateError('');
     setCreating(true);
     try {
-      const { ensemble } = await createEnsemble(newName.trim());
-      addEnsembleId(ensemble.id);
+      const { ensemble } = await createEnsemble(workspaceId, newName.trim());
       setEnsembles(prev => [ensemble, ...prev]);
       setShowCreate(false);
       setNewName('');
@@ -113,16 +69,15 @@ export function Dashboard() {
     }
   }
 
-  async function handleDelete(e: React.MouseEvent, id: string) {
-    e.preventDefault();
-    e.stopPropagation();
+  async function handleDelete(ev: React.MouseEvent, id: string) {
+    ev.preventDefault();
+    ev.stopPropagation();
     const ens = ensembles.find(e => e.id === id);
     if (!confirm(`Delete "${ens?.name ?? 'this ensemble'}"? This cannot be undone.`)) return;
     setDeletingId(id);
     setMenuOpen(null);
     try {
       await deleteEnsemble(id);
-      removeEnsembleId(id);
       setEnsembles(prev => prev.filter(e => e.id !== id));
     } catch (err) {
       alert(err instanceof ApiError ? err.message : 'Failed to delete ensemble');
@@ -131,45 +86,25 @@ export function Dashboard() {
     }
   }
 
-  function onDragStart(id: string) { dragId.current = id; }
-  function onDragEnter(id: string) { dragOver.current = id; }
-  function onDragEnd() {
-    if (!dragId.current || !dragOver.current || dragId.current === dragOver.current) {
-      dragId.current = null; dragOver.current = null; return;
-    }
-    setEnsembles(prev => {
-      const arr = [...prev];
-      const fromIdx = arr.findIndex(e => e.id === dragId.current);
-      const toIdx   = arr.findIndex(e => e.id === dragOver.current);
-      const [item] = arr.splice(fromIdx, 1);
-      arr.splice(toIdx, 0, item);
-      localStorage.setItem(ENSEMBLE_ORDER_KEY, JSON.stringify(arr.map(e => e.id)));
-      return arr;
-    });
-    dragId.current = null; dragOver.current = null;
-  }
-
   return (
     <Layout actions={<Button onClick={() => setShowCreate(true)}>+ New Ensemble</Button>}>
-      {/* ── Gradient greeting banner ── */}
+      {/* Greeting banner */}
       <div style={{
         borderRadius: 16, padding: '28px 32px', marginBottom: 32,
         background: 'var(--banner-gradient)', position: 'relative', overflow: 'hidden',
       }}>
         <div style={{ position: 'absolute', right: -20, top: -20, width: 160, height: 160, borderRadius: '50%', background: 'rgba(91,76,245,0.07)', pointerEvents: 'none' }} />
-        <div style={{ position: 'absolute', right: 60, bottom: -40, width: 100, height: 100, borderRadius: '50%', background: 'rgba(26,159,212,0.06)', pointerEvents: 'none' }} />
         <p style={{ fontSize: 13, fontWeight: 600, color: 'var(--banner-label)', letterSpacing: '0.04em', textTransform: 'uppercase', marginBottom: 6 }}>Scorva</p>
         <h1 style={{ fontSize: 28, fontWeight: 800, color: 'var(--banner-text)', letterSpacing: '-0.04em', lineHeight: 1.2, marginBottom: 6 }}>
           {greeting(user?.name || user?.email)}
         </h1>
         <p style={{ fontSize: 14, color: 'var(--banner-subtext)', fontWeight: 400 }}>
-          {ensembles.length === 0 ? 'Create your first ensemble to get started.' : `${ensembles.length} ensemble${ensembles.length !== 1 ? 's' : ''} · Your music, organized.`}
+          {ensembles.length === 0 ? 'Create your first ensemble to get started.' : `${ensembles.length} ensemble${ensembles.length !== 1 ? 's' : ''}`}
         </p>
       </div>
 
-      {/* ── Ensemble list ── */}
       {loading ? (
-        <p style={{ color: 'var(--text-muted)' }}>Loading…</p>
+        <p style={{ color: 'var(--text-muted)' }}>Loading...</p>
       ) : ensembles.length === 0 ? (
         <div style={{ textAlign: 'center', padding: '48px 0', color: 'var(--text-muted)' }}>
           <p style={{ marginBottom: 16, fontSize: 15 }}>No ensembles yet.</p>
@@ -177,14 +112,9 @@ export function Dashboard() {
         </div>
       ) : (
         <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-          {ensembles.map(e => (
+          {ensembles.map(ens => (
             <div
-              key={e.id}
-              draggable
-              onDragStart={() => onDragStart(e.id)}
-              onDragEnter={() => onDragEnter(e.id)}
-              onDragEnd={onDragEnd}
-              onDragOver={ev => ev.preventDefault()}
+              key={ens.id}
               style={{
                 position: 'relative',
                 borderRadius: 12,
@@ -192,48 +122,45 @@ export function Dashboard() {
                 boxShadow: 'var(--shadow-sm)',
                 overflow: 'hidden',
                 background: 'var(--surface-raised)',
-                opacity: deletingId === e.id ? 0.4 : 1,
+                opacity: deletingId === ens.id ? 0.4 : 1,
                 transition: 'opacity 0.15s',
-                cursor: 'grab',
               }}
             >
-              {/* Color banner strip */}
-              <div style={{ height: 5, background: ensembleGradient(e.name) }} />
+              <div style={{ height: 5, background: ensembleGradient(ens.name) }} />
 
               <Link
-                to={`/ensembles/${e.id}`}
+                to={`/ensembles/${ens.id}`}
                 style={{
                   display: 'flex', alignItems: 'center', justifyContent: 'space-between',
                   padding: '14px 16px', color: 'var(--text)', textDecoration: 'none',
                 }}
-                onClick={ev => { if (menuOpen === e.id) ev.preventDefault(); }}
+                onClick={ev => { if (menuOpen === ens.id) ev.preventDefault(); }}
               >
                 <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
                   <div style={{
                     width: 36, height: 36, borderRadius: 10, flexShrink: 0,
-                    background: ensembleGradient(e.name),
+                    background: ensembleGradient(ens.name),
                     display: 'flex', alignItems: 'center', justifyContent: 'center',
                     fontSize: 15, fontWeight: 700, color: '#fff',
                     boxShadow: '0 2px 8px rgba(0,0,0,0.2)',
                   }}>
-                    {(e.name?.[0] ?? '?').toUpperCase()}
+                    {(ens.name?.[0] ?? '?').toUpperCase()}
                   </div>
-                  <span style={{ fontWeight: 600, fontSize: 15 }}>{e.name}</span>
+                  <span style={{ fontWeight: 600, fontSize: 15 }}>{ens.name}</span>
                 </div>
 
-                {/* Options menu */}
                 <div style={{ position: 'relative' }} onClick={ev => ev.preventDefault()}>
                   <button
-                    onClick={ev => { ev.preventDefault(); ev.stopPropagation(); setMenuOpen(menuOpen === e.id ? null : e.id); }}
+                    onClick={ev => { ev.preventDefault(); ev.stopPropagation(); setMenuOpen(menuOpen === ens.id ? null : ens.id); }}
                     style={{
                       background: 'none', border: 'none', cursor: 'pointer',
                       color: 'var(--text-faint)', fontSize: 18, lineHeight: 1,
                       padding: '4px 8px', borderRadius: 6,
                     }}
                     title="Options"
-                  >⋮</button>
+                  >{'\u22EE'}</button>
 
-                  {menuOpen === e.id && (
+                  {menuOpen === ens.id && (
                     <div
                       onClick={ev => ev.stopPropagation()}
                       style={{
@@ -244,8 +171,8 @@ export function Dashboard() {
                       }}
                     >
                       <button
-                        onClick={ev => handleDelete(ev, e.id)}
-                        disabled={deletingId === e.id}
+                        onClick={ev => handleDelete(ev, ens.id)}
+                        disabled={deletingId === ens.id}
                         style={{
                           width: '100%', padding: '8px 14px', textAlign: 'left',
                           background: 'none', border: 'none', cursor: 'pointer',

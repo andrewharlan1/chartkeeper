@@ -2,9 +2,8 @@ import { ReactNode, useEffect, useState, FormEvent } from 'react';
 import { Link, useNavigate, useLocation } from 'react-router-dom';
 import { useAuth } from '../hooks/useAuth';
 import { useDarkMode } from '../hooks/useDarkMode';
-import { getMyEnsembles, createEnsemble } from '../api/ensembles';
+import { getEnsembles, createEnsemble } from '../api/ensembles';
 import { Ensemble } from '../types';
-import { addEnsembleId } from '../pages/Dashboard';
 
 interface Props {
   children: ReactNode;
@@ -14,7 +13,7 @@ interface Props {
 }
 
 export function Layout({ children, title, back, actions }: Props) {
-  const { user, logout } = useAuth();
+  const { user, workspaceId, logout } = useAuth();
   const navigate = useNavigate();
   const location = useLocation();
   const isPlayerView = location.pathname === '/my-parts';
@@ -26,9 +25,9 @@ export function Layout({ children, title, back, actions }: Props) {
   const [sidebarOpen, setSidebarOpen] = useState(true);
 
   useEffect(() => {
-    if (!user) return;
-    getMyEnsembles().then(r => setEnsembles(r.ensembles)).catch(() => {});
-  }, [user]);
+    if (!user || !workspaceId) return;
+    getEnsembles(workspaceId).then(r => setEnsembles(r.ensembles)).catch(() => {});
+  }, [user, workspaceId]);
 
   function handleLogout() {
     logout();
@@ -37,11 +36,10 @@ export function Layout({ children, title, back, actions }: Props) {
 
   async function handleCreateEnsemble(e: FormEvent) {
     e.preventDefault();
-    if (!newName.trim()) return;
+    if (!newName.trim() || !workspaceId) return;
     setCreating(true);
     try {
-      const { ensemble } = await createEnsemble(newName.trim());
-      addEnsembleId(ensemble.id);
+      const { ensemble } = await createEnsemble(workspaceId, newName.trim());
       setEnsembles(prev => [...prev, ensemble]);
       setNewName('');
       setShowNewEnsemble(false);
@@ -62,7 +60,7 @@ export function Layout({ children, title, back, actions }: Props) {
   return (
     <div style={{ minHeight: '100vh', display: 'flex', background: 'var(--bg)' }}>
 
-      {/* ── Collapse toggle ── */}
+      {/* Collapse toggle */}
       <button
         onClick={() => setSidebarOpen(o => !o)}
         title={sidebarOpen ? 'Collapse sidebar' : 'Open sidebar'}
@@ -79,9 +77,9 @@ export function Layout({ children, title, back, actions }: Props) {
           display: 'flex', alignItems: 'center', justifyContent: 'center',
           transition: 'left 0.2s ease',
         }}
-      >{sidebarOpen ? '←' : '→'}</button>
+      >{sidebarOpen ? '\u2190' : '\u2192'}</button>
 
-      {/* ── Sidebar ──────────────────────────────────────────────── */}
+      {/* Sidebar */}
       <aside style={{
         width: sidebarOpen ? 'var(--sidebar-width)' : 0,
         minWidth: sidebarOpen ? 'var(--sidebar-width)' : 0,
@@ -94,7 +92,7 @@ export function Layout({ children, title, back, actions }: Props) {
         transition: 'width 0.2s ease, min-width 0.2s ease',
       }}>
 
-        {/* ── Sidebar banner ── */}
+        {/* Sidebar banner */}
         <div style={{
           padding: '14px 14px 12px',
           background: 'linear-gradient(160deg, var(--accent-subtle) 0%, transparent 100%)',
@@ -102,7 +100,6 @@ export function Layout({ children, title, back, actions }: Props) {
           flexShrink: 0,
         }}>
           <Link to="/" style={{ textDecoration: 'none', display: 'flex', alignItems: 'center', gap: 9 }}>
-            {/* Logo: stacked music lines */}
             <div style={{
               width: 28, height: 28, borderRadius: 8, flexShrink: 0,
               background: 'linear-gradient(145deg, #5b4cf5 0%, #38b2f5 100%)',
@@ -140,7 +137,6 @@ export function Layout({ children, title, back, actions }: Props) {
                 to: '/', active: !isPlayerView, label: 'Band',
                 icon: (
                   <svg width="13" height="11" viewBox="0 0 13 11" fill="none" style={{ flexShrink: 0 }}>
-                    {/* Two overlapping people silhouettes */}
                     <circle cx="4.5" cy="2.5" r="2" fill="currentColor" opacity="0.9"/>
                     <path d="M0.5 10c0-2.2 1.8-4 4-4s4 1.8 4 4" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" fill="none" opacity="0.9"/>
                     <circle cx="9.5" cy="2.5" r="1.6" fill="currentColor" opacity="0.6"/>
@@ -152,7 +148,6 @@ export function Layout({ children, title, back, actions }: Props) {
                 to: '/my-parts', active: isPlayerView, label: 'My parts',
                 icon: (
                   <svg width="11" height="13" viewBox="0 0 11 13" fill="none" style={{ flexShrink: 0 }}>
-                    {/* Single person + document */}
                     <circle cx="5.5" cy="2.8" r="2.2" fill="currentColor"/>
                     <path d="M1 12c0-2.5 2-4.5 4.5-4.5S10 9.5 10 12" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" fill="none"/>
                   </svg>
@@ -205,7 +200,7 @@ export function Layout({ children, title, back, actions }: Props) {
               <input
                 value={newName}
                 onChange={e => setNewName(e.target.value)}
-                placeholder="Name…"
+                placeholder="Name..."
                 autoFocus
                 style={{ flex: 1, padding: '4px 8px', fontSize: 12, borderRadius: 6 }}
               />
@@ -215,7 +210,7 @@ export function Layout({ children, title, back, actions }: Props) {
                 padding: '4px 9px', opacity: creating || !newName.trim() ? 0.5 : 1,
                 fontFamily: 'inherit', flexShrink: 0,
               }}>
-                {creating ? '…' : 'Add'}
+                {creating ? '...' : 'Add'}
               </button>
             </form>
           )}
@@ -226,12 +221,12 @@ export function Layout({ children, title, back, actions }: Props) {
                 No ensembles yet
               </p>
             ) : (
-              ensembles.map(e => {
-                const active = location.pathname.startsWith(`/ensembles/${e.id}`);
+              ensembles.map(ens => {
+                const active = location.pathname.startsWith(`/ensembles/${ens.id}`);
                 return (
                   <Link
-                    key={e.id}
-                    to={`/ensembles/${e.id}`}
+                    key={ens.id}
+                    to={`/ensembles/${ens.id}`}
                     style={{
                       display: 'block', padding: '5px 9px',
                       borderRadius: 'var(--radius-xs)', fontSize: 13,
@@ -242,20 +237,8 @@ export function Layout({ children, title, back, actions }: Props) {
                       overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
                       transition: 'all var(--transition)',
                     }}
-                    onMouseEnter={e2 => {
-                      if (!active) {
-                        (e2.currentTarget as HTMLElement).style.background = 'var(--surface-hover)';
-                        (e2.currentTarget as HTMLElement).style.color = 'var(--text)';
-                      }
-                    }}
-                    onMouseLeave={e2 => {
-                      if (!active) {
-                        (e2.currentTarget as HTMLElement).style.background = 'transparent';
-                        (e2.currentTarget as HTMLElement).style.color = 'var(--text-muted)';
-                      }
-                    }}
                   >
-                    {e.name}
+                    {ens.name}
                   </Link>
                 );
               })
@@ -269,9 +252,8 @@ export function Layout({ children, title, back, actions }: Props) {
             {user.name || user.email}
           </div>
           <div style={{ display: 'flex', gap: 6 }}>
-            {/* Dark mode toggle */}
             <button
-              onClick={() => setDark(d => !d)}
+              onClick={() => setDark((d: boolean) => !d)}
               title={dark ? 'Switch to light mode' : 'Switch to dark mode'}
               style={{
                 flex: 1,
@@ -280,18 +262,9 @@ export function Layout({ children, title, back, actions }: Props) {
                 cursor: 'pointer', fontSize: 13, padding: '5px 0',
                 transition: 'all var(--transition)', fontFamily: 'inherit',
               }}
-              onMouseEnter={e => {
-                (e.currentTarget as HTMLButtonElement).style.borderColor = 'var(--accent)';
-                (e.currentTarget as HTMLButtonElement).style.color = 'var(--accent)';
-              }}
-              onMouseLeave={e => {
-                (e.currentTarget as HTMLButtonElement).style.borderColor = 'var(--border)';
-                (e.currentTarget as HTMLButtonElement).style.color = 'var(--text-muted)';
-              }}
             >
-              {dark ? '☀' : '◑'}
+              {dark ? '\u2600' : '\u25D1'}
             </button>
-            {/* Sign out */}
             <button
               onClick={handleLogout}
               style={{
@@ -301,22 +274,12 @@ export function Layout({ children, title, back, actions }: Props) {
                 cursor: 'pointer', fontSize: 12, padding: '5px 0',
                 transition: 'all var(--transition)', fontFamily: 'inherit',
               }}
-              onMouseEnter={e => {
-                (e.currentTarget as HTMLButtonElement).style.borderColor = 'var(--danger)';
-                (e.currentTarget as HTMLButtonElement).style.color = 'var(--danger)';
-                (e.currentTarget as HTMLButtonElement).style.background = 'rgba(208,60,60,0.05)';
-              }}
-              onMouseLeave={e => {
-                (e.currentTarget as HTMLButtonElement).style.borderColor = 'var(--border)';
-                (e.currentTarget as HTMLButtonElement).style.color = 'var(--text-muted)';
-                (e.currentTarget as HTMLButtonElement).style.background = 'transparent';
-              }}
             >Sign out</button>
           </div>
         </div>
       </aside>
 
-      {/* ── Main ─────────────────────────────────────────────────── */}
+      {/* Main */}
       <div style={{ marginLeft: sidebarOpen ? 'var(--sidebar-width)' : 0, flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column', transition: 'margin-left 0.2s ease' }}>
 
         {/* Top bar */}
@@ -337,11 +300,8 @@ export function Layout({ children, title, back, actions }: Props) {
                   color: 'var(--text-faint)', fontSize: 11, fontWeight: 500,
                   display: 'flex', alignItems: 'center', gap: 3, textDecoration: 'none',
                   letterSpacing: '0.01em', transition: 'color var(--transition)',
-                }}
-                  onMouseEnter={e => (e.currentTarget as HTMLElement).style.color = 'var(--text-muted)'}
-                  onMouseLeave={e => (e.currentTarget as HTMLElement).style.color = 'var(--text-faint)'}
-                >
-                  ← {back.label}
+                }}>
+                  \u2190 {back.label}
                 </Link>
               )}
               {title && <h1>{title}</h1>}
