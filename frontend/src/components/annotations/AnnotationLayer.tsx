@@ -25,6 +25,9 @@ interface Props {
   onSelectionChange: (id: string | null) => void;
   onSaveStatusChange: (status: SaveStatus) => void;
   onHistoryChange?: (canUndo: boolean, canRedo: boolean, undo: () => void, redo: () => void) => void;
+  onInkColorChange?: (color: string) => void;
+  onTextColorChange?: (color: string) => void;
+  onHighlightColorChange?: (color: string) => void;
 }
 
 const INK_STROKE_WIDTH = 0.002; // normalized to page width
@@ -82,6 +85,9 @@ export function AnnotationLayer({
   onSelectionChange,
   onSaveStatusChange,
   onHistoryChange,
+  onInkColorChange,
+  onTextColorChange,
+  onHighlightColorChange,
 }: Props) {
   const [annotations, setAnnotations] = useState<Annotation[]>([]);
   const [livePoints, setLivePoints] = useState<StrokePoint[]>([]);
@@ -109,6 +115,11 @@ export function AnnotationLayer({
   } | null>(null);
   const [dragOffset, setDragOffset] = useState<{ dx: number; dy: number } | null>(null);
   const [resizeBounds, setResizeBounds] = useState<{ x: number; y: number; w: number; h: number } | null>(null);
+  // Re-color tracking
+  const prevColorRef = useRef<{ ink: string; text: string; hl: string }>({ ink: inkColor, text: textColor, hl: highlightColor });
+  const recolorTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // Double-click detection for text editing
+  const lastClickRef = useRef<{ time: number; id: string | null }>({ time: 0, id: null });
 
   // Fetch annotations on mount
   useEffect(() => {
@@ -608,6 +619,93 @@ export function AnnotationLayer({
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, [history.canUndo, history.canRedo, handleUndo, handleRedo, selectedAnnotationId, activeText, deleteSelectedAnnotation]);
 
+  // Sync toolbar color to selected annotation's color on selection
+  useEffect(() => {
+    if (!selectedAnnotationId) return;
+    const ann = annotations.find(a => a.id === selectedAnnotationId);
+    if (!ann) return;
+    if (ann.kind === 'ink') {
+      const c = ann.contentJson as InkContent;
+      const color = c.strokes[0]?.color;
+      if (color && color !== inkColor) {
+        prevColorRef.current.ink = color;
+        onInkColorChange?.(color);
+      }
+    } else if (ann.kind === 'text') {
+      const c = ann.contentJson as TextContent;
+      if (c.color !== textColor) {
+        prevColorRef.current.text = c.color;
+        onTextColorChange?.(c.color);
+      }
+    } else if (ann.kind === 'highlight') {
+      // Highlight colors are stored as hex+opacity, toolbar uses rgba — skip color sync
+      void onHighlightColorChange;
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectedAnnotationId]);
+
+  // Re-color selected annotation when toolbar color changes
+  const commitRecolor = useCallback(async (annotationId: string, newColor: string) => {
+    const ann = annotations.find(a => a.id === annotationId);
+    if (!ann) return;
+
+    let updatedContent: typeof ann.contentJson;
+    if (ann.kind === 'ink') {
+      const c = ann.contentJson as InkContent;
+      updatedContent = { ...c, strokes: c.strokes.map(s => ({ ...s, color: newColor })) } as InkContent;
+    } else if (ann.kind === 'highlight') {
+      const c = ann.contentJson as HighlightContent;
+      const { opacity } = parseRgba(newColor);
+      updatedContent = { ...c, color: newColor.startsWith('#') ? newColor : parseRgba(newColor).color, opacity: newColor.startsWith('#') ? c.opacity : opacity } as HighlightContent;
+    } else if (ann.kind === 'text') {
+      const c = ann.contentJson as TextContent;
+      updatedContent = { ...c, color: newColor } as TextContent;
+    } else {
+      return;
+    }
+
+    const updatedAnn = { ...ann, contentJson: updatedContent! };
+    history.pushOperation({ kind: 'update', annotationId, before: ann, after: updatedAnn });
+    setAnnotations(prev => prev.map(a => a.id === annotationId ? updatedAnn : a));
+    onSaveStatusChange('saving');
+    try {
+      await updateAnnotation(annotationId, { contentJson: updatedContent });
+      onSaveStatusChange('saved');
+    } catch {
+      setAnnotations(prev => prev.map(a => a.id === annotationId ? ann : a));
+      onSaveStatusChange('error');
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [annotations, onSaveStatusChange]);
+
+  // Detect color prop changes and apply to selected annotation
+  useEffect(() => {
+    const prev = prevColorRef.current;
+    prevColorRef.current = { ink: inkColor, text: textColor, hl: highlightColor };
+    if (!selectedAnnotationId) return;
+    const ann = annotations.find(a => a.id === selectedAnnotationId);
+    if (!ann) return;
+
+    let newColor: string | null = null;
+    if (ann.kind === 'ink' && inkColor !== prev.ink) newColor = inkColor;
+    else if (ann.kind === 'text' && textColor !== prev.text) newColor = textColor;
+    else if (ann.kind === 'highlight' && highlightColor !== prev.hl) newColor = highlightColor;
+
+    if (newColor) {
+      // Debounce recolor saves
+      if (recolorTimer.current) clearTimeout(recolorTimer.current);
+      recolorTimer.current = setTimeout(() => {
+        recolorTimer.current = null;
+        commitRecolor(selectedAnnotationId, newColor!);
+      }, 300);
+    }
+
+    return () => {
+      if (recolorTimer.current) clearTimeout(recolorTimer.current);
+    };
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [inkColor, textColor, highlightColor]);
+
   // Pointer handlers
   function handlePointerDown(e: ReactPointerEvent<SVGSVGElement>) {
     if (mode !== 'ink' && mode !== 'highlight' && mode !== 'text' && mode !== 'erase' && mode !== 'select') return;
@@ -623,6 +721,19 @@ export function AnnotationLayer({
         const bb = getAnnotationBBox(a);
         if (bb && pointInBBox(pt.x, pt.y, bb)) { hit = a; break; }
       }
+      // Double-click on text annotation → enter edit mode
+      const now = Date.now();
+      if (hit && hit.kind === 'text' && hit.id === lastClickRef.current.id && now - lastClickRef.current.time < 400) {
+        const tc = hit.contentJson as TextContent;
+        onSelectionChange(null);
+        setActiveText({ x: tc.boundingBox.x, y: tc.boundingBox.y, text: tc.text });
+        // Delete the old annotation — commitText will create a new one on blur
+        setAnnotations(prev => prev.filter(a => a.id !== hit!.id));
+        deleteAnnotation(hit.id).catch(() => {});
+        lastClickRef.current = { time: 0, id: null };
+        return;
+      }
+      lastClickRef.current = { time: now, id: hit?.id ?? null };
       onSelectionChange(hit?.id ?? null);
       return;
     }
@@ -988,6 +1099,7 @@ export function AnnotationLayer({
             resizeBounds={resizeBounds}
             onBodyPointerDown={handleSelectionBodyDown}
             onHandlePointerDown={handleSelectionHandleDown}
+            onDeleteClick={deleteSelectedAnnotation}
           />
         );
       })()}

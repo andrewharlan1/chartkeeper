@@ -38,12 +38,13 @@ interface Props {
   resizeBounds?: { x: number; y: number; w: number; h: number } | null;
   onBodyPointerDown: (e: ReactPointerEvent) => void;
   onHandlePointerDown: (e: ReactPointerEvent, handle: HandlePosition) => void;
+  onDeleteClick?: () => void;
 }
 
 export function SelectionOverlay({
   annotation, canvasWidth, canvasHeight,
   dragOffset, resizeBounds,
-  onBodyPointerDown, onHandlePointerDown,
+  onBodyPointerDown, onHandlePointerDown, onDeleteClick,
 }: Props) {
   const rawBounds = getAnnotationBounds(annotation);
   if (!rawBounds) return null;
@@ -111,6 +112,20 @@ export function SelectionOverlay({
           onPointerDown={e => { e.stopPropagation(); onHandlePointerDown(e, hp.pos); }}
         />
       ))}
+
+      {/* Delete button — top-right, outside handles */}
+      {onDeleteClick && (
+        <g
+          transform={`translate(${rx + rw + 10}, ${ry - 2})`}
+          style={{ cursor: 'pointer' }}
+          onPointerDown={e => e.stopPropagation()}
+          onClick={e => { e.stopPropagation(); onDeleteClick(); }}
+        >
+          <circle cx={0} cy={0} r={9} fill="#DC2626" opacity={0.9} />
+          <line x1={-3} y1={-3} x2={3} y2={3} stroke="white" strokeWidth={1.5} strokeLinecap="round" />
+          <line x1={3} y1={-3} x2={-3} y2={3} stroke="white" strokeWidth={1.5} strokeLinecap="round" />
+        </g>
+      )}
     </g>
   );
 }

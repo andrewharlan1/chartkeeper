@@ -1159,6 +1159,9 @@ function FullscreenViewer({
                     setCanRedo(cr);
                     annLayerRef.current = { undo, redo };
                   }}
+                  onInkColorChange={annotationMode.setInkColor}
+                  onTextColorChange={annotationMode.setTextColor}
+                  onHighlightColorChange={annotationMode.setHighlightColor}
                 />
               )}
             </div>
