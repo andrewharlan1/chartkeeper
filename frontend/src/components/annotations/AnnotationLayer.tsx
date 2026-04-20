@@ -1,10 +1,11 @@
 import { useEffect, useState, useRef, useCallback, PointerEvent as ReactPointerEvent } from 'react';
-import { MeasureLayoutItem, Annotation, Stroke, StrokePoint, InkContent, HighlightContent } from '../../types';
+import { MeasureLayoutItem, Annotation, Stroke, StrokePoint, InkContent, HighlightContent, TextContent } from '../../types';
 import { getAnnotations, createAnnotation } from '../../api/annotations';
 import { AnnotationMode, Tool } from '../../hooks/useAnnotationMode';
 import { SaveStatus } from './SaveStatusIndicator';
 import { InkRenderer } from './InkRenderer';
 import { HighlightRenderer } from './HighlightRenderer';
+import { TextRenderer } from './TextRenderer';
 
 interface Props {
   partId: string;
@@ -21,6 +22,7 @@ interface Props {
 }
 
 const INK_STROKE_WIDTH = 0.002; // normalized to page width
+const TEXT_FONT_SIZE = 0.018; // normalized to page height
 
 function rgbToHex(r: string, g: string, b: string): string {
   return '#' + [r, g, b].map(x => parseInt(x).toString(16).padStart(2, '0')).join('');
@@ -42,6 +44,7 @@ export function AnnotationLayer({
   tool,
   inkColor,
   highlightColor,
+  textColor,
   onSaveStatusChange,
 }: Props) {
   const [annotations, setAnnotations] = useState<Annotation[]>([]);
@@ -52,6 +55,8 @@ export function AnnotationLayer({
   const svgRef = useRef<SVGSVGElement>(null);
   const hlStartRef = useRef<StrokePoint | null>(null);
   const [hlLiveEnd, setHlLiveEnd] = useState<StrokePoint | null>(null);
+  const [activeText, setActiveText] = useState<{ x: number; y: number; text: string } | null>(null);
+  const textTapRef = useRef<StrokePoint | null>(null);
 
   // Fetch annotations on mount
   useEffect(() => {
@@ -188,24 +193,66 @@ export function AnnotationLayer({
     }
   }, [partId, highlightColor, findMeasure, onSaveStatusChange]);
 
+  // Commit a text annotation
+  const commitText = useCallback(async (data: { x: number; y: number; text: string }) => {
+    if (!data.text.trim()) return;
+
+    const measureNum = findMeasure(data.x, data.y);
+    if (measureNum == null) return;
+
+    const lines = data.text.split('\n');
+    const maxLen = Math.max(...lines.map(l => l.length));
+
+    const contentJson: TextContent = {
+      text: data.text.trim(),
+      fontSize: TEXT_FONT_SIZE,
+      color: textColor,
+      fontWeight: 'normal',
+      fontStyle: 'normal',
+      boundingBox: {
+        x: data.x,
+        y: data.y,
+        widthPageUnits: maxLen * TEXT_FONT_SIZE * 0.6,
+        heightPageUnits: lines.length * TEXT_FONT_SIZE * 1.3,
+      },
+    };
+
+    onSaveStatusChange('saving');
+    try {
+      const { annotation } = await createAnnotation(partId, {
+        anchorType: 'measure',
+        anchorJson: { measureNumber: measureNum },
+        kind: 'text',
+        contentJson,
+      });
+      setAnnotations(prev => [...prev, annotation]);
+      onSaveStatusChange('saved');
+    } catch {
+      onSaveStatusChange('error');
+    }
+  }, [textColor, partId, findMeasure, onSaveStatusChange]);
+
   // Pointer handlers
   function handlePointerDown(e: ReactPointerEvent<SVGSVGElement>) {
-    if (mode !== 'draw' || (tool !== 'ink' && tool !== 'highlight')) return;
+    if (mode !== 'draw') return;
     e.preventDefault();
-    (e.target as Element).setPointerCapture(e.pointerId);
-    isDrawing.current = true;
     const pt = toNormalized(e);
 
     if (tool === 'ink') {
-      // Cancel any pending commit — new stroke extends the session
+      (e.target as Element).setPointerCapture(e.pointerId);
+      isDrawing.current = true;
       if (commitTimer.current) {
         clearTimeout(commitTimer.current);
         commitTimer.current = null;
       }
       setLivePoints([pt]);
-    } else {
+    } else if (tool === 'highlight') {
+      (e.target as Element).setPointerCapture(e.pointerId);
+      isDrawing.current = true;
       hlStartRef.current = pt;
       setHlLiveEnd(pt);
+    } else if (tool === 'text') {
+      textTapRef.current = pt;
     }
   }
 
@@ -221,12 +268,28 @@ export function AnnotationLayer({
   }
 
   function handlePointerUp(e: ReactPointerEvent<SVGSVGElement>) {
+    // Text tool: tap detection (no drag)
+    if (tool === 'text' && textTapRef.current) {
+      e.preventDefault();
+      const up = toNormalized(e);
+      const start = textTapRef.current;
+      textTapRef.current = null;
+      const dist = Math.sqrt((up.x - start.x) ** 2 + (up.y - start.y) ** 2);
+      if (dist < 0.01) {
+        // Commit any existing text, then open new input at tap point
+        if (activeText && activeText.text.trim()) {
+          commitText(activeText);
+        }
+        setActiveText({ x: start.x, y: start.y, text: '' });
+      }
+      return;
+    }
+
     if (!isDrawing.current) return;
     e.preventDefault();
     isDrawing.current = false;
 
     if (tool === 'ink') {
-      // Collect the finished stroke
       const pts = [...livePoints];
       setLivePoints([]);
       if (pts.length >= 2) {
@@ -236,8 +299,6 @@ export function AnnotationLayer({
           width: INK_STROKE_WIDTH,
         });
       }
-
-      // Start 500ms commit timer
       commitTimer.current = setTimeout(() => {
         commitTimer.current = null;
         commitStrokes();
@@ -251,7 +312,7 @@ export function AnnotationLayer({
     }
   }
 
-  // Commit ink / reset highlight on mode/tool change
+  // Commit pending work / reset state on mode/tool change
   useEffect(() => {
     if (pendingStrokes.current.length > 0) {
       if (commitTimer.current) {
@@ -262,6 +323,12 @@ export function AnnotationLayer({
     }
     hlStartRef.current = null;
     setHlLiveEnd(null);
+    // Auto-commit active text when switching away
+    setActiveText(prev => {
+      if (prev && prev.text.trim()) commitText(prev);
+      return null;
+    });
+    textTapRef.current = null;
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [mode, tool]);
 
@@ -276,7 +343,7 @@ export function AnnotationLayer({
 
   // Filter annotations for current page
   const pageAnnotations = annotations.filter(a => {
-    if (a.kind !== 'ink' && a.kind !== 'highlight') return false;
+    if (a.kind !== 'ink' && a.kind !== 'highlight' && a.kind !== 'text') return false;
     const anchor = a.anchorJson as { measureNumber?: number; page?: number; pageHint?: number };
     if (anchor.measureNumber != null) {
       const ml = measureLayout.find(m => m.measureNumber === anchor.measureNumber);
@@ -285,7 +352,7 @@ export function AnnotationLayer({
     return (anchor.page ?? anchor.pageHint) === currentPage;
   });
 
-  const isDrawMode = mode === 'draw' && (tool === 'ink' || tool === 'highlight');
+  const isDrawMode = mode === 'draw';
 
   // Build the live stroke SVG path
   let livePath = '';
@@ -341,6 +408,13 @@ export function AnnotationLayer({
             canvasWidth={canvasWidth}
             canvasHeight={canvasHeight}
           />
+        ) : a.kind === 'text' ? (
+          <TextRenderer
+            key={a.id}
+            annotation={a}
+            canvasWidth={canvasWidth}
+            canvasHeight={canvasHeight}
+          />
         ) : (
           <InkRenderer
             key={a.id}
@@ -366,6 +440,50 @@ export function AnnotationLayer({
           strokeLinecap="round"
           strokeLinejoin="round"
         />
+      )}
+
+      {/* Active text input */}
+      {activeText && (
+        <foreignObject
+          x={activeText.x * canvasWidth}
+          y={activeText.y * canvasHeight}
+          width={canvasWidth - activeText.x * canvasWidth}
+          height={canvasHeight - activeText.y * canvasHeight}
+          onPointerDown={e => e.stopPropagation()}
+        >
+          <textarea
+            autoFocus
+            value={activeText.text}
+            onChange={e => setActiveText(prev => prev ? { ...prev, text: e.target.value } : null)}
+            onBlur={() => {
+              if (activeText.text.trim()) commitText(activeText);
+              setActiveText(null);
+            }}
+            onKeyDown={e => {
+              if (e.key === 'Enter' && !e.shiftKey) {
+                e.preventDefault();
+                if (activeText.text.trim()) commitText(activeText);
+                setActiveText(null);
+              }
+              if (e.key === 'Escape') setActiveText(null);
+            }}
+            style={{
+              background: 'rgba(255,255,255,0.85)',
+              border: '1px dashed #9ca3af',
+              borderRadius: 3,
+              outline: 'none',
+              color: textColor,
+              fontSize: TEXT_FONT_SIZE * canvasHeight,
+              fontFamily: 'inherit',
+              lineHeight: 1.3,
+              padding: '2px 4px',
+              resize: 'none',
+              minWidth: 80,
+              minHeight: TEXT_FONT_SIZE * canvasHeight + 8,
+              width: '40%',
+            }}
+          />
+        </foreignObject>
       )}
 
       {/* Live highlight rectangle preview */}
