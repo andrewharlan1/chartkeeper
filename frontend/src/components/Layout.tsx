@@ -1,10 +1,16 @@
-import { ReactNode, useEffect, useState, FormEvent } from 'react';
+import { ReactNode, useEffect, useState, useRef, FormEvent } from 'react';
 import { Link, useNavigate, useLocation } from 'react-router-dom';
 import { useAuth } from '../hooks/useAuth';
 import { useDarkMode } from '../hooks/useDarkMode';
 import { getEnsembles, createEnsemble } from '../api/ensembles';
 import { Ensemble } from '../types';
 import { Breadcrumbs, BreadcrumbItem } from './Breadcrumbs';
+
+// Module-level cache to avoid re-fetching on every Layout mount
+let cachedEnsembles: Ensemble[] | null = null;
+let cacheWorkspaceId: string | null = null;
+let cacheTime = 0;
+const CACHE_TTL = 30_000; // 30 seconds
 
 interface Props {
   children: ReactNode;
@@ -19,16 +25,31 @@ export function Layout({ children, title, back, breadcrumbs, actions }: Props) {
   const navigate = useNavigate();
   const location = useLocation();
   const isPlayerView = location.pathname === '/my-parts';
-  const [ensembles, setEnsembles] = useState<Ensemble[]>([]);
+  const [ensembles, setEnsembles] = useState<Ensemble[]>(
+    cacheWorkspaceId === workspaceId && cachedEnsembles ? cachedEnsembles : [],
+  );
   const [showNewEnsemble, setShowNewEnsemble] = useState(false);
   const [newName, setNewName] = useState('');
   const [creating, setCreating] = useState(false);
   const [dark, setDark] = useDarkMode();
   const [sidebarOpen, setSidebarOpen] = useState(true);
+  const fetchedRef = useRef(false);
 
   useEffect(() => {
     if (!user || !workspaceId) return;
-    getEnsembles(workspaceId).then(r => setEnsembles(r.ensembles)).catch(() => {});
+    // Use cache if fresh enough
+    if (cachedEnsembles && cacheWorkspaceId === workspaceId && Date.now() - cacheTime < CACHE_TTL) {
+      setEnsembles(cachedEnsembles);
+      return;
+    }
+    if (fetchedRef.current) return;
+    fetchedRef.current = true;
+    getEnsembles(workspaceId).then(r => {
+      cachedEnsembles = r.ensembles;
+      cacheWorkspaceId = workspaceId;
+      cacheTime = Date.now();
+      setEnsembles(r.ensembles);
+    }).catch(() => {});
   }, [user, workspaceId]);
 
   function handleLogout() {
@@ -49,7 +70,10 @@ export function Layout({ children, title, back, breadcrumbs, actions }: Props) {
     setCreating(true);
     try {
       const { ensemble } = await createEnsemble(workspaceId, newName.trim());
-      setEnsembles(prev => [...prev, ensemble]);
+      const updated = [...ensembles, ensemble];
+      setEnsembles(updated);
+      cachedEnsembles = updated;
+      cacheTime = Date.now();
       setNewName('');
       setShowNewEnsemble(false);
       navigate(`/ensembles/${ensemble.id}`);
