@@ -28,3 +28,35 @@ export function updateVersion(id: string, data: {
 export function deleteVersion(id: string): Promise<{ deleted: boolean }> {
   return api.delete(`/versions/${id}`);
 }
+
+export interface AnnotationSource {
+  versionId: string;
+  versionName: string;
+  partId: string;
+  partName: string;
+  annotationCount: number;
+}
+
+export interface AnnotationSourcesResponse {
+  parts: { id: string; name: string; kind: string }[];
+  sources: Record<string, AnnotationSource[]>;
+}
+
+export interface MigrationResult {
+  instrument: string;
+  total: number;
+  migrated: number;
+  flagged: number;
+  skipped: number;
+}
+
+export function getAnnotationSources(versionId: string): Promise<AnnotationSourcesResponse> {
+  return api.get(`/versions/${versionId}/annotation-sources`);
+}
+
+export function migrateAnnotations(
+  versionId: string,
+  migrations: { targetPartId: string; sourcePartId: string }[],
+): Promise<{ results: MigrationResult[] }> {
+  return api.post(`/versions/${versionId}/migrate`, { migrations });
+}
