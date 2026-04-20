@@ -1,147 +1,157 @@
+// ── Core entities ────────────────────────────────────────────────────────
+
 export interface User {
   id: string;
   email: string;
   name: string;
 }
 
+export interface Workspace {
+  id: string;
+  name: string;
+  role: WorkspaceRole;
+  createdAt: string;
+}
+
+export type WorkspaceRole = 'owner' | 'admin' | 'member' | 'viewer';
+
 export interface Ensemble {
   id: string;
+  workspaceId: string;
   name: string;
-  owner_id: string;
-  created_at: string;
-}
-
-export interface EnsembleMember {
-  id: string;
-  name: string;
-  email: string;
-  role: 'owner' | 'editor' | 'player';
-  joined_at: string;
-}
-
-export interface EnsembleInstrument {
-  id: string;
-  name: string;
-  display_order: number;
-  created_at: string;
-}
-
-export interface EnsembleInstrumentAssignment {
-  id: string;
-  ensemble_instrument_id: string;
-  user_id: string;
-  user_name: string;
-  user_email: string;
-  assigned_by: string;
-  created_at: string;
-}
-
-export type AnchorType = 'measure' | 'beat' | 'note' | 'section' | 'page';
-export type ContentType = 'text' | 'ink' | 'highlight';
-
-export interface MeasureAnchor { measureNumber: number; pageHint?: number; measureBounds?: { x: number; y: number; w: number; h: number }; }
-export interface BeatAnchor { measureNumber: number; beat: number; pageHint?: number; }
-export interface NoteAnchor { measureNumber: number; beat: number; pitch: string; duration: string; }
-export interface SectionAnchor { sectionLabel: string; measureOffset?: number; }
-export interface PageAnchor { page: number; measureHint?: number; }
-export type AnchorJson = MeasureAnchor | BeatAnchor | NoteAnchor | SectionAnchor | PageAnchor;
-
-export interface Annotation {
-  id: string;
-  part_id: string;
-  user_id: string;
-  user_name: string;
-  anchor_type: AnchorType;
-  anchor_json: AnchorJson;
-  content_type: ContentType;
-  content_json: { text?: string; color?: string };
-  is_unresolved: boolean;
-  migrated_from_annotation_id: string | null;
-  created_at: string;
-  updated_at: string;
+  sortOrder: number;
+  createdAt: string;
+  updatedAt: string;
 }
 
 export interface Chart {
   id: string;
-  ensemble_id: string;
-  title: string | null;
+  ensembleId: string;
+  name: string;
   composer: string | null;
-  metadata_json: Record<string, unknown> | null;
-  created_at: string;
+  notes: string | null;
+  sortOrder: number;
+  createdAt: string;
+  updatedAt: string;
 }
 
+export interface Version {
+  id: string;
+  chartId: string;
+  name: string;
+  sortOrder: number;
+  seededFromVersionId: string | null;
+  notes: string | null;
+  createdAt: string;
+  updatedAt: string;
+  partCount?: number;
+}
+
+export type PartKind = 'part' | 'score';
 export type OmrStatus = 'pending' | 'processing' | 'complete' | 'failed';
-export type PartType = 'score' | 'part' | 'audio' | 'chart' | 'link' | 'other';
 
 export interface Part {
   id: string;
-  chart_version_id: string;
-  instrument_name: string;
-  part_type: PartType;
-  omr_status: OmrStatus;
-  created_at: string;
-  pdfUrl?: string;
-  url?: string | null;           // for link-type parts
-  inherited_from_part_id?: string | null;
-  inherited_from_version_number?: number | null;
-  inherited_from_version_name?: string | null;
-}
-
-export interface PartSummary {
-  id: string;
-  instrumentName: string;
-  partType: PartType;
+  versionId: string;
+  kind: PartKind;
+  name: string;
+  pdfS3Key: string;
   omrStatus: OmrStatus;
-  inheritedFromPartId?: string | null;
+  omrEngine: string | null;
+  createdAt: string;
+  pdfUrl?: string;
 }
 
-export interface UploadEntry {
-  id: string;       // client-only stable key
-  file?: File;      // undefined for link type
-  url?: string;     // for link type
-  name: string;     // user-provided display name, used as instrument_name
-  type: PartType;
-  replaces?: string; // optional: instrument_name of the old part this replaces (for annotation migration)
-}
-
-export interface PartAssignment {
+export interface InstrumentSlot {
   id: string;
-  chart_id: string;
-  instrument_name: string;
-  user_id: string;
-  user_name: string;
-  user_email: string;
-  assigned_by: string;
-  created_at: string;
+  ensembleId: string;
+  name: string;
+  section: string | null;
+  sortOrder: number;
+  createdAt: string;
+  updatedAt: string;
 }
 
-export interface PlayerPart {
-  assignment_id: string;
-  chart_id: string;
-  chart_title: string | null;
-  ensemble_id: string;
-  ensemble_name: string;
-  instrument_name: string;
-  part_type: PartType;
-  part_id: string;
-  pdf_url: string | null;
-  url: string | null;
-  omr_status: OmrStatus;
-  version_id: string;
-  version_number: number;
-  version_name: string;
-}
-
-export interface ChartVersion {
+export interface PartSlotAssignment {
   id: string;
-  chart_id?: string;
-  version_number: number;
-  version_name: string;
-  is_active: boolean;
-  created_at: string;
-  created_by_name?: string;
-  parts: PartSummary[];
+  partId: string;
+  instrumentSlotId: string;
+  createdAt: string;
 }
+
+// ── Annotations ──────────────────────────────────────────────────────────
+
+export type AnchorType = 'measure' | 'beat' | 'note' | 'section' | 'page';
+export type AnnotationKind = 'ink' | 'text' | 'highlight' | 'shape';
+export type AnnotationScope = 'self' | 'ensemble' | 'section' | 'role' | 'shared';
+
+export interface MeasureAnchor { measureNumber: number; pageHint?: number }
+export interface BeatAnchor { measureNumber: number; beat: number; pageHint?: number }
+export interface NoteAnchor { measureNumber: number; beat: number; pitch: string; duration: string }
+export interface SectionAnchor { sectionLabel: string; measureOffset?: number }
+export interface PageAnchor { page: number; measureHint?: number }
+export type AnchorJson = MeasureAnchor | BeatAnchor | NoteAnchor | SectionAnchor | PageAnchor;
+
+export interface BoundingBox {
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+}
+
+export interface AbsoluteSizeBoundingBox {
+  x: number;
+  y: number;
+  widthPageUnits: number;
+  heightPageUnits: number;
+}
+
+export interface StrokePoint { x: number; y: number }
+export interface Stroke {
+  points: StrokePoint[];
+  color: string;
+  width: number;
+}
+
+export interface InkContent {
+  strokes: Stroke[];
+  boundingBox: BoundingBox;
+}
+
+export interface TextContent {
+  text: string;
+  fontSize: number;
+  color: string;
+  fontWeight: 'normal' | 'bold';
+  fontStyle: 'normal' | 'italic';
+  boundingBox: AbsoluteSizeBoundingBox;
+}
+
+export interface HighlightContent {
+  color: string;
+  opacity: number;
+  boundingBox: BoundingBox;
+}
+
+export type ContentJson = InkContent | TextContent | HighlightContent | Record<string, unknown>;
+
+export interface Annotation {
+  id: string;
+  partId: string;
+  ownerUserId: string;
+  ownerName?: string;
+  anchorType: AnchorType;
+  anchorJson: AnchorJson;
+  kind: AnnotationKind;
+  contentJson: ContentJson;
+  scope: AnnotationScope;
+  layerId: string | null;
+  migratedFromAnnotationId: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
+// ── Measure layout / diffs ───────────────────────────────────────────────
 
 export interface MeasureBounds {
   x: number;
@@ -153,7 +163,7 @@ export interface MeasureBounds {
 
 export interface MeasureLayoutItem extends MeasureBounds {
   measureNumber: number;
-  multiRestCount?: number; // present on first measure of a multi-measure rest span
+  multiRestCount?: number;
 }
 
 export interface PartDiff {
@@ -170,18 +180,33 @@ export interface PartDiff {
 
 export interface VersionDiff {
   id: string;
-  from_version_id: string;
-  to_version_id: string;
-  diff_json: { parts: Record<string, PartDiff> };
-  created_at: string;
+  fromPartId: string;
+  toPartId: string;
+  diffJson: PartDiff;
+  createdAt: string;
 }
 
-export interface Notification {
+// ── Player parts (my-parts endpoint) ─────────────────────────────────────
+
+export interface PlayerPart {
+  partId: string;
+  partName: string;
+  kind: PartKind;
+  omrStatus: OmrStatus;
+  versionId: string;
+  versionName: string;
+  chartId: string;
+  chartName: string;
+  ensembleId: string;
+  ensembleName: string;
+}
+
+// ── Upload helpers (client-only) ─────────────────────────────────────────
+
+export interface UploadEntry {
   id: string;
-  ensemble_id: string;
-  chart_version_id: string | null;
-  type: string;
-  message: string;
-  read_at: string | null;
-  created_at: string;
+  file: File;
+  name: string;
+  kind: PartKind;
+  slotIds: string[];
 }
