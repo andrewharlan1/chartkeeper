@@ -1,9 +1,10 @@
 import { useEffect, useState, useRef, useCallback, PointerEvent as ReactPointerEvent } from 'react';
-import { MeasureLayoutItem, Annotation, Stroke, StrokePoint, InkContent } from '../../types';
+import { MeasureLayoutItem, Annotation, Stroke, StrokePoint, InkContent, HighlightContent } from '../../types';
 import { getAnnotations, createAnnotation } from '../../api/annotations';
 import { AnnotationMode, Tool } from '../../hooks/useAnnotationMode';
 import { SaveStatus } from './SaveStatusIndicator';
 import { InkRenderer } from './InkRenderer';
+import { HighlightRenderer } from './HighlightRenderer';
 
 interface Props {
   partId: string;
@@ -21,6 +22,12 @@ interface Props {
 
 const INK_STROKE_WIDTH = 0.002; // normalized to page width
 
+function parseRgba(rgba: string): { color: string; opacity: number } {
+  const m = rgba.match(/rgba?\(\s*(\d+)\s*,\s*(\d+)\s*,\s*(\d+)\s*(?:,\s*([\d.]+)\s*)?\)/);
+  if (m) return { color: `rgb(${m[1]}, ${m[2]}, ${m[3]})`, opacity: m[4] ? parseFloat(m[4]) : 1 };
+  return { color: rgba, opacity: 1 };
+}
+
 export function AnnotationLayer({
   partId,
   currentPage,
@@ -30,6 +37,7 @@ export function AnnotationLayer({
   mode,
   tool,
   inkColor,
+  highlightColor,
   onSaveStatusChange,
 }: Props) {
   const [annotations, setAnnotations] = useState<Annotation[]>([]);
@@ -38,6 +46,8 @@ export function AnnotationLayer({
   const commitTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const pendingStrokes = useRef<{ points: StrokePoint[]; color: string; width: number }[]>([]);
   const svgRef = useRef<SVGSVGElement>(null);
+  const hlStartRef = useRef<StrokePoint | null>(null);
+  const [hlLiveEnd, setHlLiveEnd] = useState<StrokePoint | null>(null);
 
   // Fetch annotations on mount
   useEffect(() => {
@@ -143,26 +153,67 @@ export function AnnotationLayer({
     }
   }, [partId, findMeasure, onSaveStatusChange]);
 
+  // Commit a highlight rectangle
+  const commitHighlight = useCallback(async (start: StrokePoint, end: StrokePoint) => {
+    const x = Math.min(start.x, end.x);
+    const y = Math.min(start.y, end.y);
+    const width = Math.abs(end.x - start.x);
+    const height = Math.abs(end.y - start.y);
+
+    // Skip tiny accidental drags
+    if (width < 0.005 && height < 0.005) return;
+
+    const measureNum = findMeasure(x + width / 2, y + height / 2);
+    if (measureNum == null) return;
+
+    const { color, opacity } = parseRgba(highlightColor);
+    const contentJson: HighlightContent = { color, opacity, boundingBox: { x, y, width, height } };
+
+    onSaveStatusChange('saving');
+    try {
+      const { annotation } = await createAnnotation(partId, {
+        anchorType: 'measure',
+        anchorJson: { measureNumber: measureNum },
+        kind: 'highlight',
+        contentJson,
+      });
+      setAnnotations(prev => [...prev, annotation]);
+      onSaveStatusChange('saved');
+    } catch {
+      onSaveStatusChange('error');
+    }
+  }, [partId, highlightColor, findMeasure, onSaveStatusChange]);
+
   // Pointer handlers
   function handlePointerDown(e: ReactPointerEvent<SVGSVGElement>) {
-    if (mode !== 'draw' || tool !== 'ink') return;
+    if (mode !== 'draw' || (tool !== 'ink' && tool !== 'highlight')) return;
     e.preventDefault();
     (e.target as Element).setPointerCapture(e.pointerId);
     isDrawing.current = true;
-    // Cancel any pending commit — new stroke extends the session
-    if (commitTimer.current) {
-      clearTimeout(commitTimer.current);
-      commitTimer.current = null;
-    }
     const pt = toNormalized(e);
-    setLivePoints([pt]);
+
+    if (tool === 'ink') {
+      // Cancel any pending commit — new stroke extends the session
+      if (commitTimer.current) {
+        clearTimeout(commitTimer.current);
+        commitTimer.current = null;
+      }
+      setLivePoints([pt]);
+    } else {
+      hlStartRef.current = pt;
+      setHlLiveEnd(pt);
+    }
   }
 
   function handlePointerMove(e: ReactPointerEvent<SVGSVGElement>) {
     if (!isDrawing.current) return;
     e.preventDefault();
     const pt = toNormalized(e);
-    setLivePoints(prev => [...prev, pt]);
+    if (tool === 'ink') {
+      setLivePoints(prev => [...prev, pt]);
+    } else if (tool === 'highlight') {
+      setHlLiveEnd(pt);
+    }
   }
 
   function handlePointerUp(e: ReactPointerEvent<SVGSVGElement>) {
@@ -170,25 +221,33 @@ export function AnnotationLayer({
     e.preventDefault();
     isDrawing.current = false;
 
-    // Collect the finished stroke
-    const pts = [...livePoints];
-    setLivePoints([]);
-    if (pts.length >= 2) {
-      pendingStrokes.current.push({
-        points: pts,
-        color: inkColor,
-        width: INK_STROKE_WIDTH,
-      });
-    }
+    if (tool === 'ink') {
+      // Collect the finished stroke
+      const pts = [...livePoints];
+      setLivePoints([]);
+      if (pts.length >= 2) {
+        pendingStrokes.current.push({
+          points: pts,
+          color: inkColor,
+          width: INK_STROKE_WIDTH,
+        });
+      }
 
-    // Start 500ms commit timer
-    commitTimer.current = setTimeout(() => {
-      commitTimer.current = null;
-      commitStrokes();
-    }, 500);
+      // Start 500ms commit timer
+      commitTimer.current = setTimeout(() => {
+        commitTimer.current = null;
+        commitStrokes();
+      }, 500);
+    } else if (tool === 'highlight') {
+      const start = hlStartRef.current;
+      const end = toNormalized(e);
+      hlStartRef.current = null;
+      setHlLiveEnd(null);
+      if (start) commitHighlight(start, end);
+    }
   }
 
-  // Commit on mode/tool change
+  // Commit ink / reset highlight on mode/tool change
   useEffect(() => {
     if (pendingStrokes.current.length > 0) {
       if (commitTimer.current) {
@@ -197,6 +256,8 @@ export function AnnotationLayer({
       }
       commitStrokes();
     }
+    hlStartRef.current = null;
+    setHlLiveEnd(null);
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [mode, tool]);
 
@@ -211,7 +272,7 @@ export function AnnotationLayer({
 
   // Filter annotations for current page
   const pageAnnotations = annotations.filter(a => {
-    if (a.kind !== 'ink') return false;
+    if (a.kind !== 'ink' && a.kind !== 'highlight') return false;
     const anchor = a.anchorJson as { measureNumber?: number; page?: number; pageHint?: number };
     if (anchor.measureNumber != null) {
       const ml = measureLayout.find(m => m.measureNumber === anchor.measureNumber);
@@ -220,7 +281,7 @@ export function AnnotationLayer({
     return (anchor.page ?? anchor.pageHint) === currentPage;
   });
 
-  const isDrawMode = mode === 'draw' && tool === 'ink';
+  const isDrawMode = mode === 'draw' && (tool === 'ink' || tool === 'highlight');
 
   // Build the live stroke SVG path
   let livePath = '';
@@ -268,16 +329,25 @@ export function AnnotationLayer({
       onPointerLeave={handlePointerUp}
     >
       {/* Saved annotations */}
-      {pageAnnotations.map(a => (
-        <InkRenderer
-          key={a.id}
-          annotation={a}
-          measureLayout={measureLayout}
-          currentPage={currentPage}
-          canvasWidth={canvasWidth}
-          canvasHeight={canvasHeight}
-        />
-      ))}
+      {pageAnnotations.map(a =>
+        a.kind === 'highlight' ? (
+          <HighlightRenderer
+            key={a.id}
+            annotation={a}
+            canvasWidth={canvasWidth}
+            canvasHeight={canvasHeight}
+          />
+        ) : (
+          <InkRenderer
+            key={a.id}
+            annotation={a}
+            measureLayout={measureLayout}
+            currentPage={currentPage}
+            canvasWidth={canvasWidth}
+            canvasHeight={canvasHeight}
+          />
+        )
+      )}
 
       {/* Pending uncommitted strokes */}
       {pendingPaths}
@@ -293,6 +363,22 @@ export function AnnotationLayer({
           strokeLinejoin="round"
         />
       )}
+
+      {/* Live highlight rectangle preview */}
+      {hlStartRef.current && hlLiveEnd && (() => {
+        const s = hlStartRef.current!;
+        const rx = Math.min(s.x, hlLiveEnd.x) * canvasWidth;
+        const ry = Math.min(s.y, hlLiveEnd.y) * canvasHeight;
+        const rw = Math.abs(hlLiveEnd.x - s.x) * canvasWidth;
+        const rh = Math.abs(hlLiveEnd.y - s.y) * canvasHeight;
+        const { color, opacity } = parseRgba(highlightColor);
+        return (
+          <rect
+            x={rx} y={ry} width={rw} height={rh}
+            fill={color} opacity={opacity} rx={2}
+          />
+        );
+      })()}
     </svg>
   );
 }
