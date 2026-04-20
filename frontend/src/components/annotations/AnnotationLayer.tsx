@@ -1,6 +1,6 @@
 import { useEffect, useState, useRef, useCallback, PointerEvent as ReactPointerEvent } from 'react';
 import { MeasureLayoutItem, Annotation, Stroke, StrokePoint, InkContent, HighlightContent, TextContent, FontFamily } from '../../types';
-import { getAnnotations, createAnnotation, deleteAnnotation } from '../../api/annotations';
+import { getAnnotations, createAnnotation, updateAnnotation, deleteAnnotation } from '../../api/annotations';
 import { AnnotationMode } from '../../hooks/useAnnotationMode';
 import { SaveStatus } from './SaveStatusIndicator';
 import { InkRenderer } from './InkRenderer';
@@ -96,6 +96,15 @@ export function AnnotationLayer({
   const eraseStartRef = useRef<StrokePoint | null>(null);
   const pendingDeletes = useRef<Set<string>>(new Set());
   const eraseHistory = useRef<Annotation[][]>([]);
+  // Selection drag state
+  const dragRef = useRef<{
+    type: 'body' | 'handle';
+    startPt: StrokePoint;
+    originalBounds: { x: number; y: number; w: number; h: number };
+    annotationId: string;
+    handle?: string;
+  } | null>(null);
+  const [dragOffset, setDragOffset] = useState<{ dx: number; dy: number } | null>(null);
 
   // Fetch annotations on mount
   useEffect(() => {
@@ -334,6 +343,93 @@ export function AnnotationLayer({
     setTimeout(() => commitErases([id]), 150);
   }, [selectedAnnotationId, onSelectionChange, commitErases]);
 
+  // Get measure layout bounds for clamping during move/resize
+  const getMeasureBounds = useCallback((annotation: Annotation) => {
+    const anchor = annotation.anchorJson as { measureNumber?: number };
+    if (anchor.measureNumber == null) return null;
+    const ml = measureLayout.find(m => m.measureNumber === anchor.measureNumber && m.page === currentPage);
+    return ml ? { x: ml.x, y: ml.y, w: ml.w, h: ml.h } : null;
+  }, [measureLayout, currentPage]);
+
+  // Clamp a drag offset so the annotation stays within its measure
+  const clampOffset = useCallback((dx: number, dy: number, bounds: { x: number; y: number; w: number; h: number }, measure: { x: number; y: number; w: number; h: number }) => {
+    const newX = bounds.x + dx;
+    const newY = bounds.y + dy;
+    const clampedX = Math.max(measure.x, Math.min(newX, measure.x + measure.w - bounds.w));
+    const clampedY = Math.max(measure.y, Math.min(newY, measure.y + measure.h - bounds.h));
+    return { dx: clampedX - bounds.x, dy: clampedY - bounds.y };
+  }, []);
+
+  // Commit a move — update annotation coordinates and save to server
+  const commitMove = useCallback(async (annotationId: string, dx: number, dy: number) => {
+    const ann = annotations.find(a => a.id === annotationId);
+    if (!ann || (dx === 0 && dy === 0)) return;
+
+    let updatedContent: typeof ann.contentJson;
+    if (ann.kind === 'ink') {
+      const c = ann.contentJson as InkContent;
+      updatedContent = {
+        strokes: c.strokes.map(s => ({
+          ...s,
+          points: s.points.map(p => ({ x: p.x + dx, y: p.y + dy })),
+        })),
+        boundingBox: {
+          x: c.boundingBox.x + dx,
+          y: c.boundingBox.y + dy,
+          width: c.boundingBox.width,
+          height: c.boundingBox.height,
+        },
+      } as InkContent;
+    } else if (ann.kind === 'highlight') {
+      const c = ann.contentJson as HighlightContent;
+      updatedContent = {
+        ...c,
+        boundingBox: { ...c.boundingBox, x: c.boundingBox.x + dx, y: c.boundingBox.y + dy },
+      } as HighlightContent;
+    } else if (ann.kind === 'text') {
+      const c = ann.contentJson as TextContent;
+      updatedContent = {
+        ...c,
+        boundingBox: { ...c.boundingBox, x: c.boundingBox.x + dx, y: c.boundingBox.y + dy },
+      } as TextContent;
+    } else {
+      return;
+    }
+
+    // Optimistic local update
+    setAnnotations(prev => prev.map(a => a.id === annotationId ? { ...a, contentJson: updatedContent! } : a));
+    onSaveStatusChange('saving');
+    try {
+      await updateAnnotation(annotationId, { contentJson: updatedContent });
+      onSaveStatusChange('saved');
+    } catch {
+      // Revert on failure
+      setAnnotations(prev => prev.map(a => a.id === annotationId ? ann : a));
+      onSaveStatusChange('error');
+    }
+  }, [annotations, onSaveStatusChange]);
+
+  // Start a body drag from SelectionOverlay
+  const handleSelectionBodyDown = useCallback((e: React.PointerEvent) => {
+    if (!selectedAnnotationId) return;
+    const ann = annotations.find(a => a.id === selectedAnnotationId);
+    if (!ann) return;
+    const bounds = getAnnotationBounds(ann);
+    if (!bounds) return;
+
+    const rect = svgRef.current!.getBoundingClientRect();
+    const pt = { x: (e.clientX - rect.left) / rect.width, y: (e.clientY - rect.top) / rect.height };
+
+    dragRef.current = {
+      type: 'body',
+      startPt: pt,
+      originalBounds: bounds,
+      annotationId: selectedAnnotationId,
+    };
+    setDragOffset({ dx: 0, dy: 0 });
+    (svgRef.current as Element).setPointerCapture(e.pointerId);
+  }, [selectedAnnotationId, annotations]);
+
   // Keyboard shortcuts
   useEffect(() => {
     function handleKeyDown(e: KeyboardEvent) {
@@ -406,6 +502,23 @@ export function AnnotationLayer({
   }
 
   function handlePointerMove(e: ReactPointerEvent<SVGSVGElement>) {
+    // Body drag in select mode
+    if (dragRef.current?.type === 'body') {
+      e.preventDefault();
+      const pt = toNormalized(e);
+      let dx = pt.x - dragRef.current.startPt.x;
+      let dy = pt.y - dragRef.current.startPt.y;
+      // Clamp to measure bounds
+      const ann = annotations.find(a => a.id === dragRef.current!.annotationId);
+      if (ann) {
+        const measure = getMeasureBounds(ann);
+        if (measure) {
+          ({ dx, dy } = clampOffset(dx, dy, dragRef.current.originalBounds, measure));
+        }
+      }
+      setDragOffset({ dx, dy });
+      return;
+    }
     // Hover detection in select mode
     if (mode === 'select' && !isDrawing.current) {
       const pt = toNormalized(e);
@@ -436,6 +549,19 @@ export function AnnotationLayer({
   }
 
   function handlePointerUp(e: ReactPointerEvent<SVGSVGElement>) {
+    // Complete body drag
+    if (dragRef.current?.type === 'body') {
+      e.preventDefault();
+      const offset = dragOffset;
+      const id = dragRef.current.annotationId;
+      dragRef.current = null;
+      setDragOffset(null);
+      if (offset && (Math.abs(offset.dx) > 0.001 || Math.abs(offset.dy) > 0.001)) {
+        commitMove(id, offset.dx, offset.dy);
+      }
+      return;
+    }
+
     // Text mode: tap detection
     if (mode === 'text' && textTapRef.current) {
       e.preventDefault();
@@ -505,6 +631,8 @@ export function AnnotationLayer({
     textTapRef.current = null;
     eraseStartRef.current = null;
     setHoveredId(null);
+    dragRef.current = null;
+    setDragOffset(null);
     // Commit any pending erases immediately on mode switch
     const eraseIds = [...pendingDeletes.current];
     pendingDeletes.current = new Set();
@@ -582,8 +710,10 @@ export function AnnotationLayer({
       {/* Saved annotations */}
       {pageAnnotations.map(a => {
         const isFading = fadingIds.has(a.id);
+        const isDragging = dragRef.current?.type === 'body' && dragRef.current.annotationId === a.id && dragOffset;
+        const dragTransform = isDragging ? `translate(${dragOffset!.dx * canvasWidth}, ${dragOffset!.dy * canvasHeight})` : undefined;
         return (
-          <g key={a.id} style={{ opacity: isFading ? 0 : 1, transition: 'opacity 0.15s ease-out' }}>
+          <g key={a.id} style={{ opacity: isFading ? 0 : 1, transition: isFading ? 'opacity 0.15s ease-out' : undefined, cursor: isDragging ? 'grabbing' : undefined }} transform={dragTransform}>
             {a.kind === 'highlight' ? (
               <HighlightRenderer
                 annotation={a}
@@ -637,7 +767,8 @@ export function AnnotationLayer({
             annotation={ann}
             canvasWidth={canvasWidth}
             canvasHeight={canvasHeight}
-            onBodyPointerDown={() => {}}
+            dragOffset={dragOffset}
+            onBodyPointerDown={handleSelectionBodyDown}
             onHandlePointerDown={() => {}}
           />
         );
