@@ -1,4 +1,4 @@
-import { useState, useEffect, FormEvent, DragEvent, ChangeEvent } from 'react';
+import { useState, useEffect, FormEvent } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { createVersion } from '../api/versions';
 import { uploadPart } from '../api/parts';
@@ -7,6 +7,7 @@ import { getEnsemble } from '../api/ensembles';
 import { UploadEntry, PartKind } from '../types';
 import { Layout } from '../components/Layout';
 import { Button } from '../components/Button';
+import { FileDropZone } from '../components/FileDropZone';
 import { ApiError } from '../api/client';
 
 function humanizeName(filename: string): string {
@@ -35,24 +36,16 @@ export function UploadVersion() {
 
   const [entries, setEntries] = useState<UploadEntry[]>([]);
   const [versionName, setVersionName] = useState('');
-  const [dragOver, setDragOver] = useState(false);
   const [uploading, setUploading] = useState(false);
   const [error, setError] = useState('');
   const [progress, setProgress] = useState('');
 
-  function addFiles(fileList: FileList) {
-    const added: UploadEntry[] = [];
-    for (const file of Array.from(fileList)) {
+  function addFiles(files: File[]) {
+    const added: UploadEntry[] = files.map(file => {
       const name = humanizeName(file.name);
       const kind: PartKind = name.toLowerCase().includes('score') ? 'score' : 'part';
-      added.push({
-        id: crypto.randomUUID(),
-        file,
-        name,
-        kind,
-        slotIds: [],
-      });
-    }
+      return { id: crypto.randomUUID(), file, name, kind, slotIds: [] };
+    });
     setEntries(prev => [...prev, ...added]);
   }
 
@@ -62,17 +55,6 @@ export function UploadVersion() {
 
   function removeEntry(id: string) {
     setEntries(prev => prev.filter(e => e.id !== id));
-  }
-
-  function handleDrop(e: DragEvent) {
-    e.preventDefault();
-    setDragOver(false);
-    addFiles(e.dataTransfer.files);
-  }
-
-  function handleFileInput(e: ChangeEvent<HTMLInputElement>) {
-    if (e.target.files) addFiles(e.target.files);
-    e.target.value = '';
   }
 
   async function handleSubmit(e: FormEvent) {
@@ -136,30 +118,11 @@ export function UploadVersion() {
         </div>
 
         {/* Drop zone */}
-        <div
-          onDrop={handleDrop}
-          onDragOver={e => { e.preventDefault(); setDragOver(true); }}
-          onDragLeave={() => setDragOver(false)}
-          onClick={() => document.getElementById('file-input')?.click()}
-          style={{
-            border: `2px dashed ${dragOver ? 'var(--accent)' : 'var(--border)'}`,
-            borderRadius: 'var(--radius)',
-            padding: '28px 24px',
-            textAlign: 'center',
-            cursor: 'pointer',
-            background: dragOver ? 'rgba(99,102,241,0.06)' : 'var(--surface)',
-            transition: 'border-color 0.15s, background 0.15s',
-            marginBottom: 16,
-          }}
-        >
-          <p style={{ color: 'var(--text-muted)', marginBottom: 4 }}>
-            Drop PDF files here, or click to browse
-          </p>
-          <p style={{ color: 'var(--text-muted)', fontSize: 12 }}>
-            Select as many files as you like — name each after adding
-          </p>
-          <input id="file-input" type="file" multiple accept=".pdf,application/pdf"
-            onChange={handleFileInput} style={{ display: 'none' }} />
+        <div style={{ marginBottom: 16 }}>
+          <FileDropZone
+            onFiles={addFiles}
+            hint="Select as many files as you like — name each after adding"
+          />
         </div>
 
         {/* File entries */}
