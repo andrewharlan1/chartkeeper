@@ -54,7 +54,10 @@ export function Dashboard() {
 
   async function handleCreate(e: FormEvent) {
     e.preventDefault();
-    if (!workspaceId) return;
+    if (!workspaceId) {
+      setCreateError('No workspace selected. Try signing out and back in.');
+      return;
+    }
     setCreateError('');
     setCreating(true);
     try {
@@ -62,6 +65,7 @@ export function Dashboard() {
       setEnsembles(prev => [ensemble, ...prev]);
       setShowCreate(false);
       setNewName('');
+      navigate(`/ensembles/${ensemble.id}`);
     } catch (err) {
       setCreateError(err instanceof ApiError ? err.message : 'Something went wrong');
     } finally {

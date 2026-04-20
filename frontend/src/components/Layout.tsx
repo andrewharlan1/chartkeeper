@@ -34,9 +34,16 @@ export function Layout({ children, title, back, actions }: Props) {
     navigate('/login');
   }
 
+  const [createError, setCreateError] = useState('');
+
   async function handleCreateEnsemble(e: FormEvent) {
     e.preventDefault();
-    if (!newName.trim() || !workspaceId) return;
+    if (!newName.trim()) return;
+    if (!workspaceId) {
+      setCreateError('No workspace. Try signing out and back in.');
+      return;
+    }
+    setCreateError('');
     setCreating(true);
     try {
       const { ensemble } = await createEnsemble(workspaceId, newName.trim());
@@ -44,6 +51,8 @@ export function Layout({ children, title, back, actions }: Props) {
       setNewName('');
       setShowNewEnsemble(false);
       navigate(`/ensembles/${ensemble.id}`);
+    } catch {
+      setCreateError('Failed to create ensemble.');
     } finally {
       setCreating(false);
     }
@@ -213,6 +222,9 @@ export function Layout({ children, title, back, actions }: Props) {
                 {creating ? '...' : 'Add'}
               </button>
             </form>
+          )}
+          {createError && (
+            <p style={{ fontSize: 11, color: 'var(--danger)', padding: '2px 6px' }}>{createError}</p>
           )}
 
           <div style={{ display: 'flex', flexDirection: 'column', gap: 1, paddingBottom: 8 }}>
