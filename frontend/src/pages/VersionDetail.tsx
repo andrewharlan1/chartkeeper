@@ -1,132 +1,16 @@
-import { useEffect, useState, useCallback, useRef } from 'react';
+import { useEffect, useState, useCallback } from 'react';
 import { useParams } from 'react-router-dom';
 import { useAuth } from '../hooks/useAuth';
-import { getVersion, deletePart, getAssignments, getChart, addPartToVersion } from '../api/charts';
-import { getMembers } from '../api/ensembles';
+import { getVersion } from '../api/versions';
+import { getParts, deletePart, uploadPart } from '../api/parts';
 import { getAnnotations, createAnnotation, deleteAnnotation } from '../api/annotations';
-import { ChartVersion, Part, VersionDiff, PartDiff, PartAssignment, EnsembleMember, Annotation } from '../types';
+import { Version, Part, Annotation, AnnotationKind, ContentJson } from '../types';
 import { Layout } from '../components/Layout';
-import { OmrBadge, ActiveBadge } from '../components/Badge';
+import { OmrBadge } from '../components/Badge';
 import { Button } from '../components/Button';
 import { PdfViewer } from '../components/PdfViewer';
 import { InstrumentIcon } from '../components/InstrumentIcon';
 import { ApiError } from '../api/client';
-
-// ── Diff panel ────────────────────────────────────────────────────────────────
-
-function DiffPanel({ diff, instrument }: { diff: PartDiff; instrument: string }) {
-  const [open, setOpen] = useState(true);
-  const { changedMeasures, changeDescriptions, structuralChanges } = diff;
-  const totalChanges =
-    changedMeasures.length +
-    structuralChanges.insertedMeasures.length +
-    structuralChanges.deletedMeasures.length;
-
-  if (totalChanges === 0 && structuralChanges.sectionLabelChanges.length === 0) {
-    return (
-      <div style={{ marginTop: 10, fontSize: 13, color: 'var(--success)' }}>
-        No changes from previous version
-      </div>
-    );
-  }
-
-  return (
-    <div style={{ marginTop: 10 }}>
-      <button
-        onClick={() => setOpen(o => !o)}
-        style={{
-          background: 'none', border: 'none', color: 'var(--accent)',
-          cursor: 'pointer', fontSize: 13, padding: 0,
-          display: 'flex', alignItems: 'center', gap: 4,
-        }}
-      >
-        {open ? '▾' : '▸'}
-        {totalChanges} change{totalChanges !== 1 ? 's' : ''} in {instrument} part
-      </button>
-      {open && (
-        <div style={{ marginTop: 8, paddingLeft: 14, borderLeft: '2px solid var(--border)' }}>
-          {structuralChanges.insertedMeasures.length > 0 && (
-            <p style={{ fontSize: 13, color: 'var(--warning)', marginBottom: 4 }}>
-              + {structuralChanges.insertedMeasures.length} measure{structuralChanges.insertedMeasures.length !== 1 ? 's' : ''} inserted
-              (m.{structuralChanges.insertedMeasures.join(', m.')})
-            </p>
-          )}
-          {structuralChanges.deletedMeasures.length > 0 && (
-            <p style={{ fontSize: 13, color: 'var(--danger)', marginBottom: 4 }}>
-              − {structuralChanges.deletedMeasures.length} measure{structuralChanges.deletedMeasures.length !== 1 ? 's' : ''} deleted
-            </p>
-          )}
-          {structuralChanges.sectionLabelChanges.map((s, i) => (
-            <p key={i} style={{ fontSize: 13, color: 'var(--text-muted)', marginBottom: 4 }}>{s}</p>
-          ))}
-          {changedMeasures.map(m => (
-            <p key={m} style={{ fontSize: 13, color: 'var(--text-muted)', marginBottom: 4 }}>
-              {changeDescriptions[m] ?? `m.${m}: changed`}
-            </p>
-          ))}
-        </div>
-      )}
-    </div>
-  );
-}
-
-// ── Link viewer ───────────────────────────────────────────────────────────────
-
-function LinkViewer({ url, name }: { url: string; name: string }) {
-  const [embedMode, setEmbedMode] = useState(true);
-
-  return (
-    <div style={{ marginTop: 8 }}>
-      <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: embedMode ? 8 : 0 }}>
-        <a href={url} target="_blank" rel="noopener noreferrer"
-          style={{ color: 'var(--accent)', fontSize: 12, wordBreak: 'break-all', flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-          {url}
-        </a>
-        <button
-          onClick={() => setEmbedMode(m => !m)}
-          style={{ background: 'none', border: '1px solid var(--border)', borderRadius: 4,
-            color: 'var(--text-muted)', cursor: 'pointer', fontSize: 11, padding: '3px 8px', whiteSpace: 'nowrap', flexShrink: 0 }}>
-          {embedMode ? 'Hide' : 'Show in app'}
-        </button>
-      </div>
-      {embedMode && (
-        <div style={{ border: '1px solid var(--border)', borderRadius: 'var(--radius)', overflow: 'hidden', height: 480 }}>
-          <iframe
-            src={url}
-            title={name}
-            style={{ width: '100%', height: '100%', border: 'none', display: 'block' }}
-            sandbox="allow-scripts allow-same-origin allow-forms allow-popups"
-          />
-        </div>
-      )}
-    </div>
-  );
-}
-
-// ── Audio player ──────────────────────────────────────────────────────────────
-
-function AudioPlayer({ pdfUrl }: { pdfUrl: string }) {
-  // pdfUrl points to the same backend proxy — just uses it as audio src with auth
-  const [blobUrl, setBlobUrl] = useState<string | null>(null);
-
-  useEffect(() => {
-    const token = localStorage.getItem('token');
-    const apiUrl = pdfUrl.startsWith('/parts') ? `/api${pdfUrl}` : pdfUrl;
-    fetch(apiUrl, { headers: token ? { Authorization: `Bearer ${token}` } : {} })
-      .then(r => r.blob())
-      .then(blob => setBlobUrl(URL.createObjectURL(blob)))
-      .catch(() => {});
-    return () => { if (blobUrl) URL.revokeObjectURL(blobUrl); };
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [pdfUrl]);
-
-  if (!blobUrl) return <div style={{ color: 'var(--text-muted)', fontSize: 13, marginTop: 8 }}>Loading audio…</div>;
-  return (
-    <audio controls src={blobUrl} style={{ marginTop: 8, width: '100%' }} />
-  );
-}
-
-// ── Assignments panel ─────────────────────────────────────────────────────────
 
 // ── Annotation panel ──────────────────────────────────────────────────────────
 
@@ -148,15 +32,23 @@ function AnnotationPanel({ partId, currentUserId }: { partId: string; currentUse
     if (!text.trim() || !m || m < 1) return;
     setSaving(true);
     try {
+      const contentJson: ContentJson = {
+        text: text.trim(),
+        fontSize: 0.15,
+        color: '#333333',
+        fontWeight: 'normal' as const,
+        fontStyle: 'normal' as const,
+        boundingBox: { x: 0.5, y: 0.1, widthPageUnits: 0.08, heightPageUnits: 0.02 },
+      };
       const { annotation } = await createAnnotation(partId, {
         anchorType: 'measure',
         anchorJson: { measureNumber: m },
-        contentType: 'text',
-        contentJson: { text: text.trim() },
+        kind: 'text' as AnnotationKind,
+        contentJson,
       });
       setAnnotations(prev => [...prev, annotation].sort((a, b) => {
-        const am = (a.anchor_json as { measureNumber?: number }).measureNumber ?? 0;
-        const bm = (b.anchor_json as { measureNumber?: number }).measureNumber ?? 0;
+        const am = (a.anchorJson as { measureNumber?: number }).measureNumber ?? 0;
+        const bm = (b.anchorJson as { measureNumber?: number }).measureNumber ?? 0;
         return am - bm;
       }));
       setMeasure('');
@@ -186,7 +78,7 @@ function AnnotationPanel({ partId, currentUserId }: { partId: string; currentUse
           display: 'flex', alignItems: 'center', gap: 5,
         }}
       >
-        <span style={{ color: 'var(--accent)', fontSize: 13 }}>{open ? '▾' : '▸'}</span>
+        <span style={{ color: 'var(--accent)', fontSize: 13 }}>{open ? '\u25BE' : '\u25B8'}</span>
         Notes & annotations
         {annotations.length > 0 && !open && (
           <span style={{
@@ -198,18 +90,18 @@ function AnnotationPanel({ partId, currentUserId }: { partId: string; currentUse
 
       {open && (
         <div style={{ marginTop: 10 }}>
-          {/* Existing annotations */}
           {annotations.length > 0 && (
             <div style={{ display: 'flex', flexDirection: 'column', gap: 6, marginBottom: 12 }}>
               {annotations.map(a => {
-                const measureNum = (a.anchor_json as { measureNumber?: number }).measureNumber;
-                const isUnresolved = a.is_unresolved;
+                const measureNum = (a.anchorJson as { measureNumber?: number }).measureNumber;
+                const needsReview = (a.contentJson as Record<string, unknown>)._needsReview === true;
+                const displayText = (a.contentJson as { text?: string }).text;
                 return (
                   <div key={a.id} style={{
                     display: 'flex', gap: 10, alignItems: 'flex-start',
                     padding: '8px 10px',
-                    background: isUnresolved ? 'rgba(251,191,36,0.06)' : 'var(--bg)',
-                    border: `1px solid ${isUnresolved ? 'rgba(251,191,36,0.3)' : 'var(--border)'}`,
+                    background: needsReview ? 'rgba(251,191,36,0.06)' : 'var(--bg)',
+                    border: `1px solid ${needsReview ? 'rgba(251,191,36,0.3)' : 'var(--border)'}`,
                     borderRadius: 'var(--radius-sm)',
                   }}>
                     {measureNum && (
@@ -221,24 +113,26 @@ function AnnotationPanel({ partId, currentUserId }: { partId: string; currentUse
                       }}>m.{measureNum}</span>
                     )}
                     <div style={{ flex: 1, minWidth: 0 }}>
-                      {isUnresolved && (
+                      {needsReview && (
                         <p style={{ fontSize: 11, color: 'var(--warning)', marginBottom: 3 }}>
-                          ⚠ Measure was removed in this version
+                          Needs review after migration
                         </p>
                       )}
-                      <p style={{ fontSize: 13, color: 'var(--text)', wordBreak: 'break-word' }}>
-                        {a.content_json.text}
-                      </p>
+                      {displayText && (
+                        <p style={{ fontSize: 13, color: 'var(--text)', wordBreak: 'break-word' }}>
+                          {displayText}
+                        </p>
+                      )}
                       <p style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: 2 }}>
-                        {a.user_name}
+                        {a.ownerName ?? 'Unknown'} {'\u00B7'} {a.kind}
                       </p>
                     </div>
-                    {a.user_id === currentUserId && (
+                    {a.ownerUserId === currentUserId && (
                       <button
                         onClick={() => handleDelete(a.id)}
                         disabled={deletingId === a.id}
                         style={{ background: 'none', border: 'none', color: 'var(--text-faint)', cursor: 'pointer', fontSize: 14, padding: 0, flexShrink: 0 }}
-                      >×</button>
+                      >{'\u00D7'}</button>
                     )}
                   </div>
                 );
@@ -248,7 +142,6 @@ function AnnotationPanel({ partId, currentUserId }: { partId: string; currentUse
           {annotations.length === 0 && (
             <p style={{ fontSize: 12, color: 'var(--text-muted)', marginBottom: 10 }}>No annotations yet.</p>
           )}
-          {/* Add new */}
           <div style={{ display: 'flex', gap: 6 }}>
             <input
               type="number"
@@ -261,7 +154,7 @@ function AnnotationPanel({ partId, currentUserId }: { partId: string; currentUse
             <input
               value={text}
               onChange={e => setText(e.target.value)}
-              placeholder="Add a note…"
+              placeholder="Add a note..."
               onKeyDown={e => { if (e.key === 'Enter') handleAdd(); }}
               style={{ flex: 1, padding: '6px 10px', fontSize: 12 }}
             />
@@ -277,33 +170,23 @@ function AnnotationPanel({ partId, currentUserId }: { partId: string; currentUse
 
 // ── Add file inline ───────────────────────────────────────────────────────────
 
-const TYPE_OPTIONS = [
-  { value: 'part', label: 'Part' }, { value: 'score', label: 'Score' },
-  { value: 'audio', label: 'Audio' }, { value: 'chart', label: 'Chord chart' },
-  { value: 'link', label: 'Link' }, { value: 'other', label: 'Other' },
-];
-
-function AddFileButton({ chartId, versionId, onAdded }: {
-  chartId: string; versionId: string; onAdded: (p: Part) => void;
+function AddFileButton({ versionId, onAdded }: {
+  versionId: string; onAdded: (p: Part) => void;
 }) {
   const [open, setOpen] = useState(false);
   const [name, setName] = useState('');
-  const [type, setType] = useState('part');
-  const [url, setUrl] = useState('');
   const [file, setFile] = useState<File | null>(null);
   const [saving, setSaving] = useState(false);
   const [err, setErr] = useState('');
-  const fileInputRef = useRef<HTMLInputElement>(null);
 
-  function reset() { setName(''); setType('part'); setUrl(''); setFile(null); setErr(''); setOpen(false); }
+  function reset() { setName(''); setFile(null); setErr(''); setOpen(false); }
 
   async function handleSave() {
     if (!name.trim()) { setErr('Name is required.'); return; }
-    if (type === 'link' && !url.trim()) { setErr('URL is required.'); return; }
-    if (type !== 'link' && !file) { setErr('Select a file.'); return; }
+    if (!file) { setErr('Select a file.'); return; }
     setSaving(true); setErr('');
     try {
-      const { part } = await addPartToVersion(chartId, versionId, { name: name.trim(), type, file: file ?? undefined, url: url.trim() || undefined });
+      const { part } = await uploadPart({ versionId, name: name.trim(), file });
       onAdded(part);
       reset();
     } catch {
@@ -325,23 +208,14 @@ function AddFileButton({ chartId, versionId, onAdded }: {
 
   return (
     <div style={{ background: 'var(--surface)', border: '1px solid var(--accent)', borderRadius: 'var(--radius)', padding: '14px 16px', width: '100%', marginBottom: 8 }}>
-      <div style={{ display: 'grid', gridTemplateColumns: '1fr 130px', gap: 8, marginBottom: 8 }}>
-        <input value={name} onChange={e => setName(e.target.value)} placeholder="Name…"
-          style={{ background: 'var(--bg)', border: '1px solid var(--border)', borderRadius: 4, padding: '6px 8px', color: 'var(--text)', fontSize: 14 }} />
-        <select value={type} onChange={e => setType(e.target.value)}
-          style={{ background: 'var(--bg)', border: '1px solid var(--border)', borderRadius: 4, padding: '6px 8px', color: 'var(--text)', fontSize: 13 }}>
-          {TYPE_OPTIONS.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
-        </select>
+      <div style={{ display: 'flex', gap: 8, marginBottom: 8 }}>
+        <input value={name} onChange={e => setName(e.target.value)} placeholder="Part name..."
+          style={{ flex: 1, background: 'var(--bg)', border: '1px solid var(--border)', borderRadius: 4, padding: '6px 8px', color: 'var(--text)', fontSize: 14 }} />
       </div>
-      {type === 'link' ? (
-        <input value={url} onChange={e => setUrl(e.target.value)} placeholder="https://…"
-          style={{ width: '100%', background: 'var(--bg)', border: '1px solid var(--border)', borderRadius: 4, padding: '6px 8px', color: 'var(--text)', fontSize: 13, boxSizing: 'border-box', marginBottom: 8 }} />
-      ) : (
-        <div style={{ marginBottom: 8 }}>
-          <input ref={fileInputRef} type="file" accept=".pdf,.mp3,.wav,.m4a,.aac,.ogg,.flac,application/pdf,audio/*"
-            onChange={e => setFile(e.target.files?.[0] ?? null)} style={{ fontSize: 13, color: 'var(--text-muted)' }} />
-        </div>
-      )}
+      <div style={{ marginBottom: 8 }}>
+        <input type="file" accept=".pdf,application/pdf"
+          onChange={e => setFile(e.target.files?.[0] ?? null)} style={{ fontSize: 13, color: 'var(--text-muted)' }} />
+      </div>
       {err && <p style={{ color: 'var(--danger)', fontSize: 13, marginBottom: 8 }}>{err}</p>}
       <div style={{ display: 'flex', gap: 8 }}>
         <Button size="sm" loading={saving} onClick={handleSave}>Add</Button>
@@ -356,43 +230,36 @@ function AddFileButton({ chartId, versionId, onAdded }: {
 export function VersionDetail() {
   const { id: chartId, vId } = useParams<{ id: string; vId: string }>();
   const { user } = useAuth();
-  const [version, setVersion] = useState<ChartVersion | null>(null);
+  const [version, setVersion] = useState<Version | null>(null);
   const [parts, setParts] = useState<Part[]>([]);
-  const [diff, setDiff] = useState<VersionDiff | null>(null);
-  const [myRole, setMyRole] = useState<string | null>(null);
-  const [assignments, setAssignments] = useState<PartAssignment[]>([]);
   const [loading, setLoading] = useState(true);
   const [deletingPart, setDeletingPart] = useState<string | null>(null);
   const [deletePartError, setDeletePartError] = useState('');
 
   const load = useCallback(async () => {
-    if (!chartId || !vId) return;
-    const res = await getVersion(chartId, vId);
-    setVersion(res.version);
-    setParts(res.parts);
-    setDiff(res.diff);
-  }, [chartId, vId]);
+    if (!vId) return;
+    const [verRes, partsRes] = await Promise.all([
+      getVersion(vId),
+      getParts(vId),
+    ]);
+    setVersion(verRes.version);
+    setParts(partsRes.parts);
+  }, [vId]);
 
   useEffect(() => {
     load().finally(() => setLoading(false));
   }, [load]);
 
-  // Load ensemble context + assignments
+  // Poll while OMR is in progress
   useEffect(() => {
-    if (!chartId) return;
-    getChart(chartId).then(({ chart }) => {
-        return Promise.all([
-          getMembers(chart.ensemble_id).then(r => {
-            const member = r.members.find((m: EnsembleMember) => m.id === user?.id);
-            if (member) setMyRole(member.role);
-          }).catch(() => {}),
-          getAssignments(chartId).then(r => setAssignments(r.assignments)).catch(() => {}),
-        ]);
-      }).catch(() => {});
-  }, [chartId]);
+    const inProgress = parts.some(p => p.omrStatus === 'pending' || p.omrStatus === 'processing');
+    if (!inProgress) return;
+    const timer = setInterval(load, 5000);
+    return () => clearInterval(timer);
+  }, [parts, load]);
 
-  async function handleDeletePart(partId: string, instrumentName: string) {
-    if (!confirm(`Delete "${instrumentName}"? This cannot be undone.`)) return;
+  async function handleDeletePart(partId: string, name: string) {
+    if (!confirm(`Delete "${name}"? This cannot be undone.`)) return;
     setDeletingPart(partId);
     setDeletePartError('');
     try {
@@ -405,147 +272,74 @@ export function VersionDetail() {
     }
   }
 
-  // Poll while OMR is in progress
-  useEffect(() => {
-    const inProgress = parts.some(p => p.omr_status === 'pending' || p.omr_status === 'processing');
-    if (!inProgress) return;
-    const timer = setInterval(load, 5000);
-    return () => clearInterval(timer);
-  }, [parts, load]);
-
-  if (loading) return <Layout><p style={{ color: 'var(--text-muted)' }}>Loading…</p></Layout>;
+  if (loading) return <Layout><p style={{ color: 'var(--text-muted)' }}>Loading...</p></Layout>;
   if (!version) return null;
-
-  const diffParts = diff?.diff_json?.parts ?? {};
-  const omrAllDone = parts.every(p => p.omr_status === 'complete' || p.omr_status === 'failed');
-  const canEdit = myRole === 'owner' || myRole === 'editor';
 
   return (
     <Layout
-      title={version.version_name}
+      title={version.name}
       back={{ label: 'Chart', to: `/charts/${chartId}` }}
     >
       <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginTop: -20, marginBottom: 28 }}>
-        <ActiveBadge active={version.is_active} />
-        {version.created_by_name && (
-          <span style={{ color: 'var(--text-muted)', fontSize: 13 }}>
-            Pushed by {version.created_by_name} · {new Date(version.created_at).toLocaleDateString()}
-          </span>
-        )}
+        <span style={{ color: 'var(--text-muted)', fontSize: 13 }}>
+          {new Date(version.createdAt).toLocaleDateString()}
+        </span>
       </div>
 
       <section>
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 16 }}>
-          <h2>Files</h2>
-          {canEdit && <AddFileButton chartId={chartId!} versionId={vId!} onAdded={p => setParts(prev => [...prev, p])} />}
+          <h2>Parts</h2>
+          <AddFileButton versionId={vId!} onAdded={p => setParts(prev => [...prev, p])} />
         </div>
         {deletePartError && <p className="form-error" style={{ marginBottom: 16 }}>{deletePartError}</p>}
         <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
-          {parts.map(p => {
-            const partDiff = diffParts[p.instrument_name] ?? null;
-            return (
-              <div key={p.id} style={{
-                background: 'var(--surface)', border: '1px solid var(--border)',
-                borderRadius: 'var(--radius)', padding: '16px 18px',
-              }}>
-                {/* Header row */}
-                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 14 }}>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
-                    <InstrumentIcon name={p.instrument_name} size={24} />
-                    <span style={{ fontWeight: 600, fontSize: 15 }}>{p.instrument_name}</span>
-                    {p.part_type === 'score' && (
-                      <span style={{ fontSize: 11, padding: '2px 7px', background: 'rgba(99,102,241,0.15)',
-                        border: '1px solid rgba(99,102,241,0.4)', borderRadius: 99, color: 'var(--accent)' }}>Score</span>
-                    )}
-                    {p.part_type === 'audio' && (
-                      <span style={{ fontSize: 11, padding: '2px 7px', background: 'rgba(34,197,94,0.12)',
-                        border: '1px solid rgba(34,197,94,0.4)', borderRadius: 99, color: '#22c55e' }}>Audio</span>
-                    )}
-                    {p.part_type === 'chart' && (
-                      <span style={{ fontSize: 11, padding: '2px 7px', background: 'rgba(251,191,36,0.12)',
-                        border: '1px solid rgba(251,191,36,0.4)', borderRadius: 99, color: '#f59e0b' }}>Chord chart</span>
-                    )}
-                    {p.part_type === 'link' && (
-                      <span style={{ fontSize: 11, padding: '2px 7px', background: 'rgba(99,102,241,0.08)',
-                        border: '1px solid var(--border)', borderRadius: 99, color: 'var(--text-muted)' }}>Link</span>
-                    )}
-                    {p.part_type === 'other' && (
-                      <span style={{ fontSize: 11, padding: '2px 7px', background: 'var(--surface)',
-                        border: '1px solid var(--border)', borderRadius: 99, color: 'var(--text-muted)' }}>Other</span>
-                    )}
-                    {p.part_type !== 'link' && p.part_type !== 'audio' && (
-                      <OmrBadge status={p.omr_status} />
-                    )}
-                    {p.inherited_from_part_id && (
-                      <span style={{ fontSize: 11, padding: '2px 7px', background: 'var(--surface)',
-                        border: '1px solid var(--border)', borderRadius: 99, color: 'var(--text-muted)' }}>
-                        carried from {p.inherited_from_version_name ?? `v${p.inherited_from_version_number}`}
-                      </span>
-                    )}
-                  </div>
-                  {canEdit && (
-                    <Button variant="ghost" size="sm" loading={deletingPart === p.id}
-                      onClick={() => handleDeletePart(p.id, p.instrument_name)}
-                      style={{ color: 'var(--danger)' }}>
-                      Delete
-                    </Button>
+          {parts.length === 0 && (
+            <p style={{ color: 'var(--text-muted)', textAlign: 'center', padding: '40px 0' }}>
+              No parts uploaded yet.
+            </p>
+          )}
+          {parts.map(p => (
+            <div key={p.id} style={{
+              background: 'var(--surface)', border: '1px solid var(--border)',
+              borderRadius: 'var(--radius)', padding: '16px 18px',
+            }}>
+              {/* Header row */}
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 14 }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
+                  <InstrumentIcon name={p.name} size={24} />
+                  <span style={{ fontWeight: 600, fontSize: 15 }}>{p.name}</span>
+                  {p.kind === 'score' && (
+                    <span style={{ fontSize: 11, padding: '2px 7px', background: 'rgba(99,102,241,0.15)',
+                      border: '1px solid rgba(99,102,241,0.4)', borderRadius: 99, color: 'var(--accent)' }}>Score</span>
                   )}
+                  <OmrBadge status={p.omrStatus} />
                 </div>
-
-                {/* Content by type */}
-                {p.part_type === 'link' && p.url ? (
-                  <LinkViewer url={p.url} name={p.instrument_name} />
-                ) : p.part_type === 'audio' && p.pdfUrl ? (
-                  <AudioPlayer pdfUrl={p.pdfUrl} />
-                ) : p.pdfUrl ? (
-                  <PdfViewer
-                    url={p.pdfUrl}
-                    partId={p.id}
-                    title={`${p.instrument_name} — ${version.version_name}`}
-                    changedMeasureBounds={partDiff?.changedMeasureBounds}
-                    changeDescriptions={partDiff?.changeDescriptions}
-                  />
-                ) : (
-                  <div style={{ background: 'var(--bg)', border: '1px solid var(--border)',
-                    borderRadius: 'var(--radius)', padding: '20px', textAlign: 'center',
-                    color: 'var(--text-muted)', fontSize: 13 }}>
-                    File not available
-                  </div>
-                )}
-
-                {/* Diff panel — only for PDF types */}
-                {['score', 'part', 'chart', 'other'].includes(p.part_type) && (
-                  partDiff ? (
-                    <DiffPanel diff={partDiff} instrument={p.instrument_name} />
-                  ) : omrAllDone && !diff ? (
-                    <p style={{ marginTop: 12, fontSize: 13, color: 'var(--text-muted)' }}>
-                      No diff available (first version or OMR unavailable)
-                    </p>
-                  ) : null
-                )}
-
-                {/* Annotations */}
-                <AnnotationPanel partId={p.id} currentUserId={user?.id ?? ''} />
-
-                {/* Assigned players (display only — manage via ensemble instruments) */}
-                {(() => {
-                  const myAssignments = assignments.filter(a => a.instrument_name === p.instrument_name);
-                  if (myAssignments.length === 0) return null;
-                  return (
-                    <div style={{ marginTop: 12, display: 'flex', flexWrap: 'wrap', gap: 5, alignItems: 'center' }}>
-                      <span style={{ fontSize: 11, color: 'var(--text-muted)', fontWeight: 500 }}>Players:</span>
-                      {myAssignments.map(a => (
-                        <span key={a.id} style={{
-                          fontSize: 12, background: 'var(--bg)', border: '1px solid var(--border)',
-                          borderRadius: 99, padding: '2px 9px', color: 'var(--text-muted)',
-                        }}>{a.user_name}</span>
-                      ))}
-                    </div>
-                  );
-                })()}
+                <Button variant="ghost" size="sm" loading={deletingPart === p.id}
+                  onClick={() => handleDeletePart(p.id, p.name)}
+                  style={{ color: 'var(--danger)' }}>
+                  Delete
+                </Button>
               </div>
-            );
-          })}
+
+              {/* PDF viewer */}
+              {p.pdfUrl ? (
+                <PdfViewer
+                  url={p.pdfUrl}
+                  partId={p.id}
+                  title={`${p.name} — ${version.name}`}
+                />
+              ) : (
+                <div style={{ background: 'var(--bg)', border: '1px solid var(--border)',
+                  borderRadius: 'var(--radius)', padding: '20px', textAlign: 'center',
+                  color: 'var(--text-muted)', fontSize: 13 }}>
+                  PDF not available
+                </div>
+              )}
+
+              {/* Annotations */}
+              <AnnotationPanel partId={p.id} currentUserId={user?.id ?? ''} />
+            </div>
+          ))}
         </div>
       </section>
     </Layout>
