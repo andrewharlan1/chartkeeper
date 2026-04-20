@@ -1,5 +1,5 @@
 import { FormEvent, useState } from 'react';
-import { Link, useNavigate, useSearchParams } from 'react-router-dom';
+import { Link, useNavigate } from 'react-router-dom';
 import { signup } from '../api/auth';
 import { useAuth } from '../hooks/useAuth';
 import { Button } from '../components/Button';
@@ -8,8 +8,6 @@ import { ApiError } from '../api/client';
 export function Signup() {
   const { login: setAuth } = useAuth();
   const navigate = useNavigate();
-  const [searchParams] = useSearchParams();
-  const inviteToken = searchParams.get('invite') ?? undefined;
 
   const [name, setName] = useState('');
   const [email, setEmail] = useState('');
@@ -22,8 +20,8 @@ export function Signup() {
     setError('');
     setLoading(true);
     try {
-      const { token, user } = await signup({ email, name, password, inviteToken });
-      setAuth(token, user);
+      const { token, user, workspaceId } = await signup({ email, name, password });
+      setAuth(token, user, workspaceId);
       navigate('/');
     } catch (err) {
       setError(err instanceof ApiError ? err.message : 'Something went wrong');
@@ -35,7 +33,7 @@ export function Signup() {
   return (
     <div style={{ minHeight: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'var(--bg)' }}>
       <div style={{ width: '100%', maxWidth: 380, padding: 32, background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 'var(--radius)' }}>
-        <div style={{ textAlign: 'center', marginBottom: inviteToken ? 8 : 28 }}>
+        <div style={{ textAlign: 'center', marginBottom: 28 }}>
           <div style={{
             width: 40, height: 40, borderRadius: 12, margin: '0 auto 12px',
             background: 'linear-gradient(135deg, #5b4cf5 0%, #0d82c7 100%)',
@@ -45,12 +43,7 @@ export function Signup() {
           }}>S</div>
           <h1 style={{ fontSize: 24, letterSpacing: '-0.03em' }}>Scorva</h1>
         </div>
-        {inviteToken && (
-          <p style={{ textAlign: 'center', color: 'var(--text-muted)', fontSize: 13, marginBottom: 20 }}>
-            You've been invited to join an ensemble.
-          </p>
-        )}
-        <form onSubmit={handleSubmit} style={{ marginTop: inviteToken ? 0 : 24 }}>
+        <form onSubmit={handleSubmit}>
           <div className="form-group">
             <label>Name</label>
             <input value={name} onChange={e => setName(e.target.value)} required autoFocus />

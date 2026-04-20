@@ -4,7 +4,9 @@ import { User } from '../types';
 interface AuthContextValue {
   user: User | null;
   token: string | null;
-  login: (token: string, user: User) => void;
+  workspaceId: string | null;
+  login: (token: string, user: User, workspaceId: string) => void;
+  setWorkspaceId: (id: string) => void;
   logout: () => void;
 }
 
@@ -16,6 +18,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     const raw = localStorage.getItem('user');
     return raw ? JSON.parse(raw) : null;
   });
+  const [workspaceId, setWorkspaceIdState] = useState<string | null>(
+    () => localStorage.getItem('workspaceId'),
+  );
 
   useEffect(() => {
     if (token) localStorage.setItem('token', token);
@@ -27,18 +32,29 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     else localStorage.removeItem('user');
   }, [user]);
 
-  function login(t: string, u: User) {
+  useEffect(() => {
+    if (workspaceId) localStorage.setItem('workspaceId', workspaceId);
+    else localStorage.removeItem('workspaceId');
+  }, [workspaceId]);
+
+  function login(t: string, u: User, wsId: string) {
     setToken(t);
     setUser(u);
+    setWorkspaceIdState(wsId);
+  }
+
+  function setWorkspaceId(id: string) {
+    setWorkspaceIdState(id);
   }
 
   function logout() {
     setToken(null);
     setUser(null);
+    setWorkspaceIdState(null);
   }
 
   return (
-    <AuthContext.Provider value={{ user, token, login, logout }}>
+    <AuthContext.Provider value={{ user, token, workspaceId, login, setWorkspaceId, logout }}>
       {children}
     </AuthContext.Provider>
   );

@@ -1,6 +1,7 @@
 import { FormEvent, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { login } from '../api/auth';
+import { getWorkspaces } from '../api/workspaces';
 import { useAuth } from '../hooks/useAuth';
 import { Button } from '../components/Button';
 import { ApiError } from '../api/client';
@@ -19,7 +20,11 @@ export function Login() {
     setLoading(true);
     try {
       const { token, user } = await login({ email, password });
-      setAuth(token, user);
+      // Store token so the workspaces fetch is authenticated
+      localStorage.setItem('token', token);
+      const { workspaces } = await getWorkspaces();
+      const wsId = workspaces[0]?.id ?? '';
+      setAuth(token, user, wsId);
       navigate('/');
     } catch (err) {
       setError(err instanceof ApiError ? err.message : 'Something went wrong');
