@@ -323,7 +323,7 @@ function FullscreenViewer({
 }) {
   const isDark = useIsDark();
   const annotationMode = useAnnotationMode();
-  const [annSaveStatus] = useState<SaveStatus>('idle');
+  const [annSaveStatus, setAnnSaveStatus] = useState<SaveStatus>('idle');
 
   const pdfDocRef   = useRef<PDFDocumentProxy | null>(null);
   const pdfCanvasRef = useRef<HTMLCanvasElement>(null);
@@ -1180,6 +1180,7 @@ function FullscreenViewer({
                   inkColor={annotationMode.inkColor}
                   highlightColor={annotationMode.highlightColor}
                   textColor={annotationMode.textColor}
+                  onSaveStatusChange={setAnnSaveStatus}
                 />
               )}
             </div>
