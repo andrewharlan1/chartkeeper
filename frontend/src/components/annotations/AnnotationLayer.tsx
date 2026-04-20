@@ -1,6 +1,6 @@
 import { useEffect, useState, useRef, useCallback, PointerEvent as ReactPointerEvent } from 'react';
 import { MeasureLayoutItem, Annotation, Stroke, StrokePoint, InkContent, HighlightContent, TextContent, FontFamily } from '../../types';
-import { getAnnotations, createAnnotation } from '../../api/annotations';
+import { getAnnotations, createAnnotation, deleteAnnotation } from '../../api/annotations';
 import { AnnotationMode } from '../../hooks/useAnnotationMode';
 import { SaveStatus } from './SaveStatusIndicator';
 import { InkRenderer } from './InkRenderer';
@@ -23,6 +23,7 @@ interface Props {
 }
 
 const INK_STROKE_WIDTH = 0.002; // normalized to page width
+const ERASE_HIT_PAD = 0.008; // ~8px hit tolerance at 1000px canvas
 
 function rgbToHex(r: string, g: string, b: string): string {
   return '#' + [r, g, b].map(x => parseInt(x).toString(16).padStart(2, '0')).join('');
@@ -32,6 +33,32 @@ function parseRgba(rgba: string): { color: string; opacity: number } {
   const m = rgba.match(/rgba?\(\s*(\d+)\s*,\s*(\d+)\s*,\s*(\d+)\s*(?:,\s*([\d.]+)\s*)?\)/);
   if (m) return { color: rgbToHex(m[1], m[2], m[3]), opacity: m[4] ? parseFloat(m[4]) : 1 };
   return { color: rgba, opacity: 1 };
+}
+
+/** Return a padded AABB (normalized coords) for hit-testing any annotation type. */
+function getAnnotationBBox(a: Annotation): { x1: number; y1: number; x2: number; y2: number } | null {
+  const pad = ERASE_HIT_PAD;
+  if (a.kind === 'ink') {
+    const c = a.contentJson as InkContent;
+    if (!c.boundingBox) return null;
+    const { x, y, width, height } = c.boundingBox;
+    return { x1: x - pad, y1: y - pad, x2: x + width + pad, y2: y + height + pad };
+  }
+  if (a.kind === 'highlight') {
+    const c = a.contentJson as HighlightContent;
+    const { x, y, width, height } = c.boundingBox;
+    return { x1: x - pad, y1: y - pad, x2: x + width + pad, y2: y + height + pad };
+  }
+  if (a.kind === 'text') {
+    const c = a.contentJson as TextContent;
+    const { x, y, widthPageUnits, heightPageUnits } = c.boundingBox;
+    return { x1: x - pad, y1: y - pad, x2: x + widthPageUnits + pad, y2: y + heightPageUnits + pad };
+  }
+  return null;
+}
+
+function pointInBBox(px: number, py: number, bb: { x1: number; y1: number; x2: number; y2: number }): boolean {
+  return px >= bb.x1 && px <= bb.x2 && py >= bb.y1 && py <= bb.y2;
 }
 
 export function AnnotationLayer({
@@ -58,6 +85,10 @@ export function AnnotationLayer({
   const [hlLiveEnd, setHlLiveEnd] = useState<StrokePoint | null>(null);
   const [activeText, setActiveText] = useState<{ x: number; y: number; text: string } | null>(null);
   const textTapRef = useRef<StrokePoint | null>(null);
+  // Eraser state
+  const [fadingIds, setFadingIds] = useState<Set<string>>(new Set());
+  const eraseStartRef = useRef<StrokePoint | null>(null);
+  const pendingDeletes = useRef<Set<string>>(new Set());
 
   // Fetch annotations on mount
   useEffect(() => {
@@ -230,9 +261,38 @@ export function AnnotationLayer({
     }
   }, [textColor, fontSize, fontFamily, partId, findMeasure, onSaveStatusChange]);
 
-  // Pointer handlers — mode is now 'ink', 'text', 'highlight' directly
+  // Find annotations hit by a point (for eraser)
+  const eraseHitTest = useCallback((pt: StrokePoint, candidates: Annotation[]): Annotation[] => {
+    const hits: Annotation[] = [];
+    for (const a of candidates) {
+      if (fadingIds.has(a.id) || pendingDeletes.current.has(a.id)) continue;
+      const bb = getAnnotationBBox(a);
+      if (bb && pointInBBox(pt.x, pt.y, bb)) hits.push(a);
+    }
+    return hits;
+  }, [fadingIds]);
+
+  // Commit batched deletes to the server
+  const commitErases = useCallback(async (ids: string[]) => {
+    if (ids.length === 0) return;
+    onSaveStatusChange('saving');
+    try {
+      await Promise.all(ids.map(id => deleteAnnotation(id)));
+      setAnnotations(prev => prev.filter(a => !ids.includes(a.id)));
+      onSaveStatusChange('saved');
+    } catch {
+      onSaveStatusChange('error');
+    }
+    setFadingIds(prev => {
+      const next = new Set(prev);
+      for (const id of ids) next.delete(id);
+      return next;
+    });
+  }, [onSaveStatusChange]);
+
+  // Pointer handlers — mode is now 'ink', 'text', 'highlight', 'erase' directly
   function handlePointerDown(e: ReactPointerEvent<SVGSVGElement>) {
-    if (mode !== 'ink' && mode !== 'highlight' && mode !== 'text') return;
+    if (mode !== 'ink' && mode !== 'highlight' && mode !== 'text' && mode !== 'erase') return;
     e.preventDefault();
     const pt = toNormalized(e);
 
@@ -251,6 +311,17 @@ export function AnnotationLayer({
       setHlLiveEnd(pt);
     } else if (mode === 'text') {
       textTapRef.current = pt;
+    } else if (mode === 'erase') {
+      (e.target as Element).setPointerCapture(e.pointerId);
+      isDrawing.current = true;
+      eraseStartRef.current = pt;
+      pendingDeletes.current = new Set();
+      // Immediate hit test at down point
+      const hits = eraseHitTest(pt, pageAnnotations);
+      for (const h of hits) {
+        pendingDeletes.current.add(h.id);
+        setFadingIds(prev => new Set(prev).add(h.id));
+      }
     }
   }
 
@@ -262,6 +333,12 @@ export function AnnotationLayer({
       setLivePoints(prev => [...prev, pt]);
     } else if (mode === 'highlight') {
       setHlLiveEnd(pt);
+    } else if (mode === 'erase') {
+      const hits = eraseHitTest(pt, pageAnnotations);
+      for (const h of hits) {
+        pendingDeletes.current.add(h.id);
+        setFadingIds(prev => new Set(prev).add(h.id));
+      }
     }
   }
 
@@ -306,6 +383,14 @@ export function AnnotationLayer({
       hlStartRef.current = null;
       setHlLiveEnd(null);
       if (start) commitHighlight(start, end);
+    } else if (mode === 'erase') {
+      eraseStartRef.current = null;
+      const ids = [...pendingDeletes.current];
+      pendingDeletes.current = new Set();
+      if (ids.length > 0) {
+        // Brief fade, then commit deletes
+        setTimeout(() => commitErases(ids), 150);
+      }
     }
   }
 
@@ -325,6 +410,11 @@ export function AnnotationLayer({
       return null;
     });
     textTapRef.current = null;
+    eraseStartRef.current = null;
+    // Commit any pending erases immediately on mode switch
+    const eraseIds = [...pendingDeletes.current];
+    pendingDeletes.current = new Set();
+    if (eraseIds.length > 0) commitErases(eraseIds);
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [mode]);
 
@@ -348,7 +438,7 @@ export function AnnotationLayer({
     return (anchor.page ?? anchor.pageHint) === currentPage;
   });
 
-  const isDrawMode = mode === 'ink' || mode === 'highlight' || mode === 'text';
+  const isInteractive = mode === 'ink' || mode === 'highlight' || mode === 'text' || mode === 'erase';
 
   // Build the live stroke SVG path
   let livePath = '';
@@ -386,8 +476,8 @@ export function AnnotationLayer({
         position: 'absolute',
         top: 0,
         left: 0,
-        pointerEvents: isDrawMode ? 'auto' : 'none',
-        cursor: isDrawMode ? 'crosshair' : 'default',
+        pointerEvents: isInteractive ? 'auto' : 'none',
+        cursor: mode === 'erase' ? 'crosshair' : isInteractive ? 'crosshair' : 'default',
         touchAction: 'none',
       }}
       onPointerDown={handlePointerDown}
@@ -396,32 +486,34 @@ export function AnnotationLayer({
       onPointerLeave={handlePointerUp}
     >
       {/* Saved annotations */}
-      {pageAnnotations.map(a =>
-        a.kind === 'highlight' ? (
-          <HighlightRenderer
-            key={a.id}
-            annotation={a}
-            canvasWidth={canvasWidth}
-            canvasHeight={canvasHeight}
-          />
-        ) : a.kind === 'text' ? (
-          <TextRenderer
-            key={a.id}
-            annotation={a}
-            canvasWidth={canvasWidth}
-            canvasHeight={canvasHeight}
-          />
-        ) : (
-          <InkRenderer
-            key={a.id}
-            annotation={a}
-            measureLayout={measureLayout}
-            currentPage={currentPage}
-            canvasWidth={canvasWidth}
-            canvasHeight={canvasHeight}
-          />
-        )
-      )}
+      {pageAnnotations.map(a => {
+        const isFading = fadingIds.has(a.id);
+        return (
+          <g key={a.id} style={{ opacity: isFading ? 0 : 1, transition: 'opacity 0.15s ease-out' }}>
+            {a.kind === 'highlight' ? (
+              <HighlightRenderer
+                annotation={a}
+                canvasWidth={canvasWidth}
+                canvasHeight={canvasHeight}
+              />
+            ) : a.kind === 'text' ? (
+              <TextRenderer
+                annotation={a}
+                canvasWidth={canvasWidth}
+                canvasHeight={canvasHeight}
+              />
+            ) : (
+              <InkRenderer
+                annotation={a}
+                measureLayout={measureLayout}
+                currentPage={currentPage}
+                canvasWidth={canvasWidth}
+                canvasHeight={canvasHeight}
+              />
+            )}
+          </g>
+        );
+      })}
 
       {/* Pending uncommitted strokes */}
       {pendingPaths}
