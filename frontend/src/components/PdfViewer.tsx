@@ -947,7 +947,13 @@ function FullscreenViewer({
     function onKey(ev: KeyboardEvent) {
       if (ev.key === 'ArrowRight' || ev.key === 'ArrowDown') goToPage(currentPage + 1);
       else if (ev.key === 'ArrowLeft' || ev.key === 'ArrowUp') goToPage(currentPage - 1);
-      else if (ev.key === 'Escape') handleClose();
+      else if (ev.key === 'Escape') {
+        if (annotationMode.selectedAnnotationId) {
+          annotationMode.setSelectedAnnotationId(null);
+        } else {
+          handleClose();
+        }
+      }
       else if ((ev.metaKey || ev.ctrlKey) && ev.key === 'e') {
         ev.preventDefault();
         setMode(m => m === 'edit' ? 'view' : 'edit');
@@ -1138,6 +1144,8 @@ function FullscreenViewer({
                   textColor={annotationMode.textColor}
                   fontSize={annotationMode.fontSize}
                   fontFamily={annotationMode.fontFamily}
+                  selectedAnnotationId={annotationMode.selectedAnnotationId}
+                  onSelectionChange={annotationMode.setSelectedAnnotationId}
                   onSaveStatusChange={setAnnSaveStatus}
                 />
               )}

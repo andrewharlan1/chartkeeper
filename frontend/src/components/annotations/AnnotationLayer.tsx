@@ -6,6 +6,7 @@ import { SaveStatus } from './SaveStatusIndicator';
 import { InkRenderer } from './InkRenderer';
 import { HighlightRenderer } from './HighlightRenderer';
 import { TextRenderer } from './TextRenderer';
+import { SelectionOverlay, getAnnotationBounds } from './SelectionOverlay';
 
 interface Props {
   partId: string;
@@ -19,6 +20,8 @@ interface Props {
   textColor: string;
   fontSize: number;
   fontFamily: FontFamily;
+  selectedAnnotationId: string | null;
+  onSelectionChange: (id: string | null) => void;
   onSaveStatusChange: (status: SaveStatus) => void;
 }
 
@@ -73,6 +76,8 @@ export function AnnotationLayer({
   textColor,
   fontSize,
   fontFamily,
+  selectedAnnotationId,
+  onSelectionChange,
   onSaveStatusChange,
 }: Props) {
   const [annotations, setAnnotations] = useState<Annotation[]>([]);
@@ -84,11 +89,13 @@ export function AnnotationLayer({
   const hlStartRef = useRef<StrokePoint | null>(null);
   const [hlLiveEnd, setHlLiveEnd] = useState<StrokePoint | null>(null);
   const [activeText, setActiveText] = useState<{ x: number; y: number; text: string } | null>(null);
+  const [hoveredId, setHoveredId] = useState<string | null>(null);
   const textTapRef = useRef<StrokePoint | null>(null);
   // Eraser state
   const [fadingIds, setFadingIds] = useState<Set<string>>(new Set());
   const eraseStartRef = useRef<StrokePoint | null>(null);
   const pendingDeletes = useRef<Set<string>>(new Set());
+  const eraseHistory = useRef<Annotation[][]>([]);
 
   // Fetch annotations on mount
   useEffect(() => {
@@ -275,10 +282,15 @@ export function AnnotationLayer({
   // Commit batched deletes to the server
   const commitErases = useCallback(async (ids: string[]) => {
     if (ids.length === 0) return;
+    // Snapshot the annotations we're about to erase for undo
+    const idSet = new Set(ids);
+    const erased = annotations.filter(a => idSet.has(a.id));
+    if (erased.length > 0) eraseHistory.current.push(erased);
+
     onSaveStatusChange('saving');
     try {
       await Promise.all(ids.map(id => deleteAnnotation(id)));
-      setAnnotations(prev => prev.filter(a => !ids.includes(a.id)));
+      setAnnotations(prev => prev.filter(a => !idSet.has(a.id)));
       onSaveStatusChange('saved');
     } catch {
       onSaveStatusChange('error');
@@ -288,13 +300,81 @@ export function AnnotationLayer({
       for (const id of ids) next.delete(id);
       return next;
     });
-  }, [onSaveStatusChange]);
+  }, [annotations, onSaveStatusChange]);
 
-  // Pointer handlers — mode is now 'ink', 'text', 'highlight', 'erase' directly
+  // Undo last erase — re-create the annotations on the server and restore locally
+  const undoErase = useCallback(async () => {
+    const batch = eraseHistory.current.pop();
+    if (!batch || batch.length === 0) return;
+    onSaveStatusChange('saving');
+    try {
+      const restored: Annotation[] = [];
+      for (const a of batch) {
+        const { annotation } = await createAnnotation(partId, {
+          anchorType: a.anchorType,
+          anchorJson: a.anchorJson,
+          kind: a.kind,
+          contentJson: a.contentJson,
+        });
+        restored.push(annotation);
+      }
+      setAnnotations(prev => [...prev, ...restored]);
+      onSaveStatusChange('saved');
+    } catch {
+      onSaveStatusChange('error');
+    }
+  }, [partId, onSaveStatusChange]);
+
+  // Delete the currently selected annotation (fade + API delete)
+  const deleteSelectedAnnotation = useCallback(() => {
+    if (!selectedAnnotationId) return;
+    const id = selectedAnnotationId;
+    onSelectionChange(null);
+    setFadingIds(prev => new Set(prev).add(id));
+    setTimeout(() => commitErases([id]), 150);
+  }, [selectedAnnotationId, onSelectionChange, commitErases]);
+
+  // Keyboard shortcuts
+  useEffect(() => {
+    function handleKeyDown(e: KeyboardEvent) {
+      // Cmd+Z undo erase
+      if ((e.metaKey || e.ctrlKey) && e.key === 'z' && !e.shiftKey) {
+        if (eraseHistory.current.length > 0) {
+          e.preventDefault();
+          undoErase();
+        }
+        return;
+      }
+      // Delete/Backspace — delete selected annotation
+      if ((e.key === 'Delete' || e.key === 'Backspace') && selectedAnnotationId) {
+        if (activeText) return; // don't capture when editing text
+        e.preventDefault();
+        deleteSelectedAnnotation();
+        return;
+      }
+    }
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [undoErase, selectedAnnotationId, activeText, deleteSelectedAnnotation]);
+
+  // Pointer handlers
   function handlePointerDown(e: ReactPointerEvent<SVGSVGElement>) {
-    if (mode !== 'ink' && mode !== 'highlight' && mode !== 'text' && mode !== 'erase') return;
+    if (mode !== 'ink' && mode !== 'highlight' && mode !== 'text' && mode !== 'erase' && mode !== 'select') return;
     e.preventDefault();
     const pt = toNormalized(e);
+
+    if (mode === 'select') {
+      // Hit test — iterate reverse for z-order (topmost first)
+      let hit: Annotation | null = null;
+      for (let i = pageAnnotations.length - 1; i >= 0; i--) {
+        const a = pageAnnotations[i];
+        if (fadingIds.has(a.id)) continue;
+        const bb = getAnnotationBBox(a);
+        if (bb && pointInBBox(pt.x, pt.y, bb)) { hit = a; break; }
+      }
+      onSelectionChange(hit?.id ?? null);
+      return;
+    }
 
     if (mode === 'ink') {
       (e.target as Element).setPointerCapture(e.pointerId);
@@ -326,6 +406,19 @@ export function AnnotationLayer({
   }
 
   function handlePointerMove(e: ReactPointerEvent<SVGSVGElement>) {
+    // Hover detection in select mode
+    if (mode === 'select' && !isDrawing.current) {
+      const pt = toNormalized(e);
+      let hoverHit: string | null = null;
+      for (let i = pageAnnotations.length - 1; i >= 0; i--) {
+        const a = pageAnnotations[i];
+        if (a.id === selectedAnnotationId || fadingIds.has(a.id)) continue;
+        const bb = getAnnotationBBox(a);
+        if (bb && pointInBBox(pt.x, pt.y, bb)) { hoverHit = a.id; break; }
+      }
+      setHoveredId(hoverHit);
+      return;
+    }
     if (!isDrawing.current) return;
     e.preventDefault();
     const pt = toNormalized(e);
@@ -411,6 +504,7 @@ export function AnnotationLayer({
     });
     textTapRef.current = null;
     eraseStartRef.current = null;
+    setHoveredId(null);
     // Commit any pending erases immediately on mode switch
     const eraseIds = [...pendingDeletes.current];
     pendingDeletes.current = new Set();
@@ -438,7 +532,7 @@ export function AnnotationLayer({
     return (anchor.page ?? anchor.pageHint) === currentPage;
   });
 
-  const isInteractive = mode === 'ink' || mode === 'highlight' || mode === 'text' || mode === 'erase';
+  const isInteractive = mode === 'ink' || mode === 'highlight' || mode === 'text' || mode === 'erase' || mode === 'select';
 
   // Build the live stroke SVG path
   let livePath = '';
@@ -477,7 +571,7 @@ export function AnnotationLayer({
         top: 0,
         left: 0,
         pointerEvents: isInteractive ? 'auto' : 'none',
-        cursor: mode === 'erase' ? 'crosshair' : isInteractive ? 'crosshair' : 'default',
+        cursor: mode === 'select' ? (hoveredId ? 'pointer' : 'default') : isInteractive ? 'crosshair' : 'default',
         touchAction: 'none',
       }}
       onPointerDown={handlePointerDown}
@@ -514,6 +608,40 @@ export function AnnotationLayer({
           </g>
         );
       })}
+
+      {/* Hover outline in select mode */}
+      {hoveredId && hoveredId !== selectedAnnotationId && (() => {
+        const ann = pageAnnotations.find(a => a.id === hoveredId);
+        if (!ann) return null;
+        const bounds = getAnnotationBounds(ann);
+        if (!bounds) return null;
+        return (
+          <rect
+            x={bounds.x * canvasWidth - 2}
+            y={bounds.y * canvasHeight - 2}
+            width={bounds.w * canvasWidth + 4}
+            height={bounds.h * canvasHeight + 4}
+            fill="none" stroke="rgba(124, 111, 247, 0.4)" strokeWidth={1.5}
+            rx={2}
+            style={{ pointerEvents: 'none' }}
+          />
+        );
+      })()}
+
+      {/* Selection overlay */}
+      {selectedAnnotationId && (() => {
+        const ann = pageAnnotations.find(a => a.id === selectedAnnotationId);
+        if (!ann) return null;
+        return (
+          <SelectionOverlay
+            annotation={ann}
+            canvasWidth={canvasWidth}
+            canvasHeight={canvasHeight}
+            onBodyPointerDown={() => {}}
+            onHandlePointerDown={() => {}}
+          />
+        );
+      })()}
 
       {/* Pending uncommitted strokes */}
       {pendingPaths}
@@ -622,6 +750,13 @@ export function AnnotationLayer({
           />
         );
       })()}
+
+      <style>{`
+        @keyframes selectionFadeIn {
+          from { opacity: 0; }
+          to { opacity: 1; }
+        }
+      `}</style>
     </svg>
   );
 }
