@@ -174,29 +174,21 @@ export function AnnotationLayer({
 
     onSaveStatusChange('saving');
 
-    // Group all stroke points by measure
+    // Group whole strokes by measure using bounding-box centroid (no splitting)
     const byMeasure = new Map<number, Stroke[]>();
     for (const stroke of strokes) {
-      const mid = stroke.points[Math.floor(stroke.points.length / 2)];
-      const measureNum = findMeasure(mid.x, mid.y);
-
-      const segments = new Map<number, StrokePoint[]>();
-      for (const pt of stroke.points) {
-        const m = findMeasure(pt.x, pt.y) ?? measureNum;
-        if (m == null) continue;
-        if (!segments.has(m)) segments.set(m, []);
-        segments.get(m)!.push(pt);
-      }
-
-      for (const [m, pts] of segments) {
-        if (pts.length < 2) continue;
-        if (!byMeasure.has(m)) byMeasure.set(m, []);
-        byMeasure.get(m)!.push({
-          points: pts,
-          color: stroke.color,
-          width: stroke.width,
-        });
-      }
+      const xs = stroke.points.map(p => p.x);
+      const ys = stroke.points.map(p => p.y);
+      const cx = (Math.min(...xs) + Math.max(...xs)) / 2;
+      const cy = (Math.min(...ys) + Math.max(...ys)) / 2;
+      const measureNum = findMeasure(cx, cy);
+      if (measureNum == null) continue;
+      if (!byMeasure.has(measureNum)) byMeasure.set(measureNum, []);
+      byMeasure.get(measureNum)!.push({
+        points: stroke.points,
+        color: stroke.color,
+        width: stroke.width,
+      });
     }
 
     try {
