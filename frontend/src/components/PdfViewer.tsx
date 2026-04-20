@@ -6,6 +6,7 @@ import { getAnnotations, createAnnotation, updateAnnotation, deleteAnnotation } 
 import { getMeasureLayout } from '../api/parts';
 import { Annotation, MeasureBounds, MeasureLayoutItem } from '../types';
 import { AnnotationToolbar } from './annotations/AnnotationToolbar';
+import { AnnotationLayer } from './annotations/AnnotationLayer';
 import { useAnnotationMode } from '../hooks/useAnnotationMode';
 import { SaveStatus } from './annotations/SaveStatusIndicator';
 
@@ -354,6 +355,7 @@ function FullscreenViewer({
   const [showChanges, setShowChanges]   = useState(true);
   const [mode, setMode]                 = useState<'view' | 'edit'>('view');
   const [measureLayout, setMeasureLayout] = useState<MeasureLayoutItem[]>([]);
+  const [canvasDims, setCanvasDims] = useState<{ w: number; h: number }>({ w: 0, h: 0 });
   const measureAnnotationIdsRef = useRef<Map<number, string>>(new Map());
 
   const pageOverlays           = useRef<Map<number, PageOverlay>>(new Map());
@@ -639,6 +641,7 @@ function FullscreenViewer({
         const drawC = drawCanvasRef.current!;
         pdfC.width = vp.width; pdfC.height = vp.height;
         drawC.width = vp.width; drawC.height = vp.height;
+        setCanvasDims({ w: vp.width, h: vp.height });
         await page.render({ canvasContext: pdfC.getContext('2d')!, viewport: vp }).promise;
         redrawCanvas(currentPage, drawC);
       } catch (err) {
@@ -1164,6 +1167,21 @@ function FullscreenViewer({
                   touchAction: 'none',
                 }}
               />
+              {/* Annotation layer — SVG overlay for Part B annotation system */}
+              {partId && (
+                <AnnotationLayer
+                  partId={partId}
+                  currentPage={currentPage}
+                  measureLayout={measureLayout}
+                  canvasWidth={canvasDims.w}
+                  canvasHeight={canvasDims.h}
+                  mode={annotationMode.mode}
+                  tool={annotationMode.tool}
+                  inkColor={annotationMode.inkColor}
+                  highlightColor={annotationMode.highlightColor}
+                  textColor={annotationMode.textColor}
+                />
+              )}
             </div>
           )}
         </div>
