@@ -3,7 +3,7 @@ import { MeasureLayoutItem, Annotation, Stroke, StrokePoint, InkContent, Highlig
 import { getAnnotations, createAnnotation, updateAnnotation, deleteAnnotation } from '../../api/annotations';
 import { AnnotationMode } from '../../hooks/useAnnotationMode';
 import { SaveStatus } from './SaveStatusIndicator';
-import { InkRenderer } from './InkRenderer';
+import { InkRenderer, smoothPath } from './InkRenderer';
 import { HighlightRenderer } from './HighlightRenderer';
 import { TextRenderer } from './TextRenderer';
 import { SelectionOverlay, getAnnotationBounds } from './SelectionOverlay';
@@ -1069,18 +1069,13 @@ export function AnnotationLayer({
 
   const isInteractive = mode === 'ink' || mode === 'highlight' || mode === 'text' || mode === 'erase' || mode === 'select';
 
-  // Build the live stroke SVG path
-  let livePath = '';
-  if (livePoints.length >= 2) {
-    const [first, ...rest] = livePoints;
-    livePath = `M ${first.x * canvasWidth} ${first.y * canvasHeight} ${rest.map(p => `L ${p.x * canvasWidth} ${p.y * canvasHeight}`).join(' ')}`;
-  }
+  // Build the live stroke SVG path (smoothed)
+  const livePath = livePoints.length >= 2 ? smoothPath(livePoints, canvasWidth, canvasHeight) : '';
 
-  // Build paths for pending (uncommitted) strokes
+  // Build paths for pending (uncommitted) strokes (smoothed)
   const pendingPaths = pendingStrokes.current.map((s, i) => {
     if (s.points.length < 2) return null;
-    const [first, ...rest] = s.points;
-    const d = `M ${first.x * canvasWidth} ${first.y * canvasHeight} ${rest.map(p => `L ${p.x * canvasWidth} ${p.y * canvasHeight}`).join(' ')}`;
+    const d = smoothPath(s.points, canvasWidth, canvasHeight);
     return (
       <path
         key={`pending-${i}`}
