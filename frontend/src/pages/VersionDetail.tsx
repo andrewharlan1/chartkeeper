@@ -357,6 +357,7 @@ export function VersionDetail() {
   const [deletingPart, setDeletingPart] = useState<string | null>(null);
   const [deletePartError, setDeletePartError] = useState('');
   const [showMigration, setShowMigration] = useState(false);
+  const [migrationFlagged, setMigrationFlagged] = useState(0);
   const [chartName, setChartName] = useState('');
   const [ensembleName, setEnsembleName] = useState('');
   const [ensembleId, setEnsembleId] = useState('');
@@ -431,6 +432,29 @@ export function VersionDetail() {
         </Button>
       </div>
 
+      {migrationFlagged > 0 && (
+        <div style={{
+          padding: '10px 14px',
+          background: 'rgba(234, 179, 8, 0.08)',
+          border: '1px solid rgba(234, 179, 8, 0.25)',
+          borderRadius: 'var(--radius)',
+          marginBottom: 16,
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'space-between',
+        }}>
+          <span style={{ fontSize: 13, color: '#eab308' }}>
+            {migrationFlagged} annotation{migrationFlagged !== 1 ? 's' : ''} may have shifted to unexpected positions — review them in the part viewer.
+          </span>
+          <button
+            onClick={() => setMigrationFlagged(0)}
+            style={{ background: 'none', border: 'none', color: '#eab308', cursor: 'pointer', fontSize: 16, padding: '0 4px' }}
+          >
+            {'\u00D7'}
+          </button>
+        </div>
+      )}
+
       <section>
         <h2 style={{ marginBottom: 16 }}>Parts</h2>
         {deletePartError && <p className="form-error" style={{ marginBottom: 16 }}>{deletePartError}</p>}
@@ -485,7 +509,12 @@ export function VersionDetail() {
           versionId={version.id}
           versionName={version.name}
           onClose={() => setShowMigration(false)}
-          onComplete={() => { setShowMigration(false); load(); }}
+          onComplete={(results) => {
+            setShowMigration(false);
+            const flagged = results.reduce((s, r) => s + r.flagged, 0);
+            if (flagged > 0) setMigrationFlagged(flagged);
+            load();
+          }}
         />
       )}
     </Layout>

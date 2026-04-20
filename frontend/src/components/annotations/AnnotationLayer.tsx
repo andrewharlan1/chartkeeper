@@ -1147,6 +1147,24 @@ export function AnnotationLayer({
                 canvasHeight={canvasHeight}
               />
             )}
+            {/* Yellow review dot for migrated annotations needing review */}
+            {(a.contentJson as Record<string, unknown>)._needsReview === true && (() => {
+              const b = getAnnotationBounds(a);
+              if (!b) return null;
+              return (
+                <g>
+                  <circle
+                    cx={b.x * canvasWidth + b.w * canvasWidth + 4}
+                    cy={b.y * canvasHeight - 4}
+                    r={4}
+                    fill="#eab308"
+                    stroke="#16152a"
+                    strokeWidth={1}
+                  />
+                  <title>This annotation was migrated and may need review</title>
+                </g>
+              );
+            })()}
           </g>
         );
       })}
