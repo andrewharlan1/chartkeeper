@@ -1091,6 +1091,10 @@ function FullscreenViewer({
               onTextColorChange={annotationMode.setTextColor}
               highlightColor={annotationMode.highlightColor}
               onHighlightColorChange={annotationMode.setHighlightColor}
+              fontSize={annotationMode.fontSize}
+              onFontSizeChange={annotationMode.setFontSize}
+              fontFamily={annotationMode.fontFamily}
+              onFontFamilyChange={annotationMode.setFontFamily}
               saveStatus={annSaveStatus}
             />
           )}
@@ -1132,6 +1136,8 @@ function FullscreenViewer({
                   inkColor={annotationMode.inkColor}
                   highlightColor={annotationMode.highlightColor}
                   textColor={annotationMode.textColor}
+                  fontSize={annotationMode.fontSize}
+                  fontFamily={annotationMode.fontFamily}
                   onSaveStatusChange={setAnnSaveStatus}
                 />
               )}

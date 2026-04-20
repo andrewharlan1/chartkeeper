@@ -1,4 +1,5 @@
 import { AnnotationMode } from '../../hooks/useAnnotationMode';
+import { FontFamily } from '../../types';
 import { SaveStatusIndicator, SaveStatus } from './SaveStatusIndicator';
 
 const INK_COLORS = [
@@ -15,6 +16,15 @@ const HIGHLIGHT_COLORS = [
   'rgba(229, 231, 235, 0.5)',
 ];
 
+const FONT_SIZES = [0.012, 0.015, 0.018, 0.022, 0.028, 0.036, 0.048];
+const FONT_SIZE_LABELS = ['10', '12', '14', '18', '22', '28', '36'];
+
+const FONT_FAMILIES: { value: FontFamily; label: string }[] = [
+  { value: 'sans-serif', label: 'Sans' },
+  { value: 'serif', label: 'Serif' },
+  { value: 'monospace', label: 'Mono' },
+];
+
 interface Props {
   mode: AnnotationMode;
   onModeChange: (mode: AnnotationMode) => void;
@@ -24,6 +34,10 @@ interface Props {
   onTextColorChange: (color: string) => void;
   highlightColor: string;
   onHighlightColorChange: (color: string) => void;
+  fontSize: number;
+  onFontSizeChange: (size: number) => void;
+  fontFamily: FontFamily;
+  onFontFamilyChange: (family: FontFamily) => void;
   saveStatus: SaveStatus;
 }
 
@@ -42,14 +56,41 @@ const ACCENT_BORDER = 'rgba(124, 111, 247, 0.4)';
 const SURFACE = '#16152a';
 const SURFACE_BORDER = 'rgba(255,255,255,0.08)';
 
+const subRowStyle: React.CSSProperties = {
+  display: 'flex',
+  alignItems: 'center',
+  gap: 6,
+  background: SURFACE,
+  border: `1px solid ${SURFACE_BORDER}`,
+  borderRadius: 10,
+  padding: '5px 12px',
+  boxShadow: '0 4px 16px rgba(0,0,0,0.3)',
+  marginTop: 4,
+  pointerEvents: 'auto',
+  animation: 'toolRowSlideIn 0.15s ease-out',
+};
+
+const smallBtnBase: React.CSSProperties = {
+  height: 26,
+  padding: '0 8px',
+  fontSize: 11,
+  fontWeight: 600,
+  fontFamily: 'inherit',
+  borderRadius: 6,
+  cursor: 'pointer',
+  transition: 'all 0.12s',
+  border: 'none',
+};
+
 export function AnnotationToolbar({
   mode, onModeChange,
   inkColor, onInkColorChange,
   textColor, onTextColorChange,
   highlightColor, onHighlightColorChange,
+  fontSize, onFontSizeChange,
+  fontFamily, onFontFamilyChange,
   saveStatus,
 }: Props) {
-  // Determine which color palette and handler to show
   const showColors = mode === 'ink' || mode === 'text' || mode === 'highlight';
   const activeColors = mode === 'highlight' ? HIGHLIGHT_COLORS : INK_COLORS;
   const activeColor =
@@ -60,6 +101,10 @@ export function AnnotationToolbar({
     mode === 'ink' ? onInkColorChange :
     mode === 'text' ? onTextColorChange :
     onHighlightColorChange;
+
+  // Find current font size index for +/- buttons
+  const sizeIdx = FONT_SIZES.indexOf(fontSize);
+  const sizeLabel = sizeIdx >= 0 ? FONT_SIZE_LABELS[sizeIdx] : Math.round(fontSize * 1000).toString();
 
   return (
     <div style={{
@@ -112,19 +157,7 @@ export function AnnotationToolbar({
 
       {/* Color picker row — shown for ink, text, highlight */}
       {showColors && (
-        <div style={{
-          display: 'flex',
-          alignItems: 'center',
-          gap: 6,
-          background: SURFACE,
-          border: `1px solid ${SURFACE_BORDER}`,
-          borderRadius: 10,
-          padding: '5px 12px',
-          boxShadow: '0 4px 16px rgba(0,0,0,0.3)',
-          marginTop: 4,
-          pointerEvents: 'auto',
-          animation: 'toolRowSlideIn 0.15s ease-out',
-        }}>
+        <div style={subRowStyle}>
           {activeColors.map(c => {
             const isActive = c === activeColor;
             return (
@@ -149,6 +182,53 @@ export function AnnotationToolbar({
               />
             );
           })}
+        </div>
+      )}
+
+      {/* Font controls row — shown for text mode */}
+      {mode === 'text' && (
+        <div style={subRowStyle}>
+          {/* Font size -/+  */}
+          <button
+            onClick={() => {
+              const idx = Math.max(0, (sizeIdx >= 0 ? sizeIdx : 2) - 1);
+              onFontSizeChange(FONT_SIZES[idx]);
+            }}
+            style={{ ...smallBtnBase, background: 'rgba(255,255,255,0.06)', color: '#999' }}
+          >
+            −
+          </button>
+          <span style={{ color: '#bbb', fontSize: 11, fontWeight: 600, minWidth: 24, textAlign: 'center' }}>
+            {sizeLabel}
+          </span>
+          <button
+            onClick={() => {
+              const idx = Math.min(FONT_SIZES.length - 1, (sizeIdx >= 0 ? sizeIdx : 2) + 1);
+              onFontSizeChange(FONT_SIZES[idx]);
+            }}
+            style={{ ...smallBtnBase, background: 'rgba(255,255,255,0.06)', color: '#999' }}
+          >
+            +
+          </button>
+
+          <div style={{ width: 1, height: 18, background: SURFACE_BORDER }} />
+
+          {/* Font family */}
+          {FONT_FAMILIES.map(f => (
+            <button
+              key={f.value}
+              onClick={() => onFontFamilyChange(f.value)}
+              style={{
+                ...smallBtnBase,
+                fontFamily: f.value,
+                background: fontFamily === f.value ? ACCENT_BG : 'rgba(255,255,255,0.04)',
+                color: fontFamily === f.value ? '#c4bcff' : '#777',
+                border: fontFamily === f.value ? `1px solid ${ACCENT_BORDER}` : '1px solid transparent',
+              }}
+            >
+              {f.label}
+            </button>
+          ))}
         </div>
       )}
 

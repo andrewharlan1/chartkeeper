@@ -118,12 +118,15 @@ export interface InkContent {
   boundingBox: BoundingBox;
 }
 
+export type FontFamily = 'sans-serif' | 'serif' | 'monospace';
+
 export interface TextContent {
   text: string;
   fontSize: number;
   color: string;
   fontWeight: 'normal' | 'bold';
   fontStyle: 'normal' | 'italic';
+  fontFamily: FontFamily;
   boundingBox: AbsoluteSizeBoundingBox;
 }
 

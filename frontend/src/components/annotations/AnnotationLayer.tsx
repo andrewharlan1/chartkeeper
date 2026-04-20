@@ -1,5 +1,5 @@
 import { useEffect, useState, useRef, useCallback, PointerEvent as ReactPointerEvent } from 'react';
-import { MeasureLayoutItem, Annotation, Stroke, StrokePoint, InkContent, HighlightContent, TextContent } from '../../types';
+import { MeasureLayoutItem, Annotation, Stroke, StrokePoint, InkContent, HighlightContent, TextContent, FontFamily } from '../../types';
 import { getAnnotations, createAnnotation } from '../../api/annotations';
 import { AnnotationMode } from '../../hooks/useAnnotationMode';
 import { SaveStatus } from './SaveStatusIndicator';
@@ -17,11 +17,12 @@ interface Props {
   inkColor: string;
   highlightColor: string;
   textColor: string;
+  fontSize: number;
+  fontFamily: FontFamily;
   onSaveStatusChange: (status: SaveStatus) => void;
 }
 
 const INK_STROKE_WIDTH = 0.002; // normalized to page width
-const TEXT_FONT_SIZE = 0.018; // normalized to page height
 
 function rgbToHex(r: string, g: string, b: string): string {
   return '#' + [r, g, b].map(x => parseInt(x).toString(16).padStart(2, '0')).join('');
@@ -43,6 +44,8 @@ export function AnnotationLayer({
   inkColor,
   highlightColor,
   textColor,
+  fontSize,
+  fontFamily,
   onSaveStatusChange,
 }: Props) {
   const [annotations, setAnnotations] = useState<Annotation[]>([]);
@@ -199,15 +202,16 @@ export function AnnotationLayer({
 
     const contentJson: TextContent = {
       text: data.text.trim(),
-      fontSize: TEXT_FONT_SIZE,
+      fontSize,
       color: textColor,
       fontWeight: 'normal',
       fontStyle: 'normal',
+      fontFamily,
       boundingBox: {
         x: data.x,
         y: data.y,
-        widthPageUnits: maxLen * TEXT_FONT_SIZE * 0.6,
-        heightPageUnits: lines.length * TEXT_FONT_SIZE * 1.3,
+        widthPageUnits: maxLen * fontSize * 0.6,
+        heightPageUnits: lines.length * fontSize * 1.3,
       },
     };
 
@@ -224,7 +228,7 @@ export function AnnotationLayer({
     } catch {
       onSaveStatusChange('error');
     }
-  }, [textColor, partId, findMeasure, onSaveStatusChange]);
+  }, [textColor, fontSize, fontFamily, partId, findMeasure, onSaveStatusChange]);
 
   // Pointer handlers — mode is now 'ink', 'text', 'highlight' directly
   function handlePointerDown(e: ReactPointerEvent<SVGSVGElement>) {
@@ -434,7 +438,7 @@ export function AnnotationLayer({
         />
       )}
 
-      {/* Active text input */}
+      {/* Active text input — inline editable, no visible box */}
       {activeText && (
         <foreignObject
           x={activeText.x * canvasWidth}
@@ -443,38 +447,71 @@ export function AnnotationLayer({
           height={canvasHeight - activeText.y * canvasHeight}
           onPointerDown={e => e.stopPropagation()}
         >
-          <textarea
-            autoFocus
-            value={activeText.text}
-            onChange={e => setActiveText(prev => prev ? { ...prev, text: e.target.value } : null)}
-            onBlur={() => {
-              if (activeText.text.trim()) commitText(activeText);
-              setActiveText(null);
-            }}
-            onKeyDown={e => {
-              if (e.key === 'Enter' && !e.shiftKey) {
-                e.preventDefault();
-                if (activeText.text.trim()) commitText(activeText);
-                setActiveText(null);
-              }
-              if (e.key === 'Escape') setActiveText(null);
-            }}
-            style={{
-              background: 'rgba(255,255,255,0.85)',
-              border: '1px dashed #9ca3af',
-              borderRadius: 3,
-              outline: 'none',
-              color: textColor,
-              fontSize: TEXT_FONT_SIZE * canvasHeight,
-              fontFamily: 'inherit',
-              lineHeight: 1.3,
-              padding: '2px 4px',
-              resize: 'none',
-              minWidth: 80,
-              minHeight: TEXT_FONT_SIZE * canvasHeight + 8,
-              width: '40%',
-            }}
-          />
+          <div style={{ position: 'relative', display: 'inline-block' }}>
+            <textarea
+              autoFocus
+              value={activeText.text}
+              onChange={e => setActiveText(prev => prev ? { ...prev, text: e.target.value } : null)}
+              onKeyDown={e => {
+                if (e.key === 'Enter' && !e.shiftKey) {
+                  e.preventDefault();
+                  if (activeText.text.trim()) commitText(activeText);
+                  setActiveText(null);
+                }
+                if (e.key === 'Escape') setActiveText(null);
+              }}
+              style={{
+                background: 'transparent',
+                border: 'none',
+                outline: 'none',
+                color: textColor,
+                fontSize: fontSize * canvasHeight,
+                fontFamily,
+                lineHeight: 1.3,
+                padding: 0,
+                resize: 'none',
+                minWidth: 60,
+                minHeight: fontSize * canvasHeight + 4,
+                width: Math.max(60, (activeText.text.length + 1) * fontSize * canvasHeight * 0.6),
+                caretColor: textColor,
+              }}
+              placeholder="Type here..."
+            />
+            {/* Done / Cancel floating buttons */}
+            <div style={{
+              display: 'flex',
+              gap: 4,
+              marginTop: 4,
+            }}>
+              <button
+                onPointerDown={e => { e.stopPropagation(); e.preventDefault(); }}
+                onClick={() => {
+                  if (activeText.text.trim()) commitText(activeText);
+                  setActiveText(null);
+                }}
+                style={{
+                  fontSize: 10, fontWeight: 600, fontFamily: 'inherit',
+                  padding: '2px 8px', borderRadius: 4, cursor: 'pointer',
+                  background: 'rgba(124,111,247,0.9)', color: '#fff',
+                  border: 'none',
+                }}
+              >
+                Done
+              </button>
+              <button
+                onPointerDown={e => { e.stopPropagation(); e.preventDefault(); }}
+                onClick={() => setActiveText(null)}
+                style={{
+                  fontSize: 10, fontWeight: 600, fontFamily: 'inherit',
+                  padding: '2px 8px', borderRadius: 4, cursor: 'pointer',
+                  background: 'rgba(255,255,255,0.12)', color: '#999',
+                  border: '1px solid rgba(255,255,255,0.15)',
+                }}
+              >
+                Cancel
+              </button>
+            </div>
+          </div>
         </foreignObject>
       )}
 

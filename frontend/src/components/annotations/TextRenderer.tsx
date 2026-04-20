@@ -8,7 +8,7 @@ interface Props {
 
 export function TextRenderer({ annotation, canvasWidth, canvasHeight }: Props) {
   const content = annotation.contentJson as TextContent;
-  const { text, fontSize, color, fontWeight, fontStyle, boundingBox } = content;
+  const { text, fontSize, color, fontWeight, fontStyle, fontFamily, boundingBox } = content;
   const x = boundingBox.x * canvasWidth;
   const y = boundingBox.y * canvasHeight;
   const size = fontSize * canvasHeight;
@@ -22,6 +22,7 @@ export function TextRenderer({ annotation, canvasWidth, canvasHeight }: Props) {
       fontSize={size}
       fontWeight={fontWeight}
       fontStyle={fontStyle}
+      fontFamily={fontFamily || 'sans-serif'}
       dominantBaseline="hanging"
       style={{ pointerEvents: 'none' }}
     >
