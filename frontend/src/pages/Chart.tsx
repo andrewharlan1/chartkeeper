@@ -140,8 +140,14 @@ export function ChartPage() {
       {/* Versions */}
       {versions.length === 0 ? (
         <div style={{ textAlign: 'center', padding: '60px 0', color: 'var(--text-muted)' }}>
-          <p style={{ marginBottom: 16 }}>No versions yet.</p>
-          <Button onClick={() => setShowCreateVersion(true)}>Create first version</Button>
+          <p style={{ marginBottom: 8 }}>No versions yet.</p>
+          <p style={{ fontSize: 13, marginBottom: 20 }}>Upload PDFs to create the first version of this chart.</p>
+          <div style={{ display: 'flex', gap: 10, justifyContent: 'center' }}>
+            <Link to={`/charts/${id}/upload`}>
+              <Button>Upload parts</Button>
+            </Link>
+            <Button variant="secondary" onClick={() => setShowCreateVersion(true)}>Create empty version</Button>
+          </div>
         </div>
       ) : (
         <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>

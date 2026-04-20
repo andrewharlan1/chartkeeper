@@ -59,10 +59,10 @@ export function EnsemblePage() {
         name: chartName.trim() || 'Untitled',
         composer: chartComposer.trim() || undefined,
       });
-      setCharts(prev => [chart, ...prev]);
       setShowCreateChart(false);
       setChartName('');
       setChartComposer('');
+      navigate(`/charts/${chart.id}/upload`);
     } catch (err) {
       setChartError(err instanceof ApiError ? err.message : 'Something went wrong');
     } finally {
