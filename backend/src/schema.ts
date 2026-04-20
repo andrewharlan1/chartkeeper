@@ -26,6 +26,12 @@ export const annotationScopeEnum = pgEnum('annotation_scope', [
   'role',
   'shared',
 ]);
+export const annotationKindEnum = pgEnum('annotation_kind', [
+  'ink',
+  'text',
+  'highlight',
+  'shape',  // schema only; not creatable through v1 UI
+]);
 export const workspaceRoleEnum = pgEnum('workspace_role', [
   'owner',
   'admin',
@@ -85,6 +91,24 @@ export const ensembles = pgTable(
   }),
 );
 
+// ── Charts ────────────────────────────────────────────────────────────────
+
+export const charts = pgTable(
+  'charts',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    ensembleId: uuid('ensemble_id').notNull().references(() => ensembles.id, { onDelete: 'cascade' }),
+    name: text('name').notNull(),
+    composer: text('composer'),
+    notes: text('notes'),
+    sortOrder: integer('sort_order').notNull().default(0),
+    ...timestamps,
+  },
+  (t) => ({
+    ensembleIdx: index('charts_ensemble_idx').on(t.ensembleId),
+  }),
+);
+
 // ── Instrument Slots ───────────────────────────────────────────────────────
 
 export const instrumentSlots = pgTable(
@@ -111,17 +135,15 @@ export const versions = pgTable(
   'versions',
   {
     id: uuid('id').primaryKey().defaultRandom(),
-    ensembleId: uuid('ensemble_id').notNull().references(() => ensembles.id, { onDelete: 'cascade' }),
+    chartId: uuid('chart_id').notNull().references(() => charts.id, { onDelete: 'cascade' }),
     name: text('name').notNull(),
     sortOrder: integer('sort_order').notNull().default(0),
-    // Lineage: what earlier version was this seeded from, if any?
-    // TODO(branching): future git-style branching would use this heavily.
     seededFromVersionId: uuid('seeded_from_version_id').references((): any => versions.id),
     notes: text('notes'),
     ...timestamps,
   },
   (t) => ({
-    ensembleIdx: index('versions_ensemble_idx').on(t.ensembleId),
+    chartIdx: index('versions_chart_idx').on(t.chartId),
   }),
 );
 
@@ -132,7 +154,6 @@ export const parts = pgTable(
   {
     id: uuid('id').primaryKey().defaultRandom(),
     versionId: uuid('version_id').notNull().references(() => versions.id, { onDelete: 'cascade' }),
-    instrumentSlotId: uuid('instrument_slot_id').references(() => instrumentSlots.id),
     kind: partKindEnum('kind').notNull().default('part'),
     name: text('name').notNull(),
     pdfS3Key: text('pdf_s3_key').notNull(),
@@ -145,7 +166,23 @@ export const parts = pgTable(
   },
   (t) => ({
     versionIdx: index('parts_version_idx').on(t.versionId),
-    slotIdx: index('parts_slot_idx').on(t.instrumentSlotId),
+  }),
+);
+
+// ── Part–Slot Assignments (many-to-many) ──────────────────────────────────
+
+export const partSlotAssignments = pgTable(
+  'part_slot_assignments',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    partId: uuid('part_id').notNull().references(() => parts.id, { onDelete: 'cascade' }),
+    instrumentSlotId: uuid('instrument_slot_id').notNull().references(() => instrumentSlots.id, { onDelete: 'cascade' }),
+    ...timestamps,
+  },
+  (t) => ({
+    uniq: unique('part_slot_uniq').on(t.partId, t.instrumentSlotId),
+    partIdx: index('part_slot_assignments_part_idx').on(t.partId),
+    slotIdx: index('part_slot_assignments_slot_idx').on(t.instrumentSlotId),
   }),
 );
 
@@ -170,7 +207,6 @@ export const annotations = pgTable(
   {
     id: uuid('id').primaryKey().defaultRandom(),
     partId: uuid('part_id').notNull().references(() => parts.id, { onDelete: 'cascade' }),
-    instrumentSlotId: uuid('instrument_slot_id').references(() => instrumentSlots.id),
     ownerUserId: uuid('owner_user_id').notNull().references(() => users.id),
 
     // Anchoring
@@ -178,7 +214,7 @@ export const annotations = pgTable(
     anchorJson: jsonb('anchor_json').notNull(),
 
     // Content
-    kind: text('kind').notNull(),
+    kind: annotationKindEnum('kind').notNull(),
     contentJson: jsonb('content_json').notNull(),
 
     // v1: always 'self' and null. Schema commitments preserved for future.
@@ -196,7 +232,6 @@ export const annotations = pgTable(
   },
   (t) => ({
     partIdx: index('annotations_part_idx').on(t.partId),
-    slotIdx: index('annotations_slot_idx').on(t.instrumentSlotId),
     ownerIdx: index('annotations_owner_idx').on(t.ownerUserId),
     activeIdx: index('annotations_active_idx').on(t.partId, t.deletedAt),
   }),
@@ -208,13 +243,13 @@ export const versionDiffs = pgTable(
   'version_diffs',
   {
     id: uuid('id').primaryKey().defaultRandom(),
-    fromVersionId: uuid('from_version_id').notNull().references(() => versions.id, { onDelete: 'cascade' }),
-    toVersionId: uuid('to_version_id').notNull().references(() => versions.id, { onDelete: 'cascade' }),
-    instrumentSlotId: uuid('instrument_slot_id').notNull().references(() => instrumentSlots.id, { onDelete: 'cascade' }),
+    fromPartId: uuid('from_part_id').notNull().references(() => parts.id, { onDelete: 'cascade' }),
+    toPartId: uuid('to_part_id').notNull().references(() => parts.id, { onDelete: 'cascade' }),
     diffJson: jsonb('diff_json').notNull(),
     ...timestamps,
   },
   (t) => ({
-    fromToIdx: index('version_diffs_from_to_idx').on(t.fromVersionId, t.toVersionId),
+    fromToIdx: index('version_diffs_from_to_idx').on(t.fromPartId, t.toPartId),
+    uniq: unique('version_diffs_uniq').on(t.fromPartId, t.toPartId),
   }),
 );

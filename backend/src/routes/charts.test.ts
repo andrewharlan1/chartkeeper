@@ -2,247 +2,136 @@ import supertest from 'supertest';
 import { app } from '../index';
 import { db } from '../db';
 
-// Stub S3 so tests don't require live AWS credentials
-jest.mock('../lib/s3', () => ({
-  uploadFile: jest.fn().mockResolvedValue('mocked-s3-key'),
-  getSignedDownloadUrl: jest.fn().mockResolvedValue('https://s3.example.com/signed-url'),
-}));
-
 const request = supertest(app);
 
-async function clearDb() {
+let token: string;
+let workspaceId: string;
+let ensembleId: string;
+let chartId: string;
+
+beforeAll(async () => {
+  await db.query(`DELETE FROM annotations`);
+  await db.query(`DELETE FROM annotation_layers`);
   await db.query(`DELETE FROM version_diffs`);
+  await db.query(`DELETE FROM part_slot_assignments`);
   await db.query(`DELETE FROM parts`);
-  await db.query(`DELETE FROM chart_versions`);
+  await db.query(`DELETE FROM versions`);
   await db.query(`DELETE FROM charts`);
-  await db.query(`DELETE FROM ensemble_members`);
+  await db.query(`DELETE FROM instrument_slots`);
   await db.query(`DELETE FROM ensembles`);
+  await db.query(`DELETE FROM workspace_members`);
+  await db.query(`DELETE FROM workspaces`);
   await db.query(`DELETE FROM users`);
-}
 
-async function signup(email: string) {
-  const res = await request.post('/auth/signup').send({
-    email,
-    name: 'Test User',
-    password: 'password123',
+  const signup = await request.post('/auth/signup').send({
+    email: 'charts-test@example.com',
+    name: 'Chart Tester',
+    password: 'securepassword',
   });
-  return res.body as { token: string; user: { id: string } };
-}
+  token = signup.body.token;
+  workspaceId = signup.body.workspaceId;
 
-async function createEnsemble(token: string, name = 'Test Band') {
-  const res = await request
-    .post('/ensembles')
+  const ens = await request.post('/ensembles')
     .set('Authorization', `Bearer ${token}`)
-    .send({ name });
-  return res.body.ensemble as { id: string };
-}
+    .send({ workspaceId, name: 'Chart Test Ensemble' });
+  ensembleId = ens.body.ensemble.id;
+});
 
-async function createChart(token: string, ensembleId: string) {
-  const res = await request
-    .post('/charts')
-    .set('Authorization', `Bearer ${token}`)
-    .send({ ensembleId, title: 'Take Five', composer: 'Dave Brubeck' });
-  return res.body.chart as { id: string };
-}
-
-beforeAll(clearDb);
-afterAll(async () => { await db.end(); });
+afterAll(async () => {
+  await db.end();
+});
 
 describe('POST /charts', () => {
-  let token: string;
-  let ensembleId: string;
+  it('creates a chart in an ensemble', async () => {
+    const res = await request.post('/charts')
+      .set('Authorization', `Bearer ${token}`)
+      .send({ ensembleId, name: 'Autumn Leaves', composer: 'Joseph Kosma' });
 
-  beforeAll(async () => {
-    const auth = await signup('chartowner@example.com');
-    token = auth.token;
-    const ensemble = await createEnsemble(token);
-    ensembleId = ensemble.id;
+    expect(res.status).toBe(201);
+    expect(res.body.chart.name).toBe('Autumn Leaves');
+    expect(res.body.chart.composer).toBe('Joseph Kosma');
+    expect(res.body.chart.ensembleId).toBe(ensembleId);
+    chartId = res.body.chart.id;
   });
 
-  it('creates a chart for an ensemble', async () => {
-    const res = await request
-      .post('/charts')
+  it('rejects empty name', async () => {
+    const res = await request.post('/charts')
       .set('Authorization', `Bearer ${token}`)
-      .send({ ensembleId, title: 'So What', composer: 'Miles Davis' });
-    expect(res.status).toBe(201);
-    expect(res.body.chart.title).toBe('So What');
-    expect(res.body.chart.ensemble_id).toBe(ensembleId);
+      .send({ ensembleId, name: '' });
+    expect(res.status).toBe(400);
   });
 
-  it('allows optional fields to be omitted', async () => {
-    const res = await request
-      .post('/charts')
+  it('auto-increments sortOrder', async () => {
+    const res = await request.post('/charts')
       .set('Authorization', `Bearer ${token}`)
-      .send({ ensembleId });
+      .send({ ensembleId, name: 'Blue Bossa' });
     expect(res.status).toBe(201);
-    expect(res.body.chart.title).toBeNull();
+    expect(res.body.chart.sortOrder).toBe(1);
+  });
+});
+
+describe('GET /charts?ensembleId=...', () => {
+  it('lists charts for an ensemble', async () => {
+    const res = await request.get(`/charts?ensembleId=${ensembleId}`)
+      .set('Authorization', `Bearer ${token}`);
+    expect(res.status).toBe(200);
+    expect(res.body.charts.length).toBe(2);
+    expect(res.body.charts[0].name).toBe('Autumn Leaves');
+    expect(res.body.charts[1].name).toBe('Blue Bossa');
+  });
+
+  it('returns 400 without ensembleId', async () => {
+    const res = await request.get('/charts')
+      .set('Authorization', `Bearer ${token}`);
+    expect(res.status).toBe(400);
   });
 
   it('returns 403 for non-member', async () => {
-    const { token: other } = await signup('chartoutsider@example.com');
-    const res = await request
-      .post('/charts')
-      .set('Authorization', `Bearer ${other}`)
-      .send({ ensembleId });
+    const other = await request.post('/auth/signup').send({
+      email: 'charts-outsider@example.com',
+      name: 'Outsider',
+      password: 'securepassword',
+    });
+    const res = await request.get(`/charts?ensembleId=${ensembleId}`)
+      .set('Authorization', `Bearer ${other.body.token}`);
     expect(res.status).toBe(403);
   });
 });
 
 describe('GET /charts/:id', () => {
-  let token: string;
-  let chartId: string;
-
-  beforeAll(async () => {
-    const auth = await signup('getchartowner@example.com');
-    token = auth.token;
-    const ensemble = await createEnsemble(token);
-    const chart = await createChart(token, ensemble.id);
-    chartId = chart.id;
-  });
-
-  it('returns chart for a member', async () => {
-    const res = await request
-      .get(`/charts/${chartId}`)
+  it('returns chart details', async () => {
+    const res = await request.get(`/charts/${chartId}`)
       .set('Authorization', `Bearer ${token}`);
     expect(res.status).toBe(200);
-    expect(res.body.chart.id).toBe(chartId);
-    expect(res.body.activeVersion).toBeNull();
-  });
-
-  it('returns 404 for unknown chart', async () => {
-    const res = await request
-      .get('/charts/00000000-0000-0000-0000-000000000000')
-      .set('Authorization', `Bearer ${token}`);
-    expect(res.status).toBe(404);
+    expect(res.body.chart.name).toBe('Autumn Leaves');
   });
 });
 
-describe('POST /charts/:id/versions', () => {
-  let token: string;
-  let chartId: string;
-
-  beforeAll(async () => {
-    const auth = await signup('versionowner@example.com');
-    token = auth.token;
-    const ensemble = await createEnsemble(token);
-    const chart = await createChart(token, ensemble.id);
-    chartId = chart.id;
-  });
-
-  it('creates a version with uploaded parts', async () => {
-    const res = await request
-      .post(`/charts/${chartId}/versions`)
+describe('PATCH /charts/:id', () => {
+  it('updates the chart name', async () => {
+    const res = await request.patch(`/charts/${chartId}`)
       .set('Authorization', `Bearer ${token}`)
-      .field('versionName', 'Recording Session Draft')
-      .attach('trumpet', Buffer.from('%PDF-1.4 fake'), { filename: 'trumpet.pdf', contentType: 'application/pdf' })
-      .attach('trombone', Buffer.from('%PDF-1.4 fake'), { filename: 'trombone.pdf', contentType: 'application/pdf' });
-
-    expect(res.status).toBe(201);
-    expect(res.body.version.versionName).toBe('Recording Session Draft');
-    expect(res.body.version.versionNumber).toBe(1);
-    expect(res.body.version.isActive).toBe(true);
-    expect(res.body.parts).toHaveLength(2);
-    expect(res.body.parts[0].omr_status).toBe('pending');
-  });
-
-  it('auto-names version if no name provided', async () => {
-    const res = await request
-      .post(`/charts/${chartId}/versions`)
-      .set('Authorization', `Bearer ${token}`)
-      .attach('piano', Buffer.from('%PDF-1.4 fake'), { filename: 'piano.pdf', contentType: 'application/pdf' });
-
-    expect(res.status).toBe(201);
-    expect(res.body.version.versionName).toBe('Version 2');
-    expect(res.body.version.versionNumber).toBe(2);
-  });
-
-  it('new version deactivates previous active version', async () => {
-    const versionsRes = await request
-      .get(`/charts/${chartId}/versions`)
-      .set('Authorization', `Bearer ${token}`);
-    const activeVersions = versionsRes.body.versions.filter((v: any) => v.is_active);
-    expect(activeVersions).toHaveLength(1);
-    expect(activeVersions[0].version_number).toBe(2);
-  });
-
-  it('returns 400 with no files', async () => {
-    const res = await request
-      .post(`/charts/${chartId}/versions`)
-      .set('Authorization', `Bearer ${token}`)
-      .field('versionName', 'Empty');
-    expect(res.status).toBe(400);
-  });
-
-  it('rejects non-PDF files', async () => {
-    const res = await request
-      .post(`/charts/${chartId}/versions`)
-      .set('Authorization', `Bearer ${token}`)
-      .attach('piano', Buffer.from('not a pdf'), { filename: 'piano.txt', contentType: 'text/plain' });
-    expect(res.status).toBe(500); // multer fileFilter error
+      .send({ name: 'Autumn Leaves (arr. Miles)' });
+    expect(res.status).toBe(200);
+    expect(res.body.chart.name).toBe('Autumn Leaves (arr. Miles)');
   });
 });
 
-describe('GET /charts/:id/versions', () => {
-  let token: string;
-  let chartId: string;
-
-  beforeAll(async () => {
-    const auth = await signup('listversions@example.com');
-    token = auth.token;
-    const ensemble = await createEnsemble(token);
-    const chart = await createChart(token, ensemble.id);
-    chartId = chart.id;
-    await request
-      .post(`/charts/${chartId}/versions`)
+describe('DELETE /charts/:id', () => {
+  it('soft-deletes a chart', async () => {
+    const create = await request.post('/charts')
       .set('Authorization', `Bearer ${token}`)
-      .attach('trumpet', Buffer.from('%PDF-1.4 fake'), { filename: 'trumpet.pdf', contentType: 'application/pdf' });
-  });
+      .send({ ensembleId, name: 'Doomed Chart' });
 
-  it('returns all versions with parts summary', async () => {
-    const res = await request
-      .get(`/charts/${chartId}/versions`)
+    const res = await request.delete(`/charts/${create.body.chart.id}`)
       .set('Authorization', `Bearer ${token}`);
     expect(res.status).toBe(200);
-    expect(res.body.versions).toHaveLength(1);
-    expect(res.body.versions[0].parts[0].instrumentName).toBe('trumpet');
-  });
-});
+    expect(res.body.deleted).toBe(true);
 
-describe('POST /charts/:id/versions/:vId/restore', () => {
-  let token: string;
-  let chartId: string;
-  let v1Id: string;
-
-  beforeAll(async () => {
-    const auth = await signup('restoreowner@example.com');
-    token = auth.token;
-    const ensemble = await createEnsemble(token);
-    const chart = await createChart(token, ensemble.id);
-    chartId = chart.id;
-
-    const v1 = await request
-      .post(`/charts/${chartId}/versions`)
-      .set('Authorization', `Bearer ${token}`)
-      .attach('trumpet', Buffer.from('%PDF-1.4 fake'), { filename: 'trumpet.pdf', contentType: 'application/pdf' });
-    v1Id = v1.body.version.id;
-
-    await request
-      .post(`/charts/${chartId}/versions`)
-      .set('Authorization', `Bearer ${token}`)
-      .attach('trumpet', Buffer.from('%PDF-1.4 fake'), { filename: 'trumpet.pdf', contentType: 'application/pdf' });
-  });
-
-  it('restores an older version as active', async () => {
-    const res = await request
-      .post(`/charts/${chartId}/versions/${v1Id}/restore`)
+    // Should not appear in list
+    const list = await request.get(`/charts?ensembleId=${ensembleId}`)
       .set('Authorization', `Bearer ${token}`);
-    expect(res.status).toBe(200);
-    expect(res.body.restoredVersionId).toBe(v1Id);
-
-    const versionsRes = await request
-      .get(`/charts/${chartId}/versions`)
-      .set('Authorization', `Bearer ${token}`);
-    const active = versionsRes.body.versions.find((v: any) => v.is_active);
-    expect(active.id).toBe(v1Id);
+    const names = list.body.charts.map((c: any) => c.name);
+    expect(names).not.toContain('Doomed Chart');
   });
 });

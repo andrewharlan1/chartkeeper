@@ -1,21 +1,14 @@
-import { db } from '../db';
+import { eq, and, isNull } from 'drizzle-orm';
+import { dz } from '../db';
+import { annotations, parts } from '../schema';
 import type { VersionDiffJson, PartDiff, MeasureBounds } from './diff';
 
 export interface MigrationSummary {
   instrument: string;
   total:     number;
   migrated:  number; // clean — HIGH confidence
-  flagged:   number; // is_unresolved = true — player must confirm
+  flagged:   number; // needsReview = true — player must confirm
   skipped:   number; // already migrated (idempotency guard)
-}
-
-interface AnnotationRow {
-  id:           string;
-  user_id:      string;
-  anchor_type:  string;
-  anchor_json:  Record<string, unknown>;
-  content_type: string;
-  content_json: Record<string, unknown>;
 }
 
 // ── Anchor migration rules ────────────────────────────────────────────────────
@@ -181,21 +174,20 @@ export async function migrateAnnotationsForVersion(
   const summaries: MigrationSummary[] = [];
 
   for (const [instrument, partDiff] of Object.entries(diffJson.parts)) {
-    const [oldPartRes, newPartRes] = await Promise.all([
-      db.query<{ id: string }>(
-        `SELECT id FROM parts WHERE chart_version_id = $1 AND instrument_name = $2 AND deleted_at IS NULL`,
-        [fromVersionId, instrument]
-      ),
-      db.query<{ id: string }>(
-        `SELECT id FROM parts WHERE chart_version_id = $1 AND instrument_name = $2 AND deleted_at IS NULL`,
-        [toVersionId, instrument]
-      ),
+    // Find old and new parts by version + name
+    const [oldPartRows, newPartRows] = await Promise.all([
+      dz.select({ id: parts.id })
+        .from(parts)
+        .where(and(eq(parts.versionId, fromVersionId), eq(parts.name, instrument), isNull(parts.deletedAt))),
+      dz.select({ id: parts.id })
+        .from(parts)
+        .where(and(eq(parts.versionId, toVersionId), eq(parts.name, instrument), isNull(parts.deletedAt))),
     ]);
 
-    if (!oldPartRes.rows[0] || !newPartRes.rows[0]) continue;
+    if (!oldPartRows[0] || !newPartRows[0]) continue;
 
-    const oldPartId = oldPartRes.rows[0].id;
-    const newPartId = newPartRes.rows[0].id;
+    const oldPartId = oldPartRows[0].id;
+    const newPartId = newPartRows[0].id;
 
     // Load measure layout from both old and new parts
     // - newMeasureToPage: for setting pageHint on migrated anchors
@@ -204,95 +196,112 @@ export async function migrateAnnotationsForVersion(
     const oldMeasureBounds = new Map<number, MeasureBounds>();
     const newMeasureBounds = new Map<number, MeasureBounds>();
 
-    const [oldOmrRes, newOmrRes] = await Promise.all([
-      db.query<{ omr_json: { measures?: { number: number; bounds?: MeasureBounds }[] } | null }>(
-        `SELECT omr_json FROM parts WHERE id = $1`, [oldPartId]
-      ),
-      db.query<{ omr_json: { measures?: { number: number; bounds?: MeasureBounds }[] } | null }>(
-        `SELECT omr_json FROM parts WHERE id = $1`, [newPartId]
-      ),
+    const [oldOmrRows, newOmrRows] = await Promise.all([
+      dz.select({ omrJson: parts.omrJson }).from(parts).where(eq(parts.id, oldPartId)),
+      dz.select({ omrJson: parts.omrJson }).from(parts).where(eq(parts.id, newPartId)),
     ]);
 
-    for (const m of oldOmrRes.rows[0]?.omr_json?.measures ?? []) {
+    type OmrData = { measures?: { number: number; bounds?: MeasureBounds }[] } | null;
+    const oldOmr = oldOmrRows[0]?.omrJson as OmrData;
+    const newOmr = newOmrRows[0]?.omrJson as OmrData;
+
+    for (const m of oldOmr?.measures ?? []) {
       if (m.bounds && !oldMeasureBounds.has(m.number)) {
         oldMeasureBounds.set(m.number, m.bounds);
       }
     }
-    for (const m of newOmrRes.rows[0]?.omr_json?.measures ?? []) {
+    for (const m of newOmr?.measures ?? []) {
       if (m.bounds) {
         if (!newMeasureToPage.has(m.number)) newMeasureToPage.set(m.number, m.bounds.page);
         if (!newMeasureBounds.has(m.number)) newMeasureBounds.set(m.number, m.bounds);
       }
     }
 
-    const { rows: annotations } = await db.query<AnnotationRow>(
-      `SELECT id, user_id, anchor_type, anchor_json, content_type, content_json
-       FROM annotations
-       WHERE part_id = $1 AND deleted_at IS NULL`,
-      [oldPartId]
-    );
+    // Fetch annotations from old part
+    const annRows = await dz.select({
+      id: annotations.id,
+      ownerUserId: annotations.ownerUserId,
+      anchorType: annotations.anchorType,
+      anchorJson: annotations.anchorJson,
+      kind: annotations.kind,
+      contentJson: annotations.contentJson,
+    })
+      .from(annotations)
+      .where(and(eq(annotations.partId, oldPartId), isNull(annotations.deletedAt)));
 
     let migrated = 0;
     let flagged  = 0;
     let skipped  = 0;
 
-    for (const ann of annotations) {
+    for (const ann of annRows) {
       // Idempotency: skip if already migrated to this target part
-      const { rows: existing } = await db.query<{ id: string }>(
-        `SELECT id FROM annotations
-         WHERE migrated_from_annotation_id = $1 AND part_id = $2 AND deleted_at IS NULL`,
-        [ann.id, newPartId]
-      );
+      const existing = await dz.select({ id: annotations.id })
+        .from(annotations)
+        .where(and(
+          eq(annotations.migratedFromAnnotationId, ann.id),
+          eq(annotations.partId, newPartId),
+          isNull(annotations.deletedAt),
+        ));
       if (existing.length > 0) { skipped++; continue; }
 
       const { newAnchorType, newAnchorJson, needsReview } = migrateAnchor(
-        ann.anchor_type,
-        ann.anchor_json as Record<string, unknown>,
+        ann.anchorType,
+        ann.anchorJson as Record<string, unknown>,
         partDiff,
         newMeasureToPage,
       );
 
-      // Relocate ink/highlight strokes if the measure moved to a new position
-      let migratedContent = ann.content_json;
-      if (ann.content_type === 'ink' && newAnchorType === 'measure') {
-        const oldMN = (ann.anchor_json as Record<string, unknown>).measureNumber as number | undefined;
+      // Migrate content based on object model type.
+      //
+      // New object-model annotations have a `boundingBox` in content_json with
+      // measure-relative coordinates (0-1). These don't need page-coordinate
+      // relocation — the coordinates stay valid because they're relative to the
+      // measure, not the page.
+      //
+      // Old-style annotations store ink strokes in page coordinates and need
+      // dx/dy relocation when the measure moves.
+      let migratedContent = ann.contentJson as Record<string, unknown>;
+      const isObjectModel = migratedContent.boundingBox != null;
+
+      if (!isObjectModel && ann.kind === 'ink' && newAnchorType === 'measure') {
+        // Old-style page-coordinate ink: shift strokes by measure center offset
+        const oldMN = (ann.anchorJson as Record<string, unknown>).measureNumber as number | undefined;
         const newMN = (newAnchorJson as Record<string, unknown>).measureNumber as number | undefined;
         if (oldMN != null && newMN != null) {
           const oldB = oldMeasureBounds.get(oldMN);
           const newB = newMeasureBounds.get(newMN);
           if (oldB && newB) {
-            // Compute offset: center of old measure → center of new measure
             const dx = (newB.x + newB.w / 2) - (oldB.x + oldB.w / 2);
             const dy = (newB.y + newB.h / 2) - (oldB.y + oldB.h / 2);
             if (Math.abs(dx) > 0.001 || Math.abs(dy) > 0.001) {
-              migratedContent = relocateInkContent(ann.content_json, dx, dy);
+              migratedContent = relocateInkContent(migratedContent, dx, dy);
             }
           }
         }
       }
+      // New object-model annotations (ink, text, highlight, shape):
+      // Content is already measure-relative — copy as-is.
 
-      await db.query(
-        `INSERT INTO annotations
-           (part_id, user_id, anchor_type, anchor_json, content_type, content_json,
-            migrated_from_annotation_id, is_unresolved)
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`,
-        [
-          newPartId,
-          ann.user_id,
-          newAnchorType,
-          JSON.stringify(newAnchorJson),
-          ann.content_type,
-          JSON.stringify(migratedContent),
-          ann.id,
-          needsReview,
-        ]
-      );
+      // New schema has no `is_unresolved` column. Encode review flag in contentJson.
+      const finalContent = needsReview
+        ? { ...migratedContent, _needsReview: true }
+        : migratedContent;
+
+      await dz.insert(annotations).values({
+        partId: newPartId,
+        ownerUserId: ann.ownerUserId,
+        anchorType: newAnchorType,
+        anchorJson: newAnchorJson,
+        kind: ann.kind,
+        contentJson: finalContent,
+        migratedFromAnnotationId: ann.id,
+      });
 
       if (needsReview) flagged++;
       else             migrated++;
     }
 
-    summaries.push({ instrument, total: annotations.length, migrated, flagged, skipped });
+    summaries.push({ instrument, total: annRows.length, migrated, flagged, skipped });
   }
 
   return summaries;

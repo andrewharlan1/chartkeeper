@@ -1,9 +1,11 @@
 import dotenv from 'dotenv';
 dotenv.config();
 
+import { eq, and, inArray, lt, desc, sql } from 'drizzle-orm';
 import { claimNextJob, completeJob, failJob, enqueueJob } from '../lib/queue';
 import { uploadFile, downloadFile } from '../lib/s3';
-import { db } from '../db';
+import { db, dz } from '../db';
+import { parts, versions, charts } from '../schema';
 import { extractMeasureLayout } from '../lib/vision-measure-layout';
 import { annotatePdfWithMeasures } from '../lib/annotate-pdf';
 
@@ -20,7 +22,7 @@ const OMR_ENGINE = (process.env.OMR_ENGINE ?? 'vision') as 'audiveris' | 'vision
 interface OmrJobPayload {
   partId: string;
   pdfS3Key: string;
-  chartId: string;
+  ensembleId: string;
   versionId: string;
   instrument: string;
 }
@@ -39,66 +41,62 @@ interface OmrServiceResponse {
 }
 
 async function processOmrJob(jobId: string, payload: OmrJobPayload): Promise<void> {
-  const { partId, pdfS3Key, chartId, versionId, instrument } = payload;
+  const { partId, pdfS3Key, ensembleId, versionId, instrument } = payload;
 
   if (OMR_ENGINE === 'none') {
-    await db.query(
-      `UPDATE parts
-       SET omr_status = 'complete',
-           omr_json = $1,
-           updated_at = NOW()
-       WHERE id = $2`,
-      [JSON.stringify({ measures: [], sections: [], partName: instrument }), partId]
-    );
+    await dz.update(parts)
+      .set({
+        omrStatus: 'complete',
+        omrJson: { measures: [], sections: [], partName: instrument },
+        omrEngine: 'none',
+        updatedAt: new Date(),
+      })
+      .where(eq(parts.id, partId));
+
     await completeJob(jobId);
     console.log(`[omr.worker] Part ${partId} (${instrument}) — OMR_ENGINE=none, skipped OMR`);
-    await maybeEnqueueDiff(chartId, versionId);
+    await maybeEnqueueDiff(ensembleId, versionId);
     return;
   }
 
   if (OMR_ENGINE === 'vision') {
-    // Use Claude Vision to extract measure layout (which page each measure is on)
-    await db.query(
-      `UPDATE parts SET omr_status = 'processing', updated_at = NOW() WHERE id = $1`,
-      [partId]
-    );
+    await dz.update(parts)
+      .set({ omrStatus: 'processing', updatedAt: new Date() })
+      .where(eq(parts.id, partId));
 
     const pdfBuffer = await downloadFile(pdfS3Key);
     const omrJson = await extractMeasureLayout(pdfBuffer, instrument);
 
     // Generate annotated PDF with boxes around each measure
-    let debugPdfKey: string | null = null;
     try {
       const annotatedPdf = await annotatePdfWithMeasures(pdfBuffer, omrJson);
-      debugPdfKey = pdfS3Key.replace(/\.pdf$/i, '_measures.pdf');
+      const debugPdfKey = pdfS3Key.replace(/\.pdf$/i, '_measures.pdf');
       await uploadFile(debugPdfKey, annotatedPdf, 'application/pdf');
       console.log(`[omr.worker] Part ${partId} (${instrument}) — annotated PDF uploaded: ${debugPdfKey}`);
     } catch (err) {
       console.error(`[omr.worker] Part ${partId} — annotated PDF failed:`, err instanceof Error ? err.message : err);
     }
 
-    await db.query(
-      `UPDATE parts
-       SET omr_status = 'complete',
-           omr_json = $1,
-           updated_at = NOW()
-       WHERE id = $2`,
-      [JSON.stringify(omrJson), partId]
-    );
+    await dz.update(parts)
+      .set({
+        omrStatus: 'complete',
+        omrJson: omrJson,
+        omrEngine: 'vision',
+        updatedAt: new Date(),
+      })
+      .where(eq(parts.id, partId));
+
     await completeJob(jobId);
     console.log(`[omr.worker] Part ${partId} (${instrument}) — DONE — ${omrJson.measures.length} measures extracted, boxes drawn`);
-    await maybeEnqueueDiff(chartId, versionId);
+    await maybeEnqueueDiff(ensembleId, versionId);
     return;
   }
 
   // ── Audiveris path ───────────────────────────────────────────────────────────
-  // Mark part as processing
-  await db.query(
-    `UPDATE parts SET omr_status = 'processing', updated_at = NOW() WHERE id = $1`,
-    [partId]
-  );
+  await dz.update(parts)
+    .set({ omrStatus: 'processing', updatedAt: new Date() })
+    .where(eq(parts.id, partId));
 
-  // Call the OMR microservice
   const response = await fetch(`${OMR_SERVICE_URL}/process`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
@@ -113,38 +111,35 @@ async function processOmrJob(jobId: string, payload: OmrJobPayload): Promise<voi
   const result = await response.json() as OmrServiceResponse;
 
   // Upload MusicXML to S3
-  const musicxmlKey = `charts/${chartId}/versions/${versionId}/parts/${instrument}.musicxml`;
+  const musicxmlKey = `ensembles/${ensembleId}/versions/${versionId}/parts/${instrument}.musicxml`;
   const musicxmlBuffer = Buffer.from(result.musicxml, 'base64');
   await uploadFile(musicxmlKey, musicxmlBuffer, 'application/xml');
 
   // Generate annotated debug PDF with measure boxes
-  let debugPdfKey: string | null = null;
   try {
     const pdfBuffer = await downloadFile(pdfS3Key);
     const annotatedPdf = await annotatePdfWithMeasures(pdfBuffer, result.omrJson);
-    debugPdfKey = pdfS3Key.replace(/\.pdf$/i, '_measures.pdf');
+    const debugPdfKey = pdfS3Key.replace(/\.pdf$/i, '_measures.pdf');
     await uploadFile(debugPdfKey, annotatedPdf, 'application/pdf');
     console.log(`[omr.worker] Part ${partId} (${instrument}) — annotated PDF uploaded: ${debugPdfKey}`);
   } catch (err) {
     console.error(`[omr.worker] Part ${partId} — annotated PDF failed:`, err instanceof Error ? err.message : err);
   }
 
-  // Update the part row
-  await db.query(
-    `UPDATE parts
-     SET omr_status = 'complete',
-         musicxml_s3_key = $1,
-         omr_json = $2,
-         updated_at = NOW()
-     WHERE id = $3`,
-    [musicxmlKey, JSON.stringify(result.omrJson), partId]
-  );
+  await dz.update(parts)
+    .set({
+      omrStatus: 'complete',
+      audiverisMxlS3Key: musicxmlKey,
+      omrJson: result.omrJson,
+      omrEngine: 'audiveris',
+      updatedAt: new Date(),
+    })
+    .where(eq(parts.id, partId));
 
   await completeJob(jobId);
   console.log(`[omr.worker] Part ${partId} (${instrument}) processed via Audiveris — ${result.omrJson.measures.length} measures`);
 
-  // Check if all parts for this version are now complete — if so, enqueue diff
-  await maybeEnqueueDiff(chartId, versionId);
+  await maybeEnqueueDiff(ensembleId, versionId);
 }
 
 async function tick(): Promise<void> {
@@ -163,41 +158,54 @@ async function tick(): Promise<void> {
     await failJob(job.id, message, MAX_ATTEMPTS);
 
     // If this was the final attempt, mark the part as failed
+    // (jobs table is outside Drizzle schema — use raw query)
     const jobRow = await db.query<{ attempts: number }>(
       `SELECT attempts FROM jobs WHERE id = $1`,
       [job.id]
     );
     if (jobRow.rows[0]?.attempts >= MAX_ATTEMPTS) {
-      await db.query(
-        `UPDATE parts SET omr_status = 'failed', updated_at = NOW() WHERE id = $1`,
-        [payload.partId]
-      );
+      await dz.update(parts)
+        .set({ omrStatus: 'failed', updatedAt: new Date() })
+        .where(eq(parts.id, payload.partId));
       console.warn(`[omr.worker] Part ${payload.partId} marked failed after ${MAX_ATTEMPTS} attempts`);
     }
   }
 }
 
-async function maybeEnqueueDiff(chartId: string, toVersionId: string): Promise<void> {
+async function maybeEnqueueDiff(ensembleId: string, toVersionId: string): Promise<void> {
   // Are all parts for this version done (complete or failed)?
-  const pending = await db.query<{ count: string }>(
-    `SELECT COUNT(*) AS count FROM parts
-     WHERE chart_version_id = $1 AND omr_status IN ('pending', 'processing')`,
-    [toVersionId]
-  );
-  if (parseInt(pending.rows[0].count) > 0) return;
+  const [{ count }] = await dz.select({ count: sql<number>`count(*)` })
+    .from(parts)
+    .where(
+      and(
+        eq(parts.versionId, toVersionId),
+        inArray(parts.omrStatus, ['pending', 'processing']),
+      )
+    );
+  if (Number(count) > 0) return;
 
-  // Find the immediately previous version by version_number
-  const prev = await db.query<{ id: string }>(
-    `SELECT cv.id FROM chart_versions cv
-     JOIN chart_versions curr ON curr.id = $1 AND curr.chart_id = cv.chart_id
-     WHERE cv.version_number = curr.version_number - 1`,
-    [toVersionId]
-  );
-  if (!prev.rows[0]) return; // first version — nothing to diff against
+  // Find the immediately previous version by sort_order within the same chart
+  const [currentVersion] = await dz.select({ sortOrder: versions.sortOrder, chartId: versions.chartId })
+    .from(versions)
+    .where(eq(versions.id, toVersionId));
+  if (!currentVersion) return;
 
-  const fromVersionId = prev.rows[0].id;
+  const [prev] = await dz.select({ id: versions.id })
+    .from(versions)
+    .where(
+      and(
+        eq(versions.chartId, currentVersion.chartId),
+        lt(versions.sortOrder, currentVersion.sortOrder),
+      )
+    )
+    .orderBy(desc(versions.sortOrder))
+    .limit(1);
+  if (!prev) return; // first version — nothing to diff against
+
+  const fromVersionId = prev.id;
 
   // Don't re-enqueue if a diff job already exists for this pair
+  // (jobs table is outside Drizzle schema — use raw query)
   const existing = await db.query(
     `SELECT id FROM jobs
      WHERE type = 'diff'
@@ -208,7 +216,7 @@ async function maybeEnqueueDiff(chartId: string, toVersionId: string): Promise<v
   );
   if (existing.rows.length > 0) return;
 
-  await enqueueJob('diff', { chartId, fromVersionId, toVersionId });
+  await enqueueJob('diff', { ensembleId, fromVersionId, toVersionId });
   console.log(`[omr.worker] Enqueued diff job: ${fromVersionId} → ${toVersionId}`);
 }
 

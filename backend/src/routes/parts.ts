@@ -1,142 +1,187 @@
 import { Router, Request, Response } from 'express';
-import { db } from '../db';
+import { z } from 'zod';
+import { eq, and, isNull, sql, inArray } from 'drizzle-orm';
+import multer from 'multer';
+import { dz } from '../db';
+import { parts, versions, charts, ensembles, partSlotAssignments, instrumentSlots } from '../schema';
 import { requireAuth } from '../middleware/auth';
-import { requireMember } from '../lib/ensembleAuth';
-import { s3, BUCKET } from '../lib/s3';
-import { GetObjectCommand, DeleteObjectCommand } from '@aws-sdk/client-s3';
+import { requireEnsembleMember, requireEnsembleAdmin } from '../lib/ensembleAuth';
+import { s3, BUCKET, uploadFile } from '../lib/s3';
+import { GetObjectCommand } from '@aws-sdk/client-s3';
 import { Readable } from 'stream';
-import Anthropic from '@anthropic-ai/sdk';
-
-const anthropic = process.env.ANTHROPIC_API_KEY
-  ? new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY })
-  : null;
+import { enqueueJob } from '../lib/queue';
 
 export const partsRouter = Router();
-
 partsRouter.use(requireAuth);
 
-// ── Player router (mounted at /player) ───────────────────────────────────────
+const MAX_SIZE_BYTES = parseInt(process.env.PDF_MAX_SIZE_MB ?? '50') * 1024 * 1024;
 
-export const playerRouter = Router();
-
-playerRouter.use(requireAuth);
-
-// GET /player/parts — all parts assigned to the current user (from active versions)
-playerRouter.get('/parts', async (req: Request, res: Response): Promise<void> => {
-  const result = await db.query(
-    `SELECT
-       a.id AS assignment_id,
-       c.id AS chart_id, c.title AS chart_title,
-       e.id AS ensemble_id, e.name AS ensemble_name,
-       a.instrument_name,
-       p.id AS part_id, p.part_type, p.omr_status, p.url,
-       cv.id AS version_id, cv.version_number, cv.version_name
-     FROM chart_part_assignments a
-     JOIN charts c ON c.id = a.chart_id AND c.deleted_at IS NULL
-     JOIN ensembles e ON e.id = c.ensemble_id
-     JOIN chart_versions cv ON cv.chart_id = c.id AND cv.is_active = true AND cv.deleted_at IS NULL
-     LEFT JOIN parts p ON p.chart_version_id = cv.id
-                       AND p.instrument_name = a.instrument_name
-                       AND p.deleted_at IS NULL
-     WHERE a.user_id = $1
-     ORDER BY e.name, c.title, a.instrument_name`,
-    [req.user!.id]
-  );
-
-  const parts = result.rows.map(row => ({
-    ...row,
-    pdf_url: row.part_id && row.part_type !== 'link' ? `/parts/${row.part_id}/pdf` : null,
-  }));
-
-  res.json({ parts });
+const upload = multer({
+  storage: multer.memoryStorage(),
+  limits: { fileSize: MAX_SIZE_BYTES },
+  fileFilter: (_req, file, cb) => {
+    if (file.mimetype === 'application/pdf' || file.mimetype.startsWith('audio/')) {
+      cb(null, true);
+    } else {
+      cb(new Error('Only PDF and audio files are accepted'));
+    }
+  },
 });
 
 function isHttpError(err: unknown): err is { status: number; message: string } {
   return typeof err === 'object' && err !== null && 'status' in err && 'message' in err;
 }
 
-async function getPartWithEnsemble(partId: string): Promise<{
-  id: string;
-  chart_version_id: string;
-  instrument_name: string;
-  pdf_s3_key: string;
-  musicxml_s3_key: string | null;
-  omr_status: string;
-  omr_json: unknown;
-  created_at: string;
-  ensemble_id: string;
-  chart_id: string;
-  inherited_from_part_id: string | null;
-} | null> {
-  const result = await db.query(
-    `SELECT p.id, p.chart_version_id, p.instrument_name, p.pdf_s3_key,
-            p.musicxml_s3_key, p.omr_status, p.omr_json, p.created_at,
-            p.inherited_from_part_id,
-            c.ensemble_id, c.id AS chart_id
-     FROM parts p
-     JOIN chart_versions cv ON cv.id = p.chart_version_id
-     JOIN charts c ON c.id = cv.chart_id
-     WHERE p.id = $1 AND p.deleted_at IS NULL`,
-    [partId]
-  );
-  return result.rows[0] ?? null;
+function handleError(err: unknown, res: Response): void {
+  if (isHttpError(err)) {
+    res.status(err.status).json({ error: err.message });
+  } else {
+    throw err;
+  }
 }
+
+/** Resolve a part to its ensemble for auth. Returns null if part not found. */
+async function getPartWithEnsemble(partId: string) {
+  const rows = await dz.select({
+    id: parts.id,
+    versionId: parts.versionId,
+    kind: parts.kind,
+    name: parts.name,
+    pdfS3Key: parts.pdfS3Key,
+    audiverisMxlS3Key: parts.audiverisMxlS3Key,
+    omrStatus: parts.omrStatus,
+    omrJson: parts.omrJson,
+    omrEngine: parts.omrEngine,
+    createdAt: parts.createdAt,
+    ensembleId: charts.ensembleId,
+  })
+    .from(parts)
+    .innerJoin(versions, eq(versions.id, parts.versionId))
+    .innerJoin(charts, eq(charts.id, versions.chartId))
+    .where(and(eq(parts.id, partId), isNull(parts.deletedAt)));
+
+  return rows[0] ?? null;
+}
+
+/** Resolve a version to its ensemble. */
+async function getVersionWithEnsemble(versionId: string) {
+  const rows = await dz.select({
+    id: versions.id,
+    chartId: versions.chartId,
+    ensembleId: charts.ensembleId,
+  })
+    .from(versions)
+    .innerJoin(charts, eq(charts.id, versions.chartId))
+    .where(eq(versions.id, versionId));
+  return rows[0] ?? null;
+}
+
+// GET /parts?versionId=...
+partsRouter.get('/', async (req: Request, res: Response): Promise<void> => {
+  const versionId = req.query.versionId as string | undefined;
+  if (!versionId) {
+    res.status(400).json({ error: 'versionId query parameter is required' });
+    return;
+  }
+
+  const ver = await getVersionWithEnsemble(versionId);
+  if (!ver) { res.status(404).json({ error: 'Version not found' }); return; }
+
+  try {
+    await requireEnsembleMember(ver.ensembleId, req.user!.id);
+  } catch (err) {
+    handleError(err, res);
+    return;
+  }
+
+  const rows = await dz.select()
+    .from(parts)
+    .where(and(eq(parts.versionId, versionId), isNull(parts.deletedAt)))
+    .orderBy(parts.kind, parts.name);
+
+  res.json({ parts: rows });
+});
+
+// POST /parts  (multipart upload)
+partsRouter.post('/', upload.single('file'), async (req: Request, res: Response): Promise<void> => {
+  const versionId = typeof req.body.versionId === 'string' ? req.body.versionId : undefined;
+  const name = typeof req.body.name === 'string' ? req.body.name.trim() : '';
+
+  if (!versionId || !name) {
+    res.status(400).json({ error: 'versionId and name are required' });
+    return;
+  }
+
+  const ver = await getVersionWithEnsemble(versionId);
+  if (!ver) { res.status(404).json({ error: 'Version not found' }); return; }
+
+  try {
+    await requireEnsembleAdmin(ver.ensembleId, req.user!.id);
+  } catch (err) {
+    handleError(err, res);
+    return;
+  }
+
+  const file = req.file;
+  if (!file) { res.status(400).json({ error: 'file is required' }); return; }
+
+  const kind = req.body.kind === 'score' ? 'score' as const : 'part' as const;
+
+  // Parse optional slot_ids for assignment
+  let slotIds: string[] = [];
+  if (typeof req.body.slotIds === 'string') {
+    try { slotIds = JSON.parse(req.body.slotIds); } catch { /* ignore */ }
+  }
+
+  const s3SafeName = name.replace(/[^a-zA-Z0-9._-]/g, '_');
+  const ext = file.mimetype.startsWith('audio/') ? '.audio' : '.pdf';
+  const s3Key = `ensembles/${ver.ensembleId}/versions/${versionId}/parts/${s3SafeName}${ext}`;
+  await uploadFile(s3Key, file.buffer, file.mimetype);
+
+  const [part] = await dz.insert(parts).values({
+    versionId,
+    kind,
+    name,
+    pdfS3Key: s3Key,
+    omrStatus: 'pending',
+    uploadedByUserId: req.user!.id,
+  }).returning();
+
+  // Create slot assignments if provided
+  if (slotIds.length > 0) {
+    await dz.insert(partSlotAssignments).values(
+      slotIds.map(slotId => ({ partId: part.id, instrumentSlotId: slotId }))
+    );
+  }
+
+  // Enqueue OMR if it's a PDF
+  if (!file.mimetype.startsWith('audio/')) {
+    await enqueueJob('omr', {
+      partId: part.id,
+      pdfS3Key: s3Key,
+      ensembleId: ver.ensembleId,
+      versionId,
+      instrument: name,
+    });
+  }
+
+  res.status(201).json({ part });
+});
 
 // GET /parts/:id
 partsRouter.get('/:id', async (req: Request, res: Response): Promise<void> => {
   const part = await getPartWithEnsemble(req.params.id);
-  if (!part) {
-    res.status(404).json({ error: 'Part not found' });
+  if (!part) { res.status(404).json({ error: 'Part not found' }); return; }
+
+  try {
+    await requireEnsembleMember(part.ensembleId, req.user!.id);
+  } catch (err) {
+    handleError(err, res);
     return;
   }
 
-  try {
-    await requireMember(part.ensemble_id, req.user!.id);
-  } catch (err) {
-    if (isHttpError(err)) { res.status(err.status).json({ error: err.message }); return; }
-    throw err;
-  }
-
-  const { omr_json: _, ensemble_id: __, chart_id: ___, ...safePart } = part;
-  // pdfUrl points to our own proxy endpoint — no CORS issues, auth enforced
+  const { omrJson: _, ensembleId: __, ...safePart } = part;
   res.json({ part: { ...safePart, pdfUrl: `/parts/${part.id}/pdf` } });
-});
-
-// GET /parts/:id/diff
-partsRouter.get('/:id/diff', async (req: Request, res: Response): Promise<void> => {
-  const part = await getPartWithEnsemble(req.params.id);
-  if (!part) {
-    res.status(404).json({ error: 'Part not found' });
-    return;
-  }
-
-  try {
-    await requireMember(part.ensemble_id, req.user!.id);
-  } catch (err) {
-    if (isHttpError(err)) { res.status(err.status).json({ error: err.message }); return; }
-    throw err;
-  }
-
-  // Find the version diff where this part's version is the "to" side
-  const diffRow = await db.query<{ diff_json: Record<string, unknown> }>(
-    `SELECT vd.diff_json
-     FROM version_diffs vd
-     WHERE vd.to_version_id = $1`,
-    [part.chart_version_id]
-  );
-
-  if (!diffRow.rows[0]) {
-    // Diff not yet available (OMR pending, or first version)
-    res.json({ diff: null });
-    return;
-  }
-
-  const diffJson = diffRow.rows[0].diff_json as {
-    parts: Record<string, unknown>;
-  };
-
-  const partDiff = diffJson.parts?.[part.instrument_name] ?? null;
-  res.json({ diff: partDiff });
 });
 
 // GET /parts/:id/measure-layout — returns per-measure bounding boxes from omr_json
@@ -145,14 +190,14 @@ partsRouter.get('/:id/measure-layout', async (req: Request, res: Response): Prom
   if (!part) { res.status(404).json({ error: 'Part not found' }); return; }
 
   try {
-    await requireMember(part.ensemble_id, req.user!.id);
+    await requireEnsembleMember(part.ensembleId, req.user!.id);
   } catch (err) {
-    if (isHttpError(err)) { res.status(err.status).json({ error: err.message }); return; }
-    throw err;
+    handleError(err, res);
+    return;
   }
 
   interface OmrMeasureRow { number: number; bounds?: { x: number; y: number; w: number; h: number; page: number }; multiRestCount?: number }
-  const omrJson = part.omr_json as { measures?: OmrMeasureRow[] } | null;
+  const omrJson = part.omrJson as { measures?: OmrMeasureRow[] } | null;
   if (!omrJson?.measures) {
     res.json({ measureLayout: [] });
     return;
@@ -169,118 +214,23 @@ partsRouter.get('/:id/measure-layout', async (req: Request, res: Response): Prom
   res.json({ measureLayout });
 });
 
-// POST /parts/:id/detect-measure — use Claude Vision to detect measure number from a PDF page image
-partsRouter.post('/:id/detect-measure', async (req: Request, res: Response): Promise<void> => {
-  const part = await getPartWithEnsemble(req.params.id);
-  if (!part) { res.status(404).json({ error: 'Part not found' }); return; }
-
-  try {
-    await requireMember(part.ensemble_id, req.user!.id);
-  } catch (err) {
-    if (isHttpError(err)) { res.status(err.status).json({ error: err.message }); return; }
-    throw err;
-  }
-
-  if (!anthropic) {
-    res.status(503).json({ error: 'ANTHROPIC_API_KEY not configured' });
-    return;
-  }
-
-  const { imageBase64, cx, cy } = req.body as { imageBase64?: string; cx?: number; cy?: number };
-  if (!imageBase64) {
-    res.status(400).json({ error: 'imageBase64 required' });
-    return;
-  }
-
-  // Strip data URL prefix if present
-  const base64Data = imageBase64.replace(/^data:image\/[a-z]+;base64,/, '');
-
-  // Build a location hint so Claude knows exactly where to look
-  const xPct = cx != null ? Math.round(cx * 100) : 50;
-  const yPct = cy != null ? Math.round(cy * 100) : 50;
-  const hPos = xPct < 33 ? 'left third' : xPct < 67 ? 'middle' : 'right third';
-  const vPos = yPct < 33 ? 'top third' : yPct < 67 ? 'middle' : 'bottom third';
-
-  try {
-    const message = await anthropic.messages.create({
-      model: 'claude-opus-4-6',
-      max_tokens: 16,
-      messages: [{
-        role: 'user',
-        content: [
-          {
-            type: 'image',
-            source: { type: 'base64', media_type: 'image/jpeg', data: base64Data },
-          },
-          {
-            type: 'text',
-            text: `This is a page from a music score. A red circle marks a specific location in the ${vPos} of the page, ${hPos} horizontally (approximately ${xPct}% from left, ${yPct}% from top). What is the measure number of the bar containing or nearest to the red circle? Measure numbers are small integers printed above the staff, usually at the start of each system or every few bars. Respond with ONLY the integer (e.g. "42"). If you truly cannot determine it, respond with "0".`,
-          },
-        ],
-      }],
-    });
-
-    const raw = (message.content[0] as { type: string; text: string }).text.trim();
-    const measureNumber = parseInt(raw.replace(/\D/g, ''), 10) || 0;
-    res.json({ measureNumber });
-  } catch (err) {
-    const msg = err instanceof Error ? err.message : String(err);
-    console.error('[detect-measure] Claude API error:', msg);
-    res.status(500).json({ error: msg });
-  }
-});
-
-// DELETE /parts/:id  (owner or editor, hard delete from DB + S3)
-partsRouter.delete('/:id', async (req: Request, res: Response): Promise<void> => {
-  const part = await getPartWithEnsemble(req.params.id);
-  if (!part) {
-    res.status(404).json({ error: 'Part not found' });
-    return;
-  }
-
-  let role: string | null = null;
-  try {
-    role = await requireMember(part.ensemble_id, req.user!.id);
-  } catch (err) {
-    if (isHttpError(err)) { res.status(err.status).json({ error: err.message }); return; }
-    throw err;
-  }
-
-  if (role !== 'owner' && role !== 'editor') {
-    res.status(403).json({ error: 'Only owners and editors can delete parts' });
-    return;
-  }
-
-  // For native (non-inherited) parts, clean up S3 objects
-  if (!part.inherited_from_part_id) {
-    await s3.send(new DeleteObjectCommand({ Bucket: BUCKET, Key: part.pdf_s3_key }));
-    if (part.musicxml_s3_key) {
-      await s3.send(new DeleteObjectCommand({ Bucket: BUCKET, Key: part.musicxml_s3_key }));
-    }
-  }
-
-  // Soft delete — removes from this version's view only
-  await db.query(`UPDATE parts SET deleted_at = NOW() WHERE id = $1`, [req.params.id]);
-  res.json({ deleted: true });
-});
-
-// GET /parts/:id/pdf  — proxies PDF from S3 through the backend (avoids CORS)
+// GET /parts/:id/pdf — proxies PDF from S3 through the backend
 partsRouter.get('/:id/pdf', async (req: Request, res: Response): Promise<void> => {
   const part = await getPartWithEnsemble(req.params.id);
   if (!part) { res.status(404).end(); return; }
 
   try {
-    await requireMember(part.ensemble_id, req.user!.id);
+    await requireEnsembleMember(part.ensembleId, req.user!.id);
   } catch (err) {
     if (isHttpError(err)) { res.status(err.status).end(); return; }
     throw err;
   }
 
   try {
-    const command = new GetObjectCommand({ Bucket: BUCKET, Key: part.pdf_s3_key });
+    const command = new GetObjectCommand({ Bucket: BUCKET, Key: part.pdfS3Key });
     const s3Res = await s3.send(command);
     res.setHeader('Content-Type', 'application/pdf');
-    res.setHeader('Content-Disposition', `inline; filename="${part.instrument_name}.pdf"`);
+    res.setHeader('Content-Disposition', `inline; filename="${part.name}.pdf"`);
     if (s3Res.ContentLength) res.setHeader('Content-Length', s3Res.ContentLength);
     (s3Res.Body as Readable).pipe(res);
   } catch (err) {
@@ -289,27 +239,26 @@ partsRouter.get('/:id/pdf', async (req: Request, res: Response): Promise<void> =
   }
 });
 
-// GET /parts/:id/debug-pdf  — serves the annotated PDF with measure bounding boxes
+// GET /parts/:id/debug-pdf — serves the annotated PDF with measure bounding boxes
 partsRouter.get('/:id/debug-pdf', async (req: Request, res: Response): Promise<void> => {
   const part = await getPartWithEnsemble(req.params.id);
   if (!part) { res.status(404).end(); return; }
 
   try {
-    await requireMember(part.ensemble_id, req.user!.id);
+    await requireEnsembleMember(part.ensembleId, req.user!.id);
   } catch (err) {
     if (isHttpError(err)) { res.status(err.status).end(); return; }
     throw err;
   }
 
-  // The annotated PDF is stored alongside the original with _measures suffix
-  const debugKey = part.pdf_s3_key?.replace(/\.pdf$/i, '_measures.pdf');
+  const debugKey = part.pdfS3Key?.replace(/\.pdf$/i, '_measures.pdf');
   if (!debugKey) { res.status(404).json({ error: 'No PDF key for this part' }); return; }
 
   try {
     const command = new GetObjectCommand({ Bucket: BUCKET, Key: debugKey });
     const s3Res = await s3.send(command);
     res.setHeader('Content-Type', 'application/pdf');
-    res.setHeader('Content-Disposition', `inline; filename="${part.instrument_name}_measures.pdf"`);
+    res.setHeader('Content-Disposition', `inline; filename="${part.name}_measures.pdf"`);
     if (s3Res.ContentLength) res.setHeader('Content-Length', s3Res.ContentLength);
     (s3Res.Body as Readable).pipe(res);
   } catch (err: any) {
@@ -320,4 +269,51 @@ partsRouter.get('/:id/debug-pdf', async (req: Request, res: Response): Promise<v
       res.status(500).end();
     }
   }
+});
+
+// DELETE /parts/:id (soft delete)
+partsRouter.delete('/:id', async (req: Request, res: Response): Promise<void> => {
+  const part = await getPartWithEnsemble(req.params.id);
+  if (!part) { res.status(404).json({ error: 'Part not found' }); return; }
+
+  try {
+    await requireEnsembleAdmin(part.ensembleId, req.user!.id);
+  } catch (err) {
+    handleError(err, res);
+    return;
+  }
+
+  await dz.update(parts)
+    .set({ deletedAt: new Date() })
+    .where(eq(parts.id, req.params.id));
+
+  res.json({ deleted: true });
+});
+
+// ── Player router (mounted at /player) ───────────────────────────────────────
+
+export const playerRouter = Router();
+playerRouter.use(requireAuth);
+
+// GET /player/my-parts — parts assigned to the current user's slots
+playerRouter.get('/my-parts', async (req: Request, res: Response): Promise<void> => {
+  const rows = await dz.select({
+    partId: parts.id,
+    partName: parts.name,
+    kind: parts.kind,
+    omrStatus: parts.omrStatus,
+    versionId: versions.id,
+    versionName: versions.name,
+    chartId: charts.id,
+    chartName: charts.name,
+    ensembleId: ensembles.id,
+    ensembleName: ensembles.name,
+  })
+    .from(parts)
+    .innerJoin(versions, eq(versions.id, parts.versionId))
+    .innerJoin(charts, eq(charts.id, versions.chartId))
+    .innerJoin(ensembles, eq(ensembles.id, charts.ensembleId))
+    .where(and(eq(parts.uploadedByUserId, req.user!.id), isNull(parts.deletedAt)));
+
+  res.json({ parts: rows });
 });

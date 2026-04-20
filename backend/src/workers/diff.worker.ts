@@ -1,63 +1,66 @@
 import dotenv from 'dotenv';
 dotenv.config();
 
+import { eq, and, isNull } from 'drizzle-orm';
 import { claimNextJob, completeJob, failJob } from '../lib/queue';
 import { notifyNewVersion, notifyNewVersionNoDiff } from '../lib/notifications';
 import { computeMeasureMapping, visionResultToPartDiff, ConcurrencyPool } from '../lib/vision-diff';
 import { migrateAnnotationsForVersion } from '../lib/annotation-migration';
 import type { VersionDiffJson } from '../lib/diff';
 import { downloadFile } from '../lib/s3';
-import { db } from '../db';
+import { db, dz } from '../db';
+import { parts, versions, charts, versionDiffs } from '../schema';
 
 const POLL_INTERVAL_MS = parseInt(process.env.DIFF_POLL_INTERVAL_MS ?? '5000');
 const MAX_ATTEMPTS     = parseInt(process.env.DIFF_MAX_ATTEMPTS     ?? '3');
 const MAX_CONCURRENCY  = parseInt(process.env.VISION_MAX_CONCURRENCY ?? '5');
 
 interface DiffJobPayload {
-  chartId:       string;
+  ensembleId:    string;
   fromVersionId: string;
   toVersionId:   string;
   directorHint?: string;
 }
 
 interface PartRow {
-  id:              string;
-  instrument_name: string;
-  pdf_s3_key:      string;
+  id:       string;
+  name:     string;
+  pdfS3Key: string;
 }
 
 async function processDiffJob(jobId: string, payload: DiffJobPayload): Promise<void> {
-  const { chartId, fromVersionId, toVersionId, directorHint } = payload;
+  const { ensembleId, fromVersionId, toVersionId, directorHint } = payload;
 
-  // Fetch parts for both versions — only need pdf_s3_key now, no OMR dependency
-  const fromParts = await db.query<PartRow>(
-    `SELECT id, instrument_name, pdf_s3_key
-     FROM parts WHERE chart_version_id = $1 AND deleted_at IS NULL`,
-    [fromVersionId]
-  );
-  const toParts = await db.query<PartRow>(
-    `SELECT id, instrument_name, pdf_s3_key
-     FROM parts WHERE chart_version_id = $1 AND deleted_at IS NULL`,
-    [toVersionId]
-  );
+  // Fetch parts for both versions
+  const fromParts = await dz.select({
+    id: parts.id,
+    name: parts.name,
+    pdfS3Key: parts.pdfS3Key,
+  }).from(parts).where(and(eq(parts.versionId, fromVersionId), isNull(parts.deletedAt)));
 
-  if (fromParts.rows.length === 0 || toParts.rows.length === 0) {
+  const toParts = await dz.select({
+    id: parts.id,
+    name: parts.name,
+    pdfS3Key: parts.pdfS3Key,
+  }).from(parts).where(and(eq(parts.versionId, toVersionId), isNull(parts.deletedAt)));
+
+  if (fromParts.length === 0 || toParts.length === 0) {
     await completeJob(jobId);
     console.log(`[diff.worker] Skipping diff for ${toVersionId} — no parts in one or both versions`);
-    await notifyNewVersionNoDiff(chartId, toVersionId).catch(err =>
+    await notifyNewVersionNoDiff(ensembleId, toVersionId).catch(err =>
       console.error('[diff.worker] Notification failed:', err)
     );
     return;
   }
 
-  // Match parts by instrument name
-  const toPartMap = new Map(toParts.rows.map(p => [p.instrument_name, p]));
-  const pairs = fromParts.rows.filter(p => toPartMap.has(p.instrument_name));
+  // Match parts by name
+  const toPartMap = new Map(toParts.map(p => [p.name, p]));
+  const pairs = fromParts.filter(p => toPartMap.has(p.name));
 
   if (pairs.length === 0) {
     await completeJob(jobId);
     console.log(`[diff.worker] No matching instruments between versions — skipping diff`);
-    await notifyNewVersionNoDiff(chartId, toVersionId).catch(err =>
+    await notifyNewVersionNoDiff(ensembleId, toVersionId).catch(err =>
       console.error('[diff.worker] Notification failed:', err)
     );
     return;
@@ -67,14 +70,14 @@ async function processDiffJob(jobId: string, payload: DiffJobPayload): Promise<v
   const pool = new ConcurrencyPool(MAX_CONCURRENCY);
   const partDiffResults = await Promise.all(
     pairs.map(fromPart => pool.run(async () => {
-      const toPart = toPartMap.get(fromPart.instrument_name)!;
+      const toPart = toPartMap.get(fromPart.name)!;
       try {
         const [oldPdf, newPdf] = await Promise.all([
-          downloadFile(fromPart.pdf_s3_key),
-          downloadFile(toPart.pdf_s3_key),
+          downloadFile(fromPart.pdfS3Key),
+          downloadFile(toPart.pdfS3Key),
         ]);
 
-        const result = await computeMeasureMapping(oldPdf, newPdf, fromPart.instrument_name, {
+        const result = await computeMeasureMapping(oldPdf, newPdf, fromPart.name, {
           directorHint,
           partId:        toPart.id,
           fromVersionId,
@@ -82,52 +85,55 @@ async function processDiffJob(jobId: string, payload: DiffJobPayload): Promise<v
         });
 
         console.log(
-          `[diff.worker] ${fromPart.instrument_name}: confidence=${result.overallConfidence.toFixed(2)}, ` +
+          `[diff.worker] ${fromPart.name}: confidence=${result.overallConfidence.toFixed(2)}, ` +
           `changed=${result.changedMeasures.length}, inserted=${result.insertedMeasures.length}, ` +
           `deleted=${result.deletedMeasures.length}, latency=${result.processingMs}ms`
         );
 
         return {
-          instrument: fromPart.instrument_name,
-          partDiff:   visionResultToPartDiff(result),
-          ok:         true,
+          instrument:  fromPart.name,
+          fromPartId:  fromPart.id,
+          toPartId:    toPart.id,
+          partDiff:    visionResultToPartDiff(result),
+          ok:          true,
         };
       } catch (err) {
         const msg = err instanceof Error ? err.message : String(err);
-        console.error(`[diff.worker] Vision diff failed for ${fromPart.instrument_name}:`, msg);
-        return { instrument: fromPart.instrument_name, partDiff: null, ok: false };
+        console.error(`[diff.worker] Vision diff failed for ${fromPart.name}:`, msg);
+        return { instrument: fromPart.name, fromPartId: fromPart.id, toPartId: null, partDiff: null, ok: false };
       }
     }))
   );
 
   // Build version diff JSON — include all successful instrument diffs
-  const parts: VersionDiffJson['parts'] = {};
+  const diffParts: VersionDiffJson['parts'] = {};
   for (const r of partDiffResults) {
-    if (r.ok && r.partDiff) parts[r.instrument] = r.partDiff;
+    if (r.ok && r.partDiff) diffParts[r.instrument] = r.partDiff;
   }
 
-  if (Object.keys(parts).length === 0) {
-    // All instruments failed — still complete the job, notify without diff
+  if (Object.keys(diffParts).length === 0) {
     await completeJob(jobId);
     console.warn(`[diff.worker] All instrument diffs failed for ${toVersionId}`);
-    await notifyNewVersionNoDiff(chartId, toVersionId).catch(err =>
+    await notifyNewVersionNoDiff(ensembleId, toVersionId).catch(err =>
       console.error('[diff.worker] Notification failed:', err)
     );
     return;
   }
 
-  const diffJson = { parts };
+  const diffJson: VersionDiffJson = { parts: diffParts };
 
-  await db.query(
-    `INSERT INTO version_diffs (chart_id, from_version_id, to_version_id, diff_json)
-     VALUES ($1, $2, $3, $4)
-     ON CONFLICT (from_version_id, to_version_id)
-     DO UPDATE SET diff_json = EXCLUDED.diff_json, updated_at = NOW()`,
-    [chartId, fromVersionId, toVersionId, JSON.stringify(diffJson)]
-  );
+  // Store one version_diffs row per part pair
+  for (const r of partDiffResults) {
+    if (!r.ok || !r.partDiff || !r.toPartId) continue;
+    await dz.insert(versionDiffs).values({
+      fromPartId: r.fromPartId,
+      toPartId: r.toPartId,
+      diffJson: r.partDiff,
+    });
+  }
 
   await completeJob(jobId);
-  console.log(`[diff.worker] Diff complete for version ${toVersionId} (${Object.keys(parts).length} instruments)`);
+  console.log(`[diff.worker] Diff complete for version ${toVersionId} (${Object.keys(diffParts).length} instruments)`);
 
   // Migrate annotations from the previous version's parts to the new parts
   await migrateAnnotationsForVersion(fromVersionId, toVersionId, diffJson).then(summaries => {
@@ -141,7 +147,7 @@ async function processDiffJob(jobId: string, payload: DiffJobPayload): Promise<v
     }
   }).catch(err => console.error('[diff.worker] Annotation migration failed:', err));
 
-  await notifyNewVersion(chartId, toVersionId, diffJson as Parameters<typeof notifyNewVersion>[2]).catch(err =>
+  await notifyNewVersion(ensembleId, toVersionId, diffJson as Parameters<typeof notifyNewVersion>[2]).catch(err =>
     console.error('[diff.worker] Notification failed:', err)
   );
 }

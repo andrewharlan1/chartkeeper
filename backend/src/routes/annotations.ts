@@ -1,8 +1,15 @@
 import { Router, Request, Response } from 'express';
 import { z } from 'zod';
-import { db } from '../db';
+import { eq, and, isNull, asc } from 'drizzle-orm';
+import { dz } from '../db';
+import { annotations, parts, versions, charts, users } from '../schema';
 import { requireAuth } from '../middleware/auth';
-import { requireMember } from '../lib/ensembleAuth';
+import { requireEnsembleMember } from '../lib/ensembleAuth';
+import {
+  inkContentSchema,
+  textContentSchema,
+  highlightContentSchema,
+} from '../schemas/annotation-content';
 
 export const annotationsRouter = Router();
 annotationsRouter.use(requireAuth);
@@ -11,110 +18,161 @@ function isHttpError(err: unknown): err is { status: number; message: string } {
   return typeof err === 'object' && err !== null && 'status' in err && 'message' in err;
 }
 
-async function getPartEnsemble(partId: string): Promise<string | null> {
-  const result = await db.query(
-    `SELECT c.ensemble_id
-     FROM parts p
-     JOIN chart_versions cv ON cv.id = p.chart_version_id
-     JOIN charts c ON c.id = cv.chart_id
-     WHERE p.id = $1 AND p.deleted_at IS NULL`,
-    [partId]
-  );
-  return result.rows[0]?.ensemble_id ?? null;
+/** Resolve a part to its ensemble for auth (part → version → chart → ensemble). */
+async function getPartEnsembleId(partId: string): Promise<string | null> {
+  const rows = await dz.select({ ensembleId: charts.ensembleId })
+    .from(parts)
+    .innerJoin(versions, eq(versions.id, parts.versionId))
+    .innerJoin(charts, eq(charts.id, versions.chartId))
+    .where(and(eq(parts.id, partId), isNull(parts.deletedAt)));
+  return rows[0]?.ensembleId ?? null;
 }
 
 // GET /parts/:partId/annotations
 annotationsRouter.get('/:partId/annotations', async (req: Request, res: Response): Promise<void> => {
-  const ensembleId = await getPartEnsemble(req.params.partId);
+  const ensembleId = await getPartEnsembleId(req.params.partId);
   if (!ensembleId) { res.status(404).json({ error: 'Part not found' }); return; }
 
-  try { await requireMember(ensembleId, req.user!.id); }
-  catch (err) { if (isHttpError(err)) { res.status(err.status).json({ error: err.message }); return; } throw err; }
+  try {
+    await requireEnsembleMember(ensembleId, req.user!.id);
+  } catch (err) {
+    if (isHttpError(err)) { res.status(err.status).json({ error: err.message }); return; }
+    throw err;
+  }
 
-  const result = await db.query(
-    `SELECT a.id, a.part_id, a.user_id, a.anchor_type, a.anchor_json,
-            a.content_type, a.content_json, a.is_unresolved,
-            a.migrated_from_annotation_id, a.created_at, a.updated_at,
-            u.name AS user_name
-     FROM annotations a
-     JOIN users u ON u.id = a.user_id
-     WHERE a.part_id = $1 AND a.deleted_at IS NULL
-     ORDER BY COALESCE((a.anchor_json->>'page')::int, (a.anchor_json->>'measureNumber')::int) NULLS LAST, a.created_at`,
-    [req.params.partId]
-  );
-  res.json({ annotations: result.rows });
+  const rows = await dz.select({
+    id: annotations.id,
+    partId: annotations.partId,
+    ownerUserId: annotations.ownerUserId,
+    anchorType: annotations.anchorType,
+    anchorJson: annotations.anchorJson,
+    kind: annotations.kind,
+    contentJson: annotations.contentJson,
+    scope: annotations.scope,
+    layerId: annotations.layerId,
+    migratedFromAnnotationId: annotations.migratedFromAnnotationId,
+    createdAt: annotations.createdAt,
+    updatedAt: annotations.updatedAt,
+    ownerName: users.displayName,
+  })
+    .from(annotations)
+    .innerJoin(users, eq(users.id, annotations.ownerUserId))
+    .where(and(eq(annotations.partId, req.params.partId), isNull(annotations.deletedAt)))
+    .orderBy(asc(annotations.createdAt));
+
+  res.json({ annotations: rows });
 });
 
+// Order: most-specific first so z.union's first-match + strip() doesn't swallow fields.
 const anchorSchema = z.union([
-  z.object({ measureNumber: z.number().int().positive(), pageHint: z.number().int().positive().optional() }),
-  z.object({ measureNumber: z.number().int().positive(), beat: z.number(), pageHint: z.number().int().positive().optional() }),
   z.object({ measureNumber: z.number().int().positive(), beat: z.number(), pitch: z.string(), duration: z.string() }),
+  z.object({ measureNumber: z.number().int().positive(), beat: z.number(), pageHint: z.number().int().positive().optional() }),
+  z.object({ measureNumber: z.number().int().positive(), pageHint: z.number().int().positive().optional() }),
   z.object({ sectionLabel: z.string(), measureOffset: z.number().int().nonnegative().optional() }),
   z.object({ page: z.number().int().positive(), measureHint: z.number().int().positive().optional() }),
 ]);
 
 // POST /parts/:partId/annotations
 annotationsRouter.post('/:partId/annotations', async (req: Request, res: Response): Promise<void> => {
-  const ensembleId = await getPartEnsemble(req.params.partId);
+  const ensembleId = await getPartEnsembleId(req.params.partId);
   if (!ensembleId) { res.status(404).json({ error: 'Part not found' }); return; }
 
-  try { await requireMember(ensembleId, req.user!.id); }
-  catch (err) { if (isHttpError(err)) { res.status(err.status).json({ error: err.message }); return; } throw err; }
+  try {
+    await requireEnsembleMember(ensembleId, req.user!.id);
+  } catch (err) {
+    if (isHttpError(err)) { res.status(err.status).json({ error: err.message }); return; }
+    throw err;
+  }
 
   const parsed = z.object({
     anchorType: z.enum(['measure', 'beat', 'note', 'section', 'page']),
     anchorJson: anchorSchema,
-    contentType: z.enum(['text', 'ink', 'highlight']),
+    kind: z.enum(['ink', 'text', 'highlight']),
     contentJson: z.record(z.unknown()),
+    layerId: z.string().uuid().optional(),
   }).safeParse(req.body);
   if (!parsed.success) { res.status(400).json({ error: parsed.error.flatten() }); return; }
 
-  const { anchorType, anchorJson, contentType, contentJson } = parsed.data;
-  const result = await db.query(
-    `INSERT INTO annotations (part_id, user_id, anchor_type, anchor_json, content_type, content_json)
-     VALUES ($1, $2, $3, $4, $5, $6)
-     RETURNING id, part_id, user_id, anchor_type, anchor_json, content_type, content_json,
-               is_unresolved, created_at, updated_at`,
-    [req.params.partId, req.user!.id, anchorType, JSON.stringify(anchorJson), contentType, JSON.stringify(contentJson)]
-  );
-  const u = await db.query(`SELECT name FROM users WHERE id = $1`, [req.user!.id]);
-  res.status(201).json({ annotation: { ...result.rows[0], user_name: u.rows[0].name } });
+  const { anchorType, anchorJson, kind, contentJson, layerId } = parsed.data;
+
+  // Validate content against the kind-specific schema
+  const contentSchemas = { ink: inkContentSchema, text: textContentSchema, highlight: highlightContentSchema } as const;
+  const contentResult = contentSchemas[kind].safeParse(contentJson);
+  if (!contentResult.success) {
+    res.status(400).json({ error: contentResult.error.flatten() });
+    return;
+  }
+
+  const [ann] = await dz.insert(annotations).values({
+    partId: req.params.partId,
+    ownerUserId: req.user!.id,
+    anchorType,
+    anchorJson,
+    kind,
+    contentJson: contentResult.data,
+    ...(layerId ? { layerId } : {}),
+  }).returning();
+
+  const [user] = await dz.select({ displayName: users.displayName })
+    .from(users).where(eq(users.id, req.user!.id));
+
+  res.status(201).json({ annotation: { ...ann, ownerName: user.displayName } });
 });
 
 // PATCH /annotations/:id
 annotationsRouter.patch('/:id', async (req: Request, res: Response): Promise<void> => {
-  const existing = await db.query(
-    `SELECT a.part_id, a.user_id, c.ensemble_id
-     FROM annotations a
-     JOIN parts p ON p.id = a.part_id
-     JOIN chart_versions cv ON cv.id = p.chart_version_id
-     JOIN charts c ON c.id = cv.chart_id
-     WHERE a.id = $1 AND a.deleted_at IS NULL`,
-    [req.params.id]
-  );
-  if (!existing.rows[0]) { res.status(404).json({ error: 'Annotation not found' }); return; }
-  if (existing.rows[0].user_id !== req.user!.id) { res.status(403).json({ error: 'You can only edit your own annotations' }); return; }
+  const [existing] = await dz.select({
+    partId: annotations.partId,
+    ownerUserId: annotations.ownerUserId,
+    ensembleId: charts.ensembleId,
+  })
+    .from(annotations)
+    .innerJoin(parts, eq(parts.id, annotations.partId))
+    .innerJoin(versions, eq(versions.id, parts.versionId))
+    .innerJoin(charts, eq(charts.id, versions.chartId))
+    .where(and(eq(annotations.id, req.params.id), isNull(annotations.deletedAt)));
 
-  const parsed = z.object({ contentJson: z.record(z.unknown()) }).safeParse(req.body);
+  if (!existing) { res.status(404).json({ error: 'Annotation not found' }); return; }
+  if (existing.ownerUserId !== req.user!.id) {
+    res.status(403).json({ error: 'You can only edit your own annotations' });
+    return;
+  }
+
+  const parsed = z.object({
+    contentJson: z.record(z.unknown()).optional(),
+    anchorJson: anchorSchema.optional(),
+    layerId: z.string().uuid().nullable().optional(),
+  }).safeParse(req.body);
   if (!parsed.success) { res.status(400).json({ error: parsed.error.flatten() }); return; }
 
-  const result = await db.query(
-    `UPDATE annotations SET content_json = $1, updated_at = NOW() WHERE id = $2
-     RETURNING id, content_type, content_json, updated_at`,
-    [JSON.stringify(parsed.data.contentJson), req.params.id]
-  );
-  res.json({ annotation: result.rows[0] });
+  const updates: Record<string, unknown> = { updatedAt: new Date() };
+  if (parsed.data.contentJson !== undefined) updates.contentJson = parsed.data.contentJson;
+  if (parsed.data.anchorJson !== undefined) updates.anchorJson = parsed.data.anchorJson;
+  if (parsed.data.layerId !== undefined) updates.layerId = parsed.data.layerId;
+
+  const [updated] = await dz.update(annotations)
+    .set(updates)
+    .where(eq(annotations.id, req.params.id))
+    .returning();
+
+  res.json({ annotation: updated });
 });
 
-// DELETE /annotations/:id  (soft delete, own annotations only)
+// DELETE /annotations/:id (soft delete, own annotations only)
 annotationsRouter.delete('/:id', async (req: Request, res: Response): Promise<void> => {
-  const existing = await db.query(
-    `SELECT user_id FROM annotations WHERE id = $1 AND deleted_at IS NULL`,
-    [req.params.id]
-  );
-  if (!existing.rows[0]) { res.status(404).json({ error: 'Annotation not found' }); return; }
-  if (existing.rows[0].user_id !== req.user!.id) { res.status(403).json({ error: 'You can only delete your own annotations' }); return; }
+  const [existing] = await dz.select({ ownerUserId: annotations.ownerUserId })
+    .from(annotations)
+    .where(and(eq(annotations.id, req.params.id), isNull(annotations.deletedAt)));
 
-  await db.query(`UPDATE annotations SET deleted_at = NOW() WHERE id = $1`, [req.params.id]);
+  if (!existing) { res.status(404).json({ error: 'Annotation not found' }); return; }
+  if (existing.ownerUserId !== req.user!.id) {
+    res.status(403).json({ error: 'You can only delete your own annotations' });
+    return;
+  }
+
+  await dz.update(annotations)
+    .set({ deletedAt: new Date() })
+    .where(eq(annotations.id, req.params.id));
+
   res.json({ deleted: true });
 });

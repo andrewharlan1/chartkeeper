@@ -4,240 +4,127 @@ import { db } from '../db';
 
 const request = supertest(app);
 
-async function clearDb() {
-  await db.query(`DELETE FROM invitations`);
-  await db.query(`DELETE FROM ensemble_members`);
+let token: string;
+let workspaceId: string;
+let ensembleId: string;
+
+beforeAll(async () => {
+  await db.query(`DELETE FROM annotations`);
+  await db.query(`DELETE FROM annotation_layers`);
+  await db.query(`DELETE FROM version_diffs`);
+  await db.query(`DELETE FROM parts`);
+  await db.query(`DELETE FROM versions`);
+  await db.query(`DELETE FROM instrument_slots`);
   await db.query(`DELETE FROM ensembles`);
+  await db.query(`DELETE FROM workspace_members`);
+  await db.query(`DELETE FROM workspaces`);
   await db.query(`DELETE FROM users`);
-}
 
-async function signup(email: string, name = 'Test User', password = 'password123') {
-  const res = await request.post('/auth/signup').send({ email, name, password });
-  return res.body as { token: string; user: { id: string; email: string; name: string } };
-}
+  const signup = await request.post('/auth/signup').send({
+    email: 'ens-test@example.com',
+    name: 'Ensemble Tester',
+    password: 'securepassword',
+  });
+  token = signup.body.token;
+  workspaceId = signup.body.workspaceId;
+});
 
-beforeAll(clearDb);
-afterAll(async () => { await db.end(); });
+afterAll(async () => {
+  await db.end();
+});
 
 describe('POST /ensembles', () => {
-  it('creates an ensemble and adds creator as owner', async () => {
-    const { token } = await signup('owner@example.com');
-    const res = await request
-      .post('/ensembles')
+  it('creates an ensemble in a workspace', async () => {
+    const res = await request.post('/ensembles')
       .set('Authorization', `Bearer ${token}`)
-      .send({ name: 'Test Band' });
+      .send({ workspaceId, name: 'Jazz Combo' });
 
     expect(res.status).toBe(201);
-    expect(res.body.ensemble.name).toBe('Test Band');
+    expect(res.body.ensemble.name).toBe('Jazz Combo');
+    expect(res.body.ensemble.workspaceId).toBe(workspaceId);
+    ensembleId = res.body.ensemble.id;
+  });
+
+  it('rejects missing workspaceId', async () => {
+    const res = await request.post('/ensembles')
+      .set('Authorization', `Bearer ${token}`)
+      .send({ name: 'No WS' });
+
+    expect(res.status).toBe(400);
   });
 
   it('returns 401 without token', async () => {
-    const res = await request.post('/ensembles').send({ name: 'No Auth Band' });
+    const res = await request.post('/ensembles').send({ workspaceId, name: 'No Auth' });
     expect(res.status).toBe(401);
   });
 });
 
-describe('GET /ensembles/:id', () => {
-  let token: string;
-  let ensembleId: string;
+describe('GET /ensembles?workspaceId=...', () => {
+  it('lists ensembles in a workspace', async () => {
+    const res = await request.get(`/ensembles?workspaceId=${workspaceId}`)
+      .set('Authorization', `Bearer ${token}`);
 
-  beforeAll(async () => {
-    await clearDb();
-    const auth = await signup('getowner@example.com');
-    token = auth.token;
-    const res = await request
-      .post('/ensembles')
-      .set('Authorization', `Bearer ${token}`)
-      .send({ name: 'Get Band' });
-    ensembleId = res.body.ensemble.id;
+    expect(res.status).toBe(200);
+    expect(res.body.ensembles.length).toBeGreaterThanOrEqual(1);
+    expect(res.body.ensembles[0].name).toBe('Jazz Combo');
   });
 
-  it('returns ensemble for a member', async () => {
-    const res = await request
-      .get(`/ensembles/${ensembleId}`)
+  it('returns 400 without workspaceId', async () => {
+    const res = await request.get('/ensembles')
       .set('Authorization', `Bearer ${token}`);
+    expect(res.status).toBe(400);
+  });
+});
+
+describe('GET /ensembles/:id', () => {
+  it('returns ensemble details for a member', async () => {
+    const res = await request.get(`/ensembles/${ensembleId}`)
+      .set('Authorization', `Bearer ${token}`);
+
     expect(res.status).toBe(200);
     expect(res.body.ensemble.id).toBe(ensembleId);
   });
 
   it('returns 403 for non-member', async () => {
-    const { token: otherToken } = await signup('outsider@example.com');
-    const res = await request
-      .get(`/ensembles/${ensembleId}`)
-      .set('Authorization', `Bearer ${otherToken}`);
+    const other = await request.post('/auth/signup').send({
+      email: 'ens-outsider@example.com',
+      name: 'Outsider',
+      password: 'securepassword',
+    });
+    const res = await request.get(`/ensembles/${ensembleId}`)
+      .set('Authorization', `Bearer ${other.body.token}`);
+
     expect(res.status).toBe(403);
   });
 });
 
-describe('GET /ensembles/:id/members', () => {
-  let token: string;
-  let ensembleId: string;
-
-  beforeAll(async () => {
-    await clearDb();
-    const auth = await signup('membersowner@example.com');
-    token = auth.token;
-    const res = await request
-      .post('/ensembles')
+describe('PATCH /ensembles/:id', () => {
+  it('renames the ensemble', async () => {
+    const res = await request.patch(`/ensembles/${ensembleId}`)
       .set('Authorization', `Bearer ${token}`)
-      .send({ name: 'Members Band' });
-    ensembleId = res.body.ensemble.id;
-  });
+      .send({ name: 'Big Band' });
 
-  it('returns members list including owner', async () => {
-    const res = await request
-      .get(`/ensembles/${ensembleId}/members`)
+    expect(res.status).toBe(200);
+    expect(res.body.ensemble.name).toBe('Big Band');
+  });
+});
+
+describe('DELETE /ensembles/:id', () => {
+  it('soft-deletes the ensemble', async () => {
+    const create = await request.post('/ensembles')
+      .set('Authorization', `Bearer ${token}`)
+      .send({ workspaceId, name: 'Doomed Ensemble' });
+
+    const res = await request.delete(`/ensembles/${create.body.ensemble.id}`)
       .set('Authorization', `Bearer ${token}`);
+
     expect(res.status).toBe(200);
-    expect(res.body.members).toHaveLength(1);
-    expect(res.body.members[0].role).toBe('owner');
-  });
-});
+    expect(res.body.deleted).toBe(true);
 
-describe('POST /ensembles/:id/invite', () => {
-  let ownerToken: string;
-  let playerToken: string;
-  let ensembleId: string;
-
-  beforeAll(async () => {
-    await clearDb();
-    const auth = await signup('inviteowner@example.com');
-    ownerToken = auth.token;
-    const res = await request
-      .post('/ensembles')
-      .set('Authorization', `Bearer ${ownerToken}`)
-      .send({ name: 'Invite Band' });
-    ensembleId = res.body.ensemble.id;
-
-    // Add a player member to test permission restriction
-    const inviteRes = await request
-      .post(`/ensembles/${ensembleId}/invite`)
-      .set('Authorization', `Bearer ${ownerToken}`)
-      .send({ email: 'existingplayer@example.com', role: 'player' });
-    const inviteToken = inviteRes.body.inviteUrl.split('/').pop();
-    const playerAuth = await signup('existingplayer@example.com', 'Player');
-    // Accept via signup with inviteToken
-    await request.post('/auth/signup').send({
-      email: 'playerformember@example.com',
-      name: 'Player For Member',
-      password: 'password123',
-      inviteToken,
-    });
-    playerToken = playerAuth.token;
-  });
-
-  it('owner can invite a new user', async () => {
-    const res = await request
-      .post(`/ensembles/${ensembleId}/invite`)
-      .set('Authorization', `Bearer ${ownerToken}`)
-      .send({ email: 'newplayer@example.com', role: 'player' });
-    expect(res.status).toBe(201);
-    expect(res.body.inviteUrl).toMatch(/\/auth\/accept-invite\//);
-  });
-
-  it('returns same invite URL for duplicate pending invite', async () => {
-    const res1 = await request
-      .post(`/ensembles/${ensembleId}/invite`)
-      .set('Authorization', `Bearer ${ownerToken}`)
-      .send({ email: 'duppending@example.com', role: 'player' });
-    const res2 = await request
-      .post(`/ensembles/${ensembleId}/invite`)
-      .set('Authorization', `Bearer ${ownerToken}`)
-      .send({ email: 'duppending@example.com', role: 'player' });
-    expect(res1.body.inviteUrl).toBe(res2.body.inviteUrl);
-  });
-
-  it('player cannot invite', async () => {
-    const res = await request
-      .post(`/ensembles/${ensembleId}/invite`)
-      .set('Authorization', `Bearer ${playerToken}`)
-      .send({ email: 'another@example.com', role: 'player' });
-    expect(res.status).toBe(403);
-  });
-
-  it('returns 409 if user is already a member', async () => {
-    const res = await request
-      .post(`/ensembles/${ensembleId}/invite`)
-      .set('Authorization', `Bearer ${ownerToken}`)
-      .send({ email: 'inviteowner@example.com', role: 'player' });
-    expect(res.status).toBe(409);
-  });
-});
-
-describe('Invite flow: new user joins via invite', () => {
-  let ownerToken: string;
-  let ensembleId: string;
-  let inviteToken: string;
-
-  beforeAll(async () => {
-    await clearDb();
-    const auth = await signup('flowowner@example.com');
-    ownerToken = auth.token;
-    const res = await request
-      .post('/ensembles')
-      .set('Authorization', `Bearer ${ownerToken}`)
-      .send({ name: 'Flow Band' });
-    ensembleId = res.body.ensemble.id;
-
-    const inviteRes = await request
-      .post(`/ensembles/${ensembleId}/invite`)
-      .set('Authorization', `Bearer ${ownerToken}`)
-      .send({ email: 'newbie@example.com', role: 'player' });
-    inviteToken = inviteRes.body.inviteUrl.split('/').pop();
-  });
-
-  it('new user signs up with invite token and is added to ensemble', async () => {
-    const res = await request.post('/auth/signup').send({
-      email: 'newbie@example.com',
-      name: 'Newbie Player',
-      password: 'password123',
-      inviteToken,
-    });
-    expect(res.status).toBe(201);
-
-    const membersRes = await request
-      .get(`/ensembles/${ensembleId}/members`)
-      .set('Authorization', `Bearer ${ownerToken}`);
-    const emails = membersRes.body.members.map((m: any) => m.email);
-    expect(emails).toContain('newbie@example.com');
-  });
-});
-
-describe('Invite flow: existing user accepts invite', () => {
-  let ownerToken: string;
-  let ensembleId: string;
-  let inviteToken: string;
-
-  beforeAll(async () => {
-    await clearDb();
-    const auth = await signup('existingflowowner@example.com');
-    ownerToken = auth.token;
-    const res = await request
-      .post('/ensembles')
-      .set('Authorization', `Bearer ${ownerToken}`)
-      .send({ name: 'Existing Flow Band' });
-    ensembleId = res.body.ensemble.id;
-
-    await signup('existingmember@example.com');
-
-    const inviteRes = await request
-      .post(`/ensembles/${ensembleId}/invite`)
-      .set('Authorization', `Bearer ${ownerToken}`)
-      .send({ email: 'existingmember@example.com', role: 'editor' });
-    inviteToken = inviteRes.body.inviteUrl.split('/').pop();
-  });
-
-  it('existing user accepts invite and is added to ensemble', async () => {
-    const res = await request
-      .post(`/auth/accept-invite/${inviteToken}`)
-      .send({ email: 'existingmember@example.com', password: 'password123' });
-    expect(res.status).toBe(200);
-    expect(res.body.ensembleId).toBe(ensembleId);
-
-    const membersRes = await request
-      .get(`/ensembles/${ensembleId}/members`)
-      .set('Authorization', `Bearer ${ownerToken}`);
-    const member = membersRes.body.members.find((m: any) => m.email === 'existingmember@example.com');
-    expect(member?.role).toBe('editor');
+    // Should no longer appear in list
+    const list = await request.get(`/ensembles?workspaceId=${workspaceId}`)
+      .set('Authorization', `Bearer ${token}`);
+    const ids = list.body.ensembles.map((e: any) => e.id);
+    expect(ids).not.toContain(create.body.ensemble.id);
   });
 });

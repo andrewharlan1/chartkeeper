@@ -6,14 +6,16 @@ const request = supertest(app);
 
 beforeAll(async () => {
   await db.query(`DELETE FROM annotations`);
-  await db.query(`DELETE FROM notifications`);
-  await db.query(`DELETE FROM audio_attachments`);
+  await db.query(`DELETE FROM annotation_layers`);
   await db.query(`DELETE FROM version_diffs`);
+  await db.query(`DELETE FROM part_slot_assignments`);
   await db.query(`DELETE FROM parts`);
-  await db.query(`DELETE FROM chart_versions`);
+  await db.query(`DELETE FROM versions`);
   await db.query(`DELETE FROM charts`);
-  await db.query(`DELETE FROM ensemble_members`);
+  await db.query(`DELETE FROM instrument_slots`);
   await db.query(`DELETE FROM ensembles`);
+  await db.query(`DELETE FROM workspace_members`);
+  await db.query(`DELETE FROM workspaces`);
   await db.query(`DELETE FROM users`);
 });
 
