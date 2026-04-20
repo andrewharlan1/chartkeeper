@@ -844,22 +844,40 @@ export function AnnotationLayer({
       const dx = pt.x - dragRef.current.startPt.x;
       const dy = pt.y - dragRef.current.startPt.y;
 
-      // For each handle, compute the free point (the moving edge/corner)
-      let freeX: number, freeY: number;
-      if (handle === 'nw') { freeX = ob.x + dx; freeY = ob.y + dy; }
-      else if (handle === 'ne') { freeX = ob.x + ob.w + dx; freeY = ob.y + dy; }
-      else if (handle === 'se') { freeX = ob.x + ob.w + dx; freeY = ob.y + ob.h + dy; }
-      else if (handle === 'sw') { freeX = ob.x + dx; freeY = ob.y + ob.h + dy; }
-      else if (handle === 'n') { freeX = anchor.x; freeY = ob.y + dy; }
-      else if (handle === 's') { freeX = anchor.x; freeY = ob.y + ob.h + dy; }
-      else if (handle === 'e') { freeX = ob.x + ob.w + dx; freeY = anchor.y; }
-      else /* w */ { freeX = ob.x + dx; freeY = anchor.y; }
-
-      // Derive bounds from anchor + free point
-      let nx = Math.min(anchor.x, freeX);
-      let ny = Math.min(anchor.y, freeY);
-      let nw = Math.abs(freeX - anchor.x);
-      let nh = Math.abs(freeY - anchor.y);
+      // Compute new bounds based on handle type
+      let nx: number, ny: number, nw: number, nh: number;
+      if (handle === 'n' || handle === 's' || handle === 'e' || handle === 'w') {
+        // Edge handles: only one axis changes, the other stays at original bounds
+        nx = ob.x; ny = ob.y; nw = ob.w; nh = ob.h;
+        if (handle === 'n') {
+          const freeY = ob.y + dy;
+          ny = Math.min(anchor.y, freeY);
+          nh = Math.abs(freeY - anchor.y);
+        } else if (handle === 's') {
+          const freeY = ob.y + ob.h + dy;
+          ny = Math.min(anchor.y, freeY);
+          nh = Math.abs(freeY - anchor.y);
+        } else if (handle === 'e') {
+          const freeX = ob.x + ob.w + dx;
+          nx = Math.min(anchor.x, freeX);
+          nw = Math.abs(freeX - anchor.x);
+        } else /* w */ {
+          const freeX = ob.x + dx;
+          nx = Math.min(anchor.x, freeX);
+          nw = Math.abs(freeX - anchor.x);
+        }
+      } else {
+        // Corner handles: both axes move
+        let freeX: number, freeY: number;
+        if (handle === 'nw') { freeX = ob.x + dx; freeY = ob.y + dy; }
+        else if (handle === 'ne') { freeX = ob.x + ob.w + dx; freeY = ob.y + dy; }
+        else if (handle === 'sw') { freeX = ob.x + dx; freeY = ob.y + ob.h + dy; }
+        else /* se */ { freeX = ob.x + ob.w + dx; freeY = ob.y + ob.h + dy; }
+        nx = Math.min(anchor.x, freeX);
+        ny = Math.min(anchor.y, freeY);
+        nw = Math.abs(freeX - anchor.x);
+        nh = Math.abs(freeY - anchor.y);
+      }
 
       // Enforce minimum size
       if (nw < minW) nw = minW;
