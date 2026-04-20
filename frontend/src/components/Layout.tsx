@@ -313,7 +313,7 @@ export function Layout({ children, title, back, actions }: Props) {
                   display: 'flex', alignItems: 'center', gap: 3, textDecoration: 'none',
                   letterSpacing: '0.01em', transition: 'color var(--transition)',
                 }}>
-                  \u2190 {back.label}
+                  ← {back.label}
                 </Link>
               )}
               {title && <h1>{title}</h1>}
