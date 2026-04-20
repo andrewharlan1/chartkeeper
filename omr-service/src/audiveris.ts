@@ -125,7 +125,7 @@ function num(v: unknown, fallback = 0): number {
  *  - Multi-measure rests: <attributes><measure-style><multiple-rest>N</multiple-rest>
  *    collapses N measures into one visual block; we synthesise entries for all N measures
  */
-function parseMusicXml(xml: string, partName: string): OmrResult['omrJson'] {
+export function parseMusicXml(xml: string, partName: string): OmrResult['omrJson'] {
   const parser = new XMLParser({
     ignoreAttributes: false,
     attributeNamePrefix: '@_',
