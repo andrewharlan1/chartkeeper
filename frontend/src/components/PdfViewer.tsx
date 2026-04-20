@@ -356,6 +356,8 @@ function FullscreenViewer({
   const [mode, setMode]                 = useState<'view' | 'edit'>('view');
   const [measureLayout, setMeasureLayout] = useState<MeasureLayoutItem[]>([]);
   const [canvasDims, setCanvasDims] = useState<{ w: number; h: number }>({ w: 0, h: 0 });
+  const [showToolbar, setShowToolbar] = useState(true);
+  const [showAnnotations, setShowAnnotations] = useState(true);
   const measureAnnotationIdsRef = useRef<Map<number, string>>(new Map());
 
   const pageOverlays           = useRef<Map<number, PageOverlay>>(new Map());
@@ -1007,7 +1009,59 @@ function FullscreenViewer({
           Notes
         </button>
 
-        {/* Edit / Done toggle — old buttons removed, annotation toolbar handles mode switching */}
+        {/* Pencil toggle — show/hide annotation toolbar */}
+        {partId && (
+          <button
+            onClick={() => setShowToolbar(v => !v)}
+            title={showToolbar ? 'Hide annotation tools' : 'Show annotation tools'}
+            style={{
+              background: showToolbar ? 'rgba(124,111,247,0.18)' : 'transparent',
+              border: showToolbar ? '1px solid rgba(124,111,247,0.35)' : '1px solid rgba(255,255,255,0.08)',
+              borderRadius: 6, cursor: 'pointer', padding: 4, flexShrink: 0,
+              color: showToolbar ? '#a89af7' : '#666',
+              display: 'flex', alignItems: 'center', justifyContent: 'center',
+              transition: 'all 0.12s',
+            }}
+          >
+            <svg width={20} height={20} viewBox="0 0 28 28" fill="none"
+              stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round">
+              <path d="M17.5 4.5L23 10L10 23H4.5V17.5L17.5 4.5Z" />
+              <path d="M15 7L20.5 12.5" />
+              <path d="M4.5 23L8 19.5" strokeWidth="1.3" />
+            </svg>
+          </button>
+        )}
+
+        {/* Eye toggle — show/hide annotations on score */}
+        {partId && (
+          <button
+            onClick={() => setShowAnnotations(v => !v)}
+            title={showAnnotations ? 'Hide annotations' : 'Show annotations'}
+            style={{
+              background: showAnnotations ? 'rgba(124,111,247,0.18)' : 'transparent',
+              border: showAnnotations ? '1px solid rgba(124,111,247,0.35)' : '1px solid rgba(255,255,255,0.08)',
+              borderRadius: 6, cursor: 'pointer', padding: 4, flexShrink: 0,
+              color: showAnnotations ? '#a89af7' : '#666',
+              display: 'flex', alignItems: 'center', justifyContent: 'center',
+              transition: 'all 0.12s',
+            }}
+          >
+            <svg width={20} height={20} viewBox="0 0 28 28" fill="none"
+              stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round">
+              {showAnnotations ? (
+                <>
+                  <path d="M14 8C8 8 4 14 4 14C4 14 8 20 14 20C20 20 24 14 24 14C24 14 20 8 14 8Z" />
+                  <circle cx="14" cy="14" r="3.5" />
+                </>
+              ) : (
+                <>
+                  <path d="M14 8C8 8 4 14 4 14C4 14 8 20 14 20C20 20 24 14 24 14C24 14 20 8 14 8Z" />
+                  <line x1="6" y1="6" x2="22" y2="22" />
+                </>
+              )}
+            </svg>
+          </button>
+        )}
 
         <button onClick={handleClose} style={{
           background: 'none', border: 'none', color: '#555',
@@ -1027,7 +1081,7 @@ function FullscreenViewer({
           }}
         >
           {/* Annotation toolbar — floating over the score */}
-          {partId && (
+          {partId && showToolbar && (
             <AnnotationToolbar
               mode={annotationMode.mode}
               onModeChange={annotationMode.setMode}
@@ -1067,7 +1121,7 @@ function FullscreenViewer({
                 }}
               />
               {/* Annotation layer — SVG overlay for Part B annotation system */}
-              {partId && (
+              {partId && showAnnotations && (
                 <AnnotationLayer
                   partId={partId}
                   currentPage={currentPage}
