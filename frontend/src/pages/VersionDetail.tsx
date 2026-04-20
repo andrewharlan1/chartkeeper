@@ -4,14 +4,17 @@ import { useAuth } from '../hooks/useAuth';
 import { getVersion } from '../api/versions';
 import { getChart } from '../api/charts';
 import { getEnsemble } from '../api/ensembles';
+import { getInstrumentSlots } from '../api/instrumentSlots';
 import { getParts, deletePart, uploadPart } from '../api/parts';
 import { getAnnotations, createAnnotation, deleteAnnotation } from '../api/annotations';
-import { Version, Part, Annotation, AnnotationKind, ContentJson } from '../types';
+import { Version, Part, Annotation, AnnotationKind, ContentJson, InstrumentSlot, PartKind } from '../types';
 import { Layout } from '../components/Layout';
 import { OmrBadge } from '../components/Badge';
 import { Button } from '../components/Button';
 import { PdfViewer } from '../components/PdfViewer';
 import { InstrumentIcon } from '../components/InstrumentIcon';
+import { FileDropZone } from '../components/FileDropZone';
+import { SlotAssignmentPicker } from '../components/SlotAssignmentPicker';
 import { ApiError } from '../api/client';
 
 // ── Annotation panel ──────────────────────────────────────────────────────────
@@ -170,59 +173,174 @@ function AnnotationPanel({ partId, currentUserId }: { partId: string; currentUse
   );
 }
 
-// ── Add file inline ───────────────────────────────────────────────────────────
+// ── Inline add part ──────────────────────────────────────────────────────────
 
-function AddFileButton({ versionId, onAdded }: {
-  versionId: string; onAdded: (p: Part) => void;
+function humanizeName(filename: string): string {
+  return filename.replace(/\.pdf$/i, '').replace(/[-_]/g, ' ').trim();
+}
+
+function InlineAddPart({ versionId, ensembleId, hasParts, onAdded }: {
+  versionId: string;
+  ensembleId: string;
+  hasParts: boolean;
+  onAdded: (p: Part) => void;
 }) {
   const [open, setOpen] = useState(false);
-  const [name, setName] = useState('');
   const [file, setFile] = useState<File | null>(null);
-  const [saving, setSaving] = useState(false);
+  const [name, setName] = useState('');
+  const [kind, setKind] = useState<PartKind>('part');
+  const [slotIds, setSlotIds] = useState<string[]>([]);
+  const [slots, setSlots] = useState<InstrumentSlot[]>([]);
+  const [uploading, setUploading] = useState(false);
   const [err, setErr] = useState('');
 
-  function reset() { setName(''); setFile(null); setErr(''); setOpen(false); }
+  useEffect(() => {
+    if (!ensembleId) return;
+    getInstrumentSlots(ensembleId).then(r => setSlots(r.instrumentSlots)).catch(() => {});
+  }, [ensembleId]);
 
-  async function handleSave() {
+  function reset() {
+    setFile(null);
+    setName('');
+    setKind('part');
+    setSlotIds([]);
+    setErr('');
+    setOpen(false);
+  }
+
+  function handleFiles(files: File[]) {
+    const f = files[0];
+    if (!f) return;
+    setFile(f);
+    setName(humanizeName(f.name));
+    const guessedKind: PartKind = f.name.toLowerCase().includes('score') ? 'score' : 'part';
+    setKind(guessedKind);
+  }
+
+  async function handleUpload() {
     if (!name.trim()) { setErr('Name is required.'); return; }
     if (!file) { setErr('Select a file.'); return; }
-    setSaving(true); setErr('');
+    setUploading(true);
+    setErr('');
     try {
-      const { part } = await uploadPart({ versionId, name: name.trim(), file });
+      const { part } = await uploadPart({
+        versionId,
+        name: name.trim(),
+        file,
+        kind,
+        slotIds: slotIds.length > 0 ? slotIds : undefined,
+      });
       onAdded(part);
       reset();
-    } catch {
-      setErr('Failed to add file.');
+    } catch (e) {
+      setErr(e instanceof ApiError ? e.message : 'Upload failed.');
     } finally {
-      setSaving(false);
+      setUploading(false);
     }
   }
 
-  if (!open) {
+  // State 1: collapsed button (only when parts exist)
+  const showCollapsed = hasParts && !open && !file;
+  // State 2: drop zone visible (auto-open when no parts, or user clicked +)
+  const showDropZone = !hasParts || open || !!file;
+
+  if (showCollapsed) {
     return (
       <button onClick={() => setOpen(true)} style={{
-        background: 'none', border: '1px solid var(--border)', borderRadius: 6,
-        color: 'var(--text-muted)', cursor: 'pointer', fontSize: 20, lineHeight: 1,
-        width: 32, height: 32, display: 'flex', alignItems: 'center', justifyContent: 'center',
-      }} title="Add file to this version">+</button>
+        background: 'none', border: '1px dashed var(--border)', borderRadius: 'var(--radius)',
+        color: 'var(--text-muted)', cursor: 'pointer', fontSize: 13, fontWeight: 500,
+        padding: '12px 0', width: '100%', display: 'flex', alignItems: 'center',
+        justifyContent: 'center', gap: 6, fontFamily: 'inherit',
+        transition: 'border-color 0.15s, color 0.15s',
+      }}>
+        <span style={{ fontSize: 18, lineHeight: 1 }}>+</span> Add part
+      </button>
     );
   }
 
+  if (!showDropZone) return null;
+
+  // State 3: file selected — show full form
+  if (file) {
+    return (
+      <div style={{
+        background: 'var(--surface)', border: '1px solid var(--accent)',
+        borderRadius: 'var(--radius)', padding: '16px 18px',
+      }}>
+        {/* Drop zone for re-selection */}
+        <FileDropZone
+          onFiles={handleFiles}
+          multiple={false}
+          label={file.name}
+          hint="Drop a different file to replace, or click to browse"
+        />
+
+        {/* Name field */}
+        <div style={{ marginTop: 12 }}>
+          <label style={{ fontSize: 12, fontWeight: 600, color: 'var(--text-muted)', display: 'block', marginBottom: 4 }}>
+            Part name
+          </label>
+          <input
+            value={name}
+            onChange={e => setName(e.target.value)}
+            placeholder="Part name..."
+            style={{
+              width: '100%', background: 'var(--bg)', border: '1px solid var(--border)',
+              borderRadius: 4, padding: '6px 10px', color: 'var(--text)', fontSize: 14,
+              boxSizing: 'border-box',
+            }}
+          />
+        </div>
+
+        {/* Kind selector */}
+        <div style={{ marginTop: 10, display: 'flex', alignItems: 'center', gap: 14 }}>
+          <label style={{ fontSize: 12, fontWeight: 600, color: 'var(--text-muted)' }}>Kind</label>
+          <label style={{ fontSize: 13, display: 'flex', alignItems: 'center', gap: 4, cursor: 'pointer', color: 'var(--text)' }}>
+            <input type="radio" name="inline-kind" value="part" checked={kind === 'part'} onChange={() => setKind('part')} />
+            Part
+          </label>
+          <label style={{ fontSize: 13, display: 'flex', alignItems: 'center', gap: 4, cursor: 'pointer', color: 'var(--text)' }}>
+            <input type="radio" name="inline-kind" value="score" checked={kind === 'score'} onChange={() => setKind('score')} />
+            Score
+          </label>
+        </div>
+
+        {/* Slot assignment */}
+        {slots.length > 0 && (
+          <div style={{ marginTop: 10 }}>
+            <label style={{ fontSize: 12, fontWeight: 600, color: 'var(--text-muted)', display: 'block', marginBottom: 2 }}>
+              Assign to instruments
+            </label>
+            <SlotAssignmentPicker slots={slots} selectedIds={slotIds} onChange={setSlotIds} />
+          </div>
+        )}
+
+        {/* Error */}
+        {err && <p style={{ color: 'var(--danger)', fontSize: 13, marginTop: 8 }}>{err}</p>}
+
+        {/* Actions */}
+        <div style={{ display: 'flex', gap: 8, marginTop: 14 }}>
+          <Button size="sm" loading={uploading} onClick={handleUpload}>Upload</Button>
+          <Button size="sm" variant="ghost" onClick={reset}>Cancel</Button>
+        </div>
+      </div>
+    );
+  }
+
+  // State 2: drop zone visible, no file selected yet
   return (
-    <div style={{ background: 'var(--surface)', border: '1px solid var(--accent)', borderRadius: 'var(--radius)', padding: '14px 16px', width: '100%', marginBottom: 8 }}>
-      <div style={{ display: 'flex', gap: 8, marginBottom: 8 }}>
-        <input value={name} onChange={e => setName(e.target.value)} placeholder="Part name..."
-          style={{ flex: 1, background: 'var(--bg)', border: '1px solid var(--border)', borderRadius: 4, padding: '6px 8px', color: 'var(--text)', fontSize: 14 }} />
-      </div>
-      <div style={{ marginBottom: 8 }}>
-        <input type="file" accept=".pdf,application/pdf"
-          onChange={e => setFile(e.target.files?.[0] ?? null)} style={{ fontSize: 13, color: 'var(--text-muted)' }} />
-      </div>
-      {err && <p style={{ color: 'var(--danger)', fontSize: 13, marginBottom: 8 }}>{err}</p>}
-      <div style={{ display: 'flex', gap: 8 }}>
-        <Button size="sm" loading={saving} onClick={handleSave}>Add</Button>
-        <Button size="sm" variant="ghost" onClick={reset}>Cancel</Button>
-      </div>
+    <div>
+      <FileDropZone
+        onFiles={handleFiles}
+        multiple={false}
+        label="Drop a PDF here or click to browse"
+        hint="Add a part to this version"
+      />
+      {hasParts && (
+        <div style={{ textAlign: 'right', marginTop: 6 }}>
+          <Button size="sm" variant="ghost" onClick={reset}>Cancel</Button>
+        </div>
+      )}
     </div>
   );
 }
@@ -309,17 +427,9 @@ export function VersionDetail() {
       </div>
 
       <section>
-        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 16 }}>
-          <h2>Parts</h2>
-          <AddFileButton versionId={vId!} onAdded={p => setParts(prev => [...prev, p])} />
-        </div>
+        <h2 style={{ marginBottom: 16 }}>Parts</h2>
         {deletePartError && <p className="form-error" style={{ marginBottom: 16 }}>{deletePartError}</p>}
         <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
-          {parts.length === 0 && (
-            <p style={{ color: 'var(--text-muted)', textAlign: 'center', padding: '40px 0' }}>
-              No parts uploaded yet.
-            </p>
-          )}
           {parts.map(p => (
             <div key={p.id} style={{
               background: 'var(--surface)', border: '1px solid var(--border)',
@@ -354,6 +464,14 @@ export function VersionDetail() {
               <AnnotationPanel partId={p.id} currentUserId={user?.id ?? ''} />
             </div>
           ))}
+
+          {/* Inline add part */}
+          <InlineAddPart
+            versionId={vId!}
+            ensembleId={ensembleId}
+            hasParts={parts.length > 0}
+            onAdded={p => setParts(prev => [...prev, p])}
+          />
         </div>
       </section>
     </Layout>
