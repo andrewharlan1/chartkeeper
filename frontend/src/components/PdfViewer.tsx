@@ -5,6 +5,9 @@ import type { PDFDocumentProxy } from 'pdfjs-dist';
 import { getAnnotations, createAnnotation, updateAnnotation, deleteAnnotation } from '../api/annotations';
 import { getMeasureLayout } from '../api/parts';
 import { Annotation, MeasureBounds, MeasureLayoutItem } from '../types';
+import { AnnotationToolbar } from './annotations/AnnotationToolbar';
+import { useAnnotationMode } from '../hooks/useAnnotationMode';
+import { SaveStatus } from './annotations/SaveStatusIndicator';
 
 // @ts-expect-error vite url import
 import workerUrl from 'pdfjs-dist/build/pdf.worker.min.mjs?url';
@@ -318,6 +321,8 @@ function FullscreenViewer({
   onClose: () => void;
 }) {
   const isDark = useIsDark();
+  const annotationMode = useAnnotationMode();
+  const [annSaveStatus] = useState<SaveStatus>('idle');
 
   const pdfDocRef   = useRef<PDFDocumentProxy | null>(null);
   const pdfCanvasRef = useRef<HTMLCanvasElement>(null);
@@ -1112,10 +1117,27 @@ function FullscreenViewer({
           ref={containerRef}
           style={{
             flex: 1, overflow: 'auto',
-            display: 'flex', alignItems: 'flex-start', justifyContent: 'center',
-            padding: '28px 36px',
+            display: 'flex', flexDirection: 'column', alignItems: 'center',
+            padding: '16px 36px 28px',
+            position: 'relative',
           }}
         >
+          {/* Annotation toolbar — floating over the score */}
+          {partId && (
+            <AnnotationToolbar
+              mode={annotationMode.mode}
+              onModeChange={annotationMode.setMode}
+              tool={annotationMode.tool}
+              onToolChange={annotationMode.setTool}
+              inkColor={annotationMode.inkColor}
+              onInkColorChange={annotationMode.setInkColor}
+              textColor={annotationMode.textColor}
+              onTextColorChange={annotationMode.setTextColor}
+              highlightColor={annotationMode.highlightColor}
+              onHighlightColorChange={annotationMode.setHighlightColor}
+              saveStatus={annSaveStatus}
+            />
+          )}
           {loading ? (
             <div style={{ color: '#444', marginTop: '20vh', fontSize: 13 }}>Loading…</div>
           ) : (
