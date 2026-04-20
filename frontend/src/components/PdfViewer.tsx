@@ -324,6 +324,9 @@ function FullscreenViewer({
   const isDark = useIsDark();
   const annotationMode = useAnnotationMode();
   const [annSaveStatus, setAnnSaveStatus] = useState<SaveStatus>('idle');
+  const [canUndo, setCanUndo] = useState(false);
+  const [canRedo, setCanRedo] = useState(false);
+  const annLayerRef = useRef<{ undo: () => void; redo: () => void } | null>(null);
 
   const pdfDocRef   = useRef<PDFDocumentProxy | null>(null);
   const pdfCanvasRef = useRef<HTMLCanvasElement>(null);
@@ -1102,6 +1105,10 @@ function FullscreenViewer({
               fontFamily={annotationMode.fontFamily}
               onFontFamilyChange={annotationMode.setFontFamily}
               saveStatus={annSaveStatus}
+              canUndo={canUndo}
+              canRedo={canRedo}
+              onUndo={() => annLayerRef.current?.undo()}
+              onRedo={() => annLayerRef.current?.redo()}
             />
           )}
           {loading ? (
@@ -1147,6 +1154,11 @@ function FullscreenViewer({
                   selectedAnnotationId={annotationMode.selectedAnnotationId}
                   onSelectionChange={annotationMode.setSelectedAnnotationId}
                   onSaveStatusChange={setAnnSaveStatus}
+                  onHistoryChange={(cu, cr, undo, redo) => {
+                    setCanUndo(cu);
+                    setCanRedo(cr);
+                    annLayerRef.current = { undo, redo };
+                  }}
                 />
               )}
             </div>

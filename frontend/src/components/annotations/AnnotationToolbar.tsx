@@ -39,6 +39,10 @@ interface Props {
   fontFamily: FontFamily;
   onFontFamilyChange: (family: FontFamily) => void;
   saveStatus: SaveStatus;
+  canUndo?: boolean;
+  canRedo?: boolean;
+  onUndo?: () => void;
+  onRedo?: () => void;
 }
 
 const MODES: { value: AnnotationMode; label: string }[] = [
@@ -90,6 +94,7 @@ export function AnnotationToolbar({
   fontSize, onFontSizeChange,
   fontFamily, onFontFamilyChange,
   saveStatus,
+  canUndo, canRedo, onUndo, onRedo,
 }: Props) {
   const showColors = mode === 'ink' || mode === 'text' || mode === 'highlight';
   const activeColors = mode === 'highlight' ? HIGHLIGHT_COLORS : INK_COLORS;
@@ -151,6 +156,44 @@ export function AnnotationToolbar({
             {m.label}
           </button>
         ))}
+        <div style={{ width: 1, height: 20, background: SURFACE_BORDER, margin: '0 4px' }} />
+
+        {/* Undo / Redo */}
+        <button
+          onClick={onUndo}
+          disabled={!canUndo}
+          title="Undo (Cmd+Z)"
+          style={{
+            width: 30, height: 30, padding: 0, borderRadius: 7,
+            border: 'none', cursor: canUndo ? 'pointer' : 'default',
+            background: 'transparent', color: canUndo ? '#999' : '#333',
+            display: 'flex', alignItems: 'center', justifyContent: 'center',
+            transition: 'color 0.12s',
+          }}
+        >
+          <svg width={16} height={16} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round">
+            <polyline points="1 4 1 10 7 10" />
+            <path d="M3.51 15a9 9 0 1 0 2.13-9.36L1 10" />
+          </svg>
+        </button>
+        <button
+          onClick={onRedo}
+          disabled={!canRedo}
+          title="Redo (Cmd+Shift+Z)"
+          style={{
+            width: 30, height: 30, padding: 0, borderRadius: 7,
+            border: 'none', cursor: canRedo ? 'pointer' : 'default',
+            background: 'transparent', color: canRedo ? '#999' : '#333',
+            display: 'flex', alignItems: 'center', justifyContent: 'center',
+            transition: 'color 0.12s',
+          }}
+        >
+          <svg width={16} height={16} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round">
+            <polyline points="23 4 23 10 17 10" />
+            <path d="M20.49 15a9 9 0 1 1-2.13-9.36L23 10" />
+          </svg>
+        </button>
+
         <div style={{ width: 1, height: 20, background: SURFACE_BORDER, margin: '0 4px' }} />
         <SaveStatusIndicator status={saveStatus} />
       </div>

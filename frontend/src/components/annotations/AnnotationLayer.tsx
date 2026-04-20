@@ -7,6 +7,7 @@ import { InkRenderer } from './InkRenderer';
 import { HighlightRenderer } from './HighlightRenderer';
 import { TextRenderer } from './TextRenderer';
 import { SelectionOverlay, getAnnotationBounds } from './SelectionOverlay';
+import { useAnnotationHistory } from '../../hooks/useAnnotationHistory';
 
 interface Props {
   partId: string;
@@ -23,6 +24,7 @@ interface Props {
   selectedAnnotationId: string | null;
   onSelectionChange: (id: string | null) => void;
   onSaveStatusChange: (status: SaveStatus) => void;
+  onHistoryChange?: (canUndo: boolean, canRedo: boolean, undo: () => void, redo: () => void) => void;
 }
 
 const INK_STROKE_WIDTH = 0.002; // normalized to page width
@@ -79,6 +81,7 @@ export function AnnotationLayer({
   selectedAnnotationId,
   onSelectionChange,
   onSaveStatusChange,
+  onHistoryChange,
 }: Props) {
   const [annotations, setAnnotations] = useState<Annotation[]>([]);
   const [livePoints, setLivePoints] = useState<StrokePoint[]>([]);
@@ -95,7 +98,7 @@ export function AnnotationLayer({
   const [fadingIds, setFadingIds] = useState<Set<string>>(new Set());
   const eraseStartRef = useRef<StrokePoint | null>(null);
   const pendingDeletes = useRef<Set<string>>(new Set());
-  const eraseHistory = useRef<Annotation[][]>([]);
+  const history = useAnnotationHistory();
   // Selection drag state
   const dragRef = useRef<{
     type: 'body' | 'handle';
@@ -202,10 +205,14 @@ export function AnnotationLayer({
         newAnnotations.push(annotation);
       }
       setAnnotations(prev => [...prev, ...newAnnotations]);
+      for (const a of newAnnotations) {
+        history.pushOperation({ kind: 'create', annotationId: a.id, snapshot: a });
+      }
       onSaveStatusChange('saved');
     } catch {
       onSaveStatusChange('error');
     }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [partId, findMeasure, onSaveStatusChange]);
 
   // Commit a highlight rectangle
@@ -232,10 +239,12 @@ export function AnnotationLayer({
         contentJson,
       });
       setAnnotations(prev => [...prev, annotation]);
+      history.pushOperation({ kind: 'create', annotationId: annotation.id, snapshot: annotation });
       onSaveStatusChange('saved');
     } catch {
       onSaveStatusChange('error');
     }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [partId, highlightColor, findMeasure, onSaveStatusChange]);
 
   // Commit a text annotation
@@ -272,10 +281,12 @@ export function AnnotationLayer({
         contentJson,
       });
       setAnnotations(prev => [...prev, annotation]);
+      history.pushOperation({ kind: 'create', annotationId: annotation.id, snapshot: annotation });
       onSaveStatusChange('saved');
     } catch {
       onSaveStatusChange('error');
     }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [textColor, fontSize, fontFamily, partId, findMeasure, onSaveStatusChange]);
 
   // Find annotations hit by a point (for eraser)
@@ -292,10 +303,12 @@ export function AnnotationLayer({
   // Commit batched deletes to the server
   const commitErases = useCallback(async (ids: string[]) => {
     if (ids.length === 0) return;
-    // Snapshot the annotations we're about to erase for undo
     const idSet = new Set(ids);
     const erased = annotations.filter(a => idSet.has(a.id));
-    if (erased.length > 0) eraseHistory.current.push(erased);
+    // Push delete entries to undo history
+    for (const a of erased) {
+      history.pushOperation({ kind: 'delete', annotationId: a.id, snapshot: a });
+    }
 
     onSaveStatusChange('saving');
     try {
@@ -310,29 +323,74 @@ export function AnnotationLayer({
       for (const id of ids) next.delete(id);
       return next;
     });
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [annotations, onSaveStatusChange]);
 
-  // Undo last erase — re-create the annotations on the server and restore locally
-  const undoErase = useCallback(async () => {
-    const batch = eraseHistory.current.pop();
-    if (!batch || batch.length === 0) return;
+  // Undo — reverse the last operation
+  const handleUndo = useCallback(async () => {
+    const entry = history.popUndo();
+    if (!entry) return;
     onSaveStatusChange('saving');
     try {
-      const restored: Annotation[] = [];
-      for (const a of batch) {
+      if (entry.kind === 'create') {
+        // Undo create → delete the annotation
+        await deleteAnnotation(entry.annotationId);
+        setAnnotations(prev => prev.filter(a => a.id !== entry.annotationId));
+      } else if (entry.kind === 'delete') {
+        // Undo delete → re-create from snapshot
         const { annotation } = await createAnnotation(partId, {
-          anchorType: a.anchorType,
-          anchorJson: a.anchorJson,
-          kind: a.kind,
-          contentJson: a.contentJson,
+          anchorType: entry.snapshot.anchorType,
+          anchorJson: entry.snapshot.anchorJson,
+          kind: entry.snapshot.kind,
+          contentJson: entry.snapshot.contentJson,
         });
-        restored.push(annotation);
+        // Update the entry's snapshot with the new ID for redo
+        entry.annotationId = annotation.id;
+        entry.snapshot = annotation;
+        setAnnotations(prev => [...prev, annotation]);
+      } else if (entry.kind === 'update') {
+        // Undo update → revert to before state
+        await updateAnnotation(entry.annotationId, { contentJson: entry.before.contentJson });
+        setAnnotations(prev => prev.map(a => a.id === entry.annotationId ? { ...a, contentJson: entry.before.contentJson } : a));
       }
-      setAnnotations(prev => [...prev, ...restored]);
       onSaveStatusChange('saved');
     } catch {
       onSaveStatusChange('error');
     }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [partId, onSaveStatusChange]);
+
+  // Redo — re-apply the last undone operation
+  const handleRedo = useCallback(async () => {
+    const entry = history.popRedo();
+    if (!entry) return;
+    onSaveStatusChange('saving');
+    try {
+      if (entry.kind === 'create') {
+        // Redo create → re-create annotation
+        const { annotation } = await createAnnotation(partId, {
+          anchorType: entry.snapshot.anchorType,
+          anchorJson: entry.snapshot.anchorJson,
+          kind: entry.snapshot.kind,
+          contentJson: entry.snapshot.contentJson,
+        });
+        entry.annotationId = annotation.id;
+        entry.snapshot = annotation;
+        setAnnotations(prev => [...prev, annotation]);
+      } else if (entry.kind === 'delete') {
+        // Redo delete → delete the annotation again
+        await deleteAnnotation(entry.annotationId);
+        setAnnotations(prev => prev.filter(a => a.id !== entry.annotationId));
+      } else if (entry.kind === 'update') {
+        // Redo update → apply the after state
+        await updateAnnotation(entry.annotationId, { contentJson: entry.after.contentJson });
+        setAnnotations(prev => prev.map(a => a.id === entry.annotationId ? { ...a, contentJson: entry.after.contentJson } : a));
+      }
+      onSaveStatusChange('saved');
+    } catch {
+      onSaveStatusChange('error');
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [partId, onSaveStatusChange]);
 
   // Delete the currently selected annotation (fade + API delete)
@@ -397,8 +455,11 @@ export function AnnotationLayer({
       return;
     }
 
+    const updatedAnn = { ...ann, contentJson: updatedContent! };
+    history.pushOperation({ kind: 'update', annotationId, before: ann, after: updatedAnn });
+
     // Optimistic local update
-    setAnnotations(prev => prev.map(a => a.id === annotationId ? { ...a, contentJson: updatedContent! } : a));
+    setAnnotations(prev => prev.map(a => a.id === annotationId ? updatedAnn : a));
     onSaveStatusChange('saving');
     try {
       await updateAnnotation(annotationId, { contentJson: updatedContent });
@@ -408,6 +469,7 @@ export function AnnotationLayer({
       setAnnotations(prev => prev.map(a => a.id === annotationId ? ann : a));
       onSaveStatusChange('error');
     }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [annotations, onSaveStatusChange]);
 
   // Start a body drag from SelectionOverlay
@@ -467,7 +529,10 @@ export function AnnotationLayer({
       return;
     }
 
-    setAnnotations(prev => prev.map(a => a.id === annotationId ? { ...a, contentJson: updatedContent! } : a));
+    const updatedAnn = { ...ann, contentJson: updatedContent! };
+    history.pushOperation({ kind: 'update', annotationId, before: ann, after: updatedAnn });
+
+    setAnnotations(prev => prev.map(a => a.id === annotationId ? updatedAnn : a));
     onSaveStatusChange('saving');
     try {
       await updateAnnotation(annotationId, { contentJson: updatedContent });
@@ -476,6 +541,7 @@ export function AnnotationLayer({
       setAnnotations(prev => prev.map(a => a.id === annotationId ? ann : a));
       onSaveStatusChange('error');
     }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [annotations, onSaveStatusChange]);
 
   // Start a handle drag from SelectionOverlay
@@ -500,20 +566,39 @@ export function AnnotationLayer({
     (svgRef.current as Element).setPointerCapture(e.pointerId);
   }, [selectedAnnotationId, annotations]);
 
+  // Notify parent of history state changes
+  useEffect(() => {
+    onHistoryChange?.(history.canUndo, history.canRedo, handleUndo, handleRedo);
+  }, [history.canUndo, history.canRedo, onHistoryChange, handleUndo, handleRedo]);
+
+  // Clear stacks on part change
+  useEffect(() => {
+    history.clearStacks();
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [partId]);
+
   // Keyboard shortcuts
   useEffect(() => {
     function handleKeyDown(e: KeyboardEvent) {
-      // Cmd+Z undo erase
+      if (activeText) return; // don't capture when editing text
+      // Cmd+Z undo
       if ((e.metaKey || e.ctrlKey) && e.key === 'z' && !e.shiftKey) {
-        if (eraseHistory.current.length > 0) {
+        if (history.canUndo) {
           e.preventDefault();
-          undoErase();
+          handleUndo();
+        }
+        return;
+      }
+      // Cmd+Shift+Z or Cmd+Y redo
+      if ((e.metaKey || e.ctrlKey) && (e.key === 'Z' || e.key === 'y') && (e.key === 'y' || e.shiftKey)) {
+        if (history.canRedo) {
+          e.preventDefault();
+          handleRedo();
         }
         return;
       }
       // Delete/Backspace — delete selected annotation
       if ((e.key === 'Delete' || e.key === 'Backspace') && selectedAnnotationId) {
-        if (activeText) return; // don't capture when editing text
         e.preventDefault();
         deleteSelectedAnnotation();
         return;
@@ -521,7 +606,7 @@ export function AnnotationLayer({
     }
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [undoErase, selectedAnnotationId, activeText, deleteSelectedAnnotation]);
+  }, [history.canUndo, history.canRedo, handleUndo, handleRedo, selectedAnnotationId, activeText, deleteSelectedAnnotation]);
 
   // Pointer handlers
   function handlePointerDown(e: ReactPointerEvent<SVGSVGElement>) {
