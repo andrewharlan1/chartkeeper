@@ -3,7 +3,7 @@ import './PdfViewer.css';
 import * as pdfjsLib from 'pdfjs-dist';
 import type { PDFDocumentProxy } from 'pdfjs-dist';
 import { getAnnotations, createAnnotation, updateAnnotation, deleteAnnotation } from '../api/annotations';
-import { detectMeasureNumber, getMeasureLayout } from '../api/parts';
+import { getMeasureLayout } from '../api/parts';
 import { Annotation, MeasureBounds, MeasureLayoutItem } from '../types';
 
 // @ts-expect-error vite url import
@@ -147,7 +147,7 @@ function NotePanel({
 
   useEffect(() => {
     getAnnotations(partId)
-      .then(r => setAnnotations(r.annotations.filter(a => a.content_type === 'text')))
+      .then(r => setAnnotations(r.annotations.filter(a => a.kind === 'text')))
       .catch(() => {});
   }, [partId]);
 
@@ -159,7 +159,7 @@ function NotePanel({
       const { annotation } = await createAnnotation(partId, {
         anchorType: m > 0 ? 'measure' : 'page',
         anchorJson: m > 0 ? { measureNumber: m } : { page: currentPage },
-        contentType: 'text',
+        kind: 'text',
         contentJson: { text: text.trim() },
       });
       setAnnotations(prev => [...prev, annotation]);
@@ -198,13 +198,13 @@ function NotePanel({
           <p style={{ fontSize: 12, color: '#444', padding: '4px 2px' }}>No notes yet.</p>
         ) : (
           annotations.map(a => {
-            const measureNum = (a.anchor_json as { measureNumber?: number }).measureNumber;
-            const pageNum = (a.anchor_json as { page?: number }).page;
+            const measureNum = (a.anchorJson as { measureNumber?: number }).measureNumber;
+            const pageNum = (a.anchorJson as { page?: number }).page;
             return (
               <div key={a.id} style={{
                 padding: '7px 9px', marginBottom: 5,
                 background: 'rgba(255,255,255,0.03)',
-                border: `1px solid ${a.is_unresolved ? 'rgba(245,166,35,0.2)' : 'rgba(255,255,255,0.06)'}`,
+                border: `1px solid ${(a.contentJson as Record<string, unknown>)._needsReview ? 'rgba(245,166,35,0.2)' : 'rgba(255,255,255,0.06)'}`,
                 borderRadius: 6,
               }}>
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 6 }}>
@@ -218,15 +218,15 @@ function NotePanel({
                         {measureNum ? `m.${measureNum}` : `p.${pageNum}`}
                       </span>
                     )}
-                    {a.is_unresolved && (
+                    {(a.contentJson as Record<string, unknown>)._needsReview === true && (
                       <p style={{ fontSize: 10, color: '#f5a623', marginBottom: 3 }}>⚠ Measure removed</p>
                     )}
                     <p style={{ fontSize: 12, color: '#ddd', lineHeight: 1.4, wordBreak: 'break-word' }}>
-                      {(a.content_json as { text?: string }).text}
+                      {(a.contentJson as { text?: string }).text}
                     </p>
-                    <p style={{ fontSize: 10, color: '#555', marginTop: 3 }}>{a.user_name}</p>
+                    <p style={{ fontSize: 10, color: '#555', marginTop: 3 }}>{a.ownerName}</p>
                   </div>
-                  {a.user_id === currentUserId && (
+                  {a.ownerUserId === currentUserId && (
                     <button
                       onClick={() => handleDelete(a.id)}
                       disabled={deleting === a.id}
@@ -345,7 +345,6 @@ function FullscreenViewer({
   const [anchorDialog, setAnchorDialog] = useState<{ pages: number[] } | null>(null);
   const [anchorChoice, setAnchorChoice] = useState<'page' | 'measure'>('measure');
   const [measureHint, setMeasureHint]   = useState('');
-  const [detecting, setDetecting]       = useState(false);
   const hasChanges = changedMeasureBounds && Object.keys(changedMeasureBounds).length > 0;
   const [showChanges, setShowChanges]   = useState(true);
   const [mode, setMode]                 = useState<'view' | 'edit'>('view');
@@ -354,7 +353,7 @@ function FullscreenViewer({
 
   const pageOverlays           = useRef<Map<number, PageOverlay>>(new Map());
   const pageAnnotationIds      = useRef<Map<number, string>>(new Map());
-  const pageAnnotationAnchors  = useRef<Map<number, string>>(new Map()); // pg → anchor_type
+  const pageAnnotationAnchors  = useRef<Map<number, string>>(new Map()); // pg → anchorType
   const currentPageRef         = useRef(1);
   const isDrawing         = useRef(false);
   const liveStroke        = useRef<Point[]>([]);
@@ -397,31 +396,31 @@ function FullscreenViewer({
       }
 
       for (const ann of r.annotations) {
-        if (ann.content_type !== 'ink' && ann.content_type !== 'highlight') continue;
+        if (ann.kind !== 'ink' && ann.kind !== 'highlight') continue;
 
         // Resolve the page: for measure anchors, use the live measure layout
         // (correct for current version) instead of stale pageHint
         let pg: number | undefined;
-        if (ann.anchor_type === 'measure') {
-          const anchor = ann.anchor_json as unknown as { measureNumber: number; pageHint?: number };
+        if (ann.anchorType === 'measure') {
+          const anchor = ann.anchorJson as unknown as { measureNumber: number; pageHint?: number };
           pg = measureToPage.get(anchor.measureNumber) ?? anchor.pageHint;
           // Track measure → annotation ID for edit mode saves
           measureAnnotationIdsRef.current.set(anchor.measureNumber, ann.id);
         } else {
-          const anchor = ann.anchor_json as unknown as { page?: number; pageHint?: number };
+          const anchor = ann.anchorJson as unknown as { page?: number; pageHint?: number };
           pg = anchor.page ?? anchor.pageHint;
         }
         if (pg == null) continue;
 
         const existing = pageOverlays.current.get(pg) ?? { strokes: [], highlights: [] };
 
-        if (ann.content_type === 'ink') {
-          const loadedStrokes = (ann.content_json as { strokes?: Stroke[] }).strokes ?? [];
-          const loadedHighlights = (ann.content_json as { highlights?: HighlightRect[] }).highlights ?? [];
+        if (ann.kind === 'ink') {
+          const loadedStrokes = (ann.contentJson as { strokes?: Stroke[] }).strokes ?? [];
+          const loadedHighlights = (ann.contentJson as { highlights?: HighlightRect[] }).highlights ?? [];
 
           // Tag loaded strokes with their measure number if from a measure annotation
-          if (ann.anchor_type === 'measure') {
-            const anchor = ann.anchor_json as unknown as {
+          if (ann.anchorType === 'measure') {
+            const anchor = ann.anchorJson as unknown as {
               measureNumber: number;
               measureBounds?: { x: number; y: number; w: number; h: number };
             };
@@ -483,9 +482,9 @@ function FullscreenViewer({
           existing.strokes.push(...loadedStrokes);
           existing.highlights.push(...loadedHighlights);
           pageAnnotationIds.current.set(pg, ann.id);
-          pageAnnotationAnchors.current.set(pg, ann.anchor_type);
-        } else if (ann.content_type === 'highlight') {
-          existing.highlights = (ann.content_json as { highlights?: HighlightRect[] }).highlights ?? [];
+          pageAnnotationAnchors.current.set(pg, ann.anchorType);
+        } else if (ann.kind === 'highlight') {
+          existing.highlights = (ann.contentJson as { highlights?: HighlightRect[] }).highlights ?? [];
         }
         pageOverlays.current.set(pg, existing);
       }
@@ -665,7 +664,7 @@ function FullscreenViewer({
           pageAnnotationAnchors.current.get(pg) !== 'measure';
 
         if (existingId && !shouldUpgrade) {
-          await updateAnnotation(existingId, contentJson);
+          await updateAnnotation(existingId, { contentJson });
         } else {
           // Create new annotation (either fresh, or upgrading page anchor → measure anchor)
           if (existingId) await deleteAnnotation(existingId);
@@ -676,7 +675,7 @@ function FullscreenViewer({
           const { annotation } = await createAnnotation(partId, {
             anchorType: isMeasure ? 'measure' : 'page',
             anchorJson,
-            contentType: 'ink',
+            kind: 'ink',
             contentJson,
           });
           pageAnnotationIds.current.set(pg, annotation.id);
@@ -718,7 +717,7 @@ function FullscreenViewer({
           const contentJson = { strokes: data.strokes, highlights: data.highlights };
 
           if (existingId) {
-            await updateAnnotation(existingId, contentJson);
+            await updateAnnotation(existingId, { contentJson });
           } else {
             // Store measure bounds at save time for deterministic relocation on load
             const mItem = measureLayout.find(m => m.measureNumber === measureNum && m.page === pg);
@@ -730,7 +729,7 @@ function FullscreenViewer({
             const { annotation } = await createAnnotation(partId, {
               anchorType: 'measure',
               anchorJson,
-              contentType: 'ink',
+              kind: 'ink',
               contentJson,
             });
             measureAnnotationIdsRef.current.set(measureNum, annotation.id);
@@ -744,12 +743,12 @@ function FullscreenViewer({
           const existingId = pageAnnotationIds.current.get(pg);
           const contentJson = { strokes: untaggedStrokes, highlights: untaggedHighlights };
           if (existingId && pageAnnotationAnchors.current.get(pg) === 'page') {
-            await updateAnnotation(existingId, contentJson);
+            await updateAnnotation(existingId, { contentJson });
           } else {
             const { annotation } = await createAnnotation(partId, {
               anchorType: 'page',
               anchorJson: { page: pg },
-              contentType: 'ink',
+              kind: 'ink',
               contentJson,
             });
             pageAnnotationIds.current.set(pg, annotation.id);
@@ -763,49 +762,6 @@ function FullscreenViewer({
     }
   }, [partId]);
 
-  // Build an annotated image + annotation coordinates for measure detection.
-  // Returns { imageBase64, cx, cy } where cx/cy are 0-1 fractions of the page.
-  async function buildDetectionImage(): Promise<{ imageBase64: string; cx: number; cy: number } | null> {
-    const pdfC = pdfCanvasRef.current;
-    if (!pdfC) return null;
-    const overlay = pageOverlays.current.get(currentPage);
-    let cx = 0.5, cy = 0.5;
-    if (overlay) {
-      const pts: Point[] = [];
-      for (const s of overlay.strokes) pts.push(...s.points);
-      for (const h of overlay.highlights) pts.push({ x: h.x + h.w / 2, y: h.y + h.h / 2 });
-      if (pts.length) {
-        cx = pts.reduce((a, p) => a + p.x, 0) / pts.length;
-        cy = pts.reduce((a, p) => a + p.y, 0) / pts.length;
-      }
-    }
-
-    // Full page, scaled to max 1200px wide for better legibility
-    const targetW = Math.min(1200, pdfC.width);
-    const scale = targetW / pdfC.width;
-    const targetH = Math.round(pdfC.height * scale);
-
-    const tmp = document.createElement('canvas');
-    tmp.width  = targetW;
-    tmp.height = targetH;
-    const ctx = tmp.getContext('2d')!;
-    ctx.drawImage(pdfC, 0, 0, targetW, targetH);
-
-    // Red dot at the annotation centre
-    const dotX = cx * targetW;
-    const dotY = cy * targetH;
-    const r = Math.max(10, targetW * 0.015);
-    ctx.beginPath();
-    ctx.arc(dotX, dotY, r, 0, Math.PI * 2);
-    ctx.fillStyle = 'rgba(220,30,30,0.9)';
-    ctx.fill();
-    ctx.strokeStyle = '#fff';
-    ctx.lineWidth = 2;
-    ctx.stroke();
-
-    return { imageBase64: tmp.toDataURL('image/jpeg', 0.75), cx, cy };
-  }
-
   // Save click: in edit mode with measure boxes, save directly. Otherwise use anchor dialog.
   async function handleSaveClick() {
     if (!hasUnsaved || !partId) return;
@@ -816,27 +772,12 @@ function FullscreenViewer({
       return;
     }
 
-    // Legacy flow: detect measure → pre-fill dialog for user confirmation
-    setDetecting(true);
-    let detectedMeasure = 0;
-    try {
-      const detection = await buildDetectionImage();
-      if (detection) {
-        const { imageBase64, cx, cy } = detection;
-        const { measureNumber } = await detectMeasureNumber(partId, imageBase64, cx, cy);
-        detectedMeasure = measureNumber;
-      }
-    } catch {
-      // Detection failed — dialog opens with empty measure field
-    } finally {
-      setDetecting(false);
-    }
-
+    // Open dialog for user to select anchor type
     const newPages = [...pageOverlays.current.entries()]
       .filter(([pg, ov]) => (ov.strokes.length > 0 || ov.highlights.length > 0) && !pageAnnotationIds.current.has(pg))
       .map(([pg]) => pg);
     setAnchorChoice('measure');
-    setMeasureHint(detectedMeasure > 0 ? String(detectedMeasure) : '');
+    setMeasureHint('');
     setAnchorDialog({ pages: newPages });
   }
 
@@ -1134,14 +1075,14 @@ function FullscreenViewer({
         {mode === 'edit' && (
           <>
             {partId && (
-              <button onClick={handleSaveClick} disabled={saving || detecting || !hasUnsaved} style={{
+              <button onClick={handleSaveClick} disabled={saving || !hasUnsaved} style={{
                 background: hasUnsaved ? '#5b4cf5' : 'rgba(255,255,255,0.04)',
                 border: `1px solid ${hasUnsaved ? 'rgba(124,111,247,0.4)' : 'rgba(255,255,255,0.07)'}`,
                 borderRadius: 6, color: hasUnsaved ? '#fff' : '#444',
                 cursor: hasUnsaved ? 'pointer' : 'default',
                 fontSize: 11, fontWeight: 600, padding: '4px 12px', flexShrink: 0,
               }}>
-                {detecting ? '⟳ Detecting…' : saving ? '…' : hasUnsaved ? 'Save' : '✓ Saved'}
+                {saving ? '…' : hasUnsaved ? 'Save' : '✓ Saved'}
               </button>
             )}
             <button
@@ -1233,17 +1174,7 @@ function FullscreenViewer({
                 <><br/><span style={{ color: '#555', fontSize: 11 }}>New annotation{anchorDialog.pages.length !== 1 ? 's' : ''} on page{anchorDialog.pages.length !== 1 ? 's' : ''} {anchorDialog.pages.map(p => `${p}`).join(', ')}</span></>
               )}
             </p>
-            {detecting && (
-              <p style={{ color: '#666', fontSize: 11, marginBottom: 14, display: 'flex', alignItems: 'center', gap: 6 }}>
-                <span style={{
-                  display: 'inline-block', width: 12, height: 12, borderRadius: '50%',
-                  border: '2px solid rgba(124,111,247,0.3)', borderTopColor: '#9184f9',
-                  animation: 'spin 0.7s linear infinite',
-                }} />
-                Detecting measure number…
-              </p>
-            )}
-            {!detecting && anchorChoice === 'measure' && measureHint && (
+            {anchorChoice === 'measure' && measureHint && (
               <p style={{ color: '#9184f9', fontSize: 11, marginBottom: 14, display: 'flex', alignItems: 'center', gap: 5 }}>
                 <span style={{ background: 'rgba(124,111,247,0.12)', border: '1px solid rgba(124,111,247,0.25)', borderRadius: 4, padding: '2px 7px', fontWeight: 700 }}>
                   m.{measureHint}
