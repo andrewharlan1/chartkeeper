@@ -136,8 +136,28 @@ export function Layout({ children, title, back, actions }: Props) {
             gap: 2,
           }}>
             {[
-              { to: '/', label: 'Band', active: !isPlayerView },
-              { to: '/my-parts', label: 'My parts', active: isPlayerView },
+              {
+                to: '/', active: !isPlayerView, label: 'Band',
+                icon: (
+                  <svg width="13" height="11" viewBox="0 0 13 11" fill="none" style={{ flexShrink: 0 }}>
+                    {/* Two overlapping people silhouettes */}
+                    <circle cx="4.5" cy="2.5" r="2" fill="currentColor" opacity="0.9"/>
+                    <path d="M0.5 10c0-2.2 1.8-4 4-4s4 1.8 4 4" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" fill="none" opacity="0.9"/>
+                    <circle cx="9.5" cy="2.5" r="1.6" fill="currentColor" opacity="0.6"/>
+                    <path d="M6.5 10c0-1.7 1.3-3 3-3s3 1.3 3 3" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" fill="none" opacity="0.6"/>
+                  </svg>
+                ),
+              },
+              {
+                to: '/my-parts', active: isPlayerView, label: 'My parts',
+                icon: (
+                  <svg width="11" height="13" viewBox="0 0 11 13" fill="none" style={{ flexShrink: 0 }}>
+                    {/* Single person + document */}
+                    <circle cx="5.5" cy="2.8" r="2.2" fill="currentColor"/>
+                    <path d="M1 12c0-2.5 2-4.5 4.5-4.5S10 9.5 10 12" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" fill="none"/>
+                  </svg>
+                ),
+              },
             ].map(item => (
               <Link key={item.to} to={item.to} style={{
                 flex: 1, padding: '5px 0', textAlign: 'center',
@@ -146,7 +166,11 @@ export function Layout({ children, title, back, actions }: Props) {
                 color: item.active ? '#fff' : 'var(--text-muted)',
                 boxShadow: item.active ? '0 2px 8px rgba(91,76,245,0.3)' : 'none',
                 transition: 'all 0.15s',
-              }}>{item.label}</Link>
+                display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 5,
+              }}>
+                {item.icon}
+                {item.label}
+              </Link>
             ))}
           </div>
         </div>

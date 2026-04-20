@@ -39,11 +39,11 @@ export interface EnsembleInstrumentAssignment {
 export type AnchorType = 'measure' | 'beat' | 'note' | 'section' | 'page';
 export type ContentType = 'text' | 'ink' | 'highlight';
 
-export interface MeasureAnchor { measureNumber: number; }
-export interface BeatAnchor { measureNumber: number; beat: number; }
+export interface MeasureAnchor { measureNumber: number; pageHint?: number; measureBounds?: { x: number; y: number; w: number; h: number }; }
+export interface BeatAnchor { measureNumber: number; beat: number; pageHint?: number; }
 export interface NoteAnchor { measureNumber: number; beat: number; pitch: string; duration: string; }
 export interface SectionAnchor { sectionLabel: string; measureOffset?: number; }
-export interface PageAnchor { page: number; }
+export interface PageAnchor { page: number; measureHint?: number; }
 export type AnchorJson = MeasureAnchor | BeatAnchor | NoteAnchor | SectionAnchor | PageAnchor;
 
 export interface Annotation {
@@ -149,6 +149,11 @@ export interface MeasureBounds {
   w: number;
   h: number;
   page: number;
+}
+
+export interface MeasureLayoutItem extends MeasureBounds {
+  measureNumber: number;
+  multiRestCount?: number; // present on first measure of a multi-measure rest span
 }
 
 export interface PartDiff {

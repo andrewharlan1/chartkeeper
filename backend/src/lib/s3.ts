@@ -1,6 +1,7 @@
 import { S3Client, GetObjectCommand } from '@aws-sdk/client-s3';
 import { Upload } from '@aws-sdk/lib-storage';
 import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
+import { Readable } from 'stream';
 
 const clientConfig: ConstructorParameters<typeof S3Client>[0] = {
   region: process.env.S3_REGION ?? 'us-east-1',
@@ -40,4 +41,14 @@ export async function uploadFile(
 export async function getSignedDownloadUrl(key: string, expiresInSeconds = 3600): Promise<string> {
   const command = new GetObjectCommand({ Bucket: BUCKET, Key: key });
   return getSignedUrl(s3, command, { expiresIn: expiresInSeconds });
+}
+
+export async function downloadFile(key: string): Promise<Buffer> {
+  const command = new GetObjectCommand({ Bucket: BUCKET, Key: key });
+  const response = await s3.send(command);
+  const chunks: Buffer[] = [];
+  for await (const chunk of response.Body as Readable) {
+    chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk));
+  }
+  return Buffer.concat(chunks);
 }

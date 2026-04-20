@@ -9,7 +9,7 @@ import { Button } from '../components/Button';
 import { Modal } from '../components/Modal';
 import { ApiError } from '../api/client';
 import { addEnsembleId } from './Dashboard';
-import { InstrumentIcon, INSTRUMENT_LIST } from '../components/InstrumentIcon';
+import { InstrumentIcon } from '../components/InstrumentIcon';
 
 // Store chart IDs per ensemble in localStorage
 function getChartIds(ensembleId: string): string[] {
@@ -19,6 +19,10 @@ function getChartIds(ensembleId: string): string[] {
 function addChartId(ensembleId: string, chartId: string) {
   const ids = getChartIds(ensembleId);
   if (!ids.includes(chartId)) localStorage.setItem(`charts:${ensembleId}`, JSON.stringify([...ids, chartId]));
+}
+function removeChartId(ensembleId: string, chartId: string) {
+  const ids = getChartIds(ensembleId);
+  localStorage.setItem(`charts:${ensembleId}`, JSON.stringify(ids.filter(i => i !== chartId)));
 }
 
 export function EnsemblePage() {
@@ -86,7 +90,10 @@ export function EnsemblePage() {
         setInstrAssignments(map);
       });
       const chartIds = getChartIds(id);
-      return Promise.all(chartIds.map(cid => getChart(cid).then(r => r.chart).catch(() => null)));
+      return Promise.all(chartIds.map(cid => getChart(cid).then(r => r.chart).catch(() => {
+        removeChartId(id, cid);
+        return null;
+      })));
     }).then(chartResults => {
       setCharts(chartResults.filter(Boolean) as Chart[]);
     }).catch(() => navigate('/'))
@@ -114,6 +121,7 @@ export function EnsemblePage() {
     setDeletingChart(chartId);
     try {
       await deleteChart(chartId);
+      if (id) removeChartId(id, chartId);
       setCharts(prev => prev.filter(c => c.id !== chartId));
     } catch {
       alert('Failed to delete chart');

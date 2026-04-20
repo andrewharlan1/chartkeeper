@@ -556,7 +556,7 @@ chartsRouter.delete('/:id', async (req: Request, res: Response): Promise<void> =
   res.json({ deleted: true });
 });
 
-// DELETE /charts/:id/versions/:vId  (owner only, soft delete, can't delete active)
+// DELETE /charts/:id/versions/:vId  (owner only, soft delete; if active, promotes previous)
 chartsRouter.delete('/:id/versions/:vId', async (req: Request, res: Response): Promise<void> => {
   const chart = await db.query(
     `SELECT id, ensemble_id FROM charts WHERE id = $1 AND deleted_at IS NULL`,
@@ -585,15 +585,27 @@ chartsRouter.delete('/:id/versions/:vId', async (req: Request, res: Response): P
     res.status(404).json({ error: 'Version not found' });
     return;
   }
-  if (version.rows[0].is_active) {
-    res.status(400).json({ error: 'Cannot delete the active version. Restore another version first.' });
-    return;
-  }
-
   await db.query(
-    `UPDATE chart_versions SET deleted_at = NOW() WHERE id = $1`,
+    `UPDATE chart_versions SET deleted_at = NOW(), is_active = false WHERE id = $1`,
     [req.params.vId]
   );
+
+  // If we just deleted the active version, promote the most recent remaining version
+  if (version.rows[0].is_active) {
+    const fallback = await db.query(
+      `SELECT id FROM chart_versions
+       WHERE chart_id = $1 AND deleted_at IS NULL
+       ORDER BY version_number DESC LIMIT 1`,
+      [req.params.id]
+    );
+    if (fallback.rows[0]) {
+      await db.query(
+        `UPDATE chart_versions SET is_active = true WHERE id = $1`,
+        [fallback.rows[0].id]
+      );
+    }
+  }
+
   res.json({ deleted: true });
 });
 

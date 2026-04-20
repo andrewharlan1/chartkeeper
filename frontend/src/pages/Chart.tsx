@@ -191,7 +191,8 @@ export function ChartPage() {
 
   const loadVersions = useCallback(async () => {
     if (!id) return;
-    const res = await getVersions(id);
+    const res = await getVersions(id).catch(() => null);
+    if (!res) return;
     setVersions(res.versions);
     return res.versions;
   }, [id]);
@@ -316,27 +317,25 @@ export function ChartPage() {
                     {v.created_by_name && ` · ${v.created_by_name}`}
                   </span>
                   {!v.is_active && (
-                    <>
-                      <Button
-                        variant="ghost"
-                        size="sm"
-                        loading={restoring === v.id}
-                        onClick={() => handleRestore(v.id)}
-                      >
-                        Restore
-                      </Button>
-                      {myRole === 'owner' && (
-                        <Button
-                          variant="ghost"
-                          size="sm"
-                          loading={deletingVersion === v.id}
-                          onClick={() => handleDeleteVersion(v.id, v.version_name)}
-                          style={{ color: 'var(--danger)' }}
-                        >
-                          Delete
-                        </Button>
-                      )}
-                    </>
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      loading={restoring === v.id}
+                      onClick={() => handleRestore(v.id)}
+                    >
+                      Restore
+                    </Button>
+                  )}
+                  {myRole === 'owner' && (
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      loading={deletingVersion === v.id}
+                      onClick={() => handleDeleteVersion(v.id, v.version_name)}
+                      style={{ color: 'var(--danger)' }}
+                    >
+                      Delete
+                    </Button>
                   )}
                 </div>
               </div>

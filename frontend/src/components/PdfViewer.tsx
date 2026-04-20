@@ -1,8 +1,10 @@
 import { useEffect, useRef, useState, useCallback } from 'react';
+import './PdfViewer.css';
 import * as pdfjsLib from 'pdfjs-dist';
 import type { PDFDocumentProxy } from 'pdfjs-dist';
 import { getAnnotations, createAnnotation, updateAnnotation, deleteAnnotation } from '../api/annotations';
-import { Annotation } from '../types';
+import { detectMeasureNumber, getMeasureLayout } from '../api/parts';
+import { Annotation, MeasureBounds, MeasureLayoutItem } from '../types';
 
 // @ts-expect-error vite url import
 import workerUrl from 'pdfjs-dist/build/pdf.worker.min.mjs?url';
@@ -11,8 +13,8 @@ pdfjsLib.GlobalWorkerOptions.workerSrc = workerUrl;
 // ── Types ─────────────────────────────────────────────────────────────────────
 
 interface Point { x: number; y: number }
-interface Stroke { points: Point[]; color: string; width: number }
-interface HighlightRect { x: number; y: number; w: number; h: number; color: string }
+interface Stroke { points: Point[]; color: string; width: number; measure?: number }
+interface HighlightRect { x: number; y: number; w: number; h: number; color: string; measure?: number }
 interface PageOverlay { strokes: Stroke[]; highlights: HighlightRect[] }
 type Tool = 'pointer' | 'pen' | 'highlight';
 
@@ -20,7 +22,7 @@ interface ViewerProps {
   url: string;
   partId?: string;
   title?: string;
-  changedMeasureBounds?: Record<number, unknown>;
+  changedMeasureBounds?: Record<number, MeasureBounds>;
   changeDescriptions?: Record<number, string>;
 }
 
@@ -309,9 +311,11 @@ function navBtn(disabled: boolean): React.CSSProperties {
 }
 
 function FullscreenViewer({
-  url, partId, title, currentUserId, onClose,
+  url, partId, title, currentUserId, changedMeasureBounds, onClose,
 }: {
-  url: string; partId?: string; title?: string; currentUserId?: string; onClose: () => void;
+  url: string; partId?: string; title?: string; currentUserId?: string;
+  changedMeasureBounds?: Record<number, MeasureBounds>;
+  onClose: () => void;
 }) {
   const isDark = useIsDark();
 
@@ -339,11 +343,19 @@ function FullscreenViewer({
   const [notesOpen, setNotesOpen]     = useState(false);
   const [scoreInverted, setScoreInverted] = useState(isDark);
   const [anchorDialog, setAnchorDialog] = useState<{ pages: number[] } | null>(null);
-  const [anchorChoice, setAnchorChoice] = useState<'page' | 'measure'>('page');
+  const [anchorChoice, setAnchorChoice] = useState<'page' | 'measure'>('measure');
   const [measureHint, setMeasureHint]   = useState('');
+  const [detecting, setDetecting]       = useState(false);
+  const hasChanges = changedMeasureBounds && Object.keys(changedMeasureBounds).length > 0;
+  const [showChanges, setShowChanges]   = useState(true);
+  const [mode, setMode]                 = useState<'view' | 'edit'>('view');
+  const [measureLayout, setMeasureLayout] = useState<MeasureLayoutItem[]>([]);
+  const measureAnnotationIdsRef = useRef<Map<number, string>>(new Map());
 
-  const pageOverlays      = useRef<Map<number, PageOverlay>>(new Map());
-  const pageAnnotationIds = useRef<Map<number, string>>(new Map());
+  const pageOverlays           = useRef<Map<number, PageOverlay>>(new Map());
+  const pageAnnotationIds      = useRef<Map<number, string>>(new Map());
+  const pageAnnotationAnchors  = useRef<Map<number, string>>(new Map()); // pg → anchor_type
+  const currentPageRef         = useRef(1);
   const isDrawing         = useRef(false);
   const liveStroke        = useRef<Point[]>([]);
   const dragStart         = useRef<Point | null>(null);
@@ -362,37 +374,225 @@ function FullscreenViewer({
       pdfDocRef.current = doc;
       setNumPages(doc.numPages);
       setLoading(false);
-    }).catch(() => setLoading(false));
+    }).catch((err) => { console.error('[PdfViewer] PDF load error:', err); setLoading(false); });
     return () => { cancelled = true; };
   }, [url]);
 
   // ── Load existing annotations ───────────────────────────────────────────────
   useEffect(() => {
     if (!partId) return;
-    getAnnotations(partId).then(r => {
+    Promise.all([
+      getAnnotations(partId),
+      getMeasureLayout(partId).catch(() => ({ measureLayout: [] })),
+    ]).then(([r, { measureLayout: ml }]) => {
+      // Store measure layout for edit mode rendering
+      setMeasureLayout(ml);
+
+      // Build measure → page lookup from the current version's OMR data
+      const measureToPage = new Map<number, number>();
+      for (const item of ml) {
+        if (!measureToPage.has(item.measureNumber)) {
+          measureToPage.set(item.measureNumber, item.page);
+        }
+      }
+
       for (const ann of r.annotations) {
         if (ann.content_type !== 'ink' && ann.content_type !== 'highlight') continue;
-        const pg = (ann.anchor_json as unknown as { page: number }).page;
+
+        // Resolve the page: for measure anchors, use the live measure layout
+        // (correct for current version) instead of stale pageHint
+        let pg: number | undefined;
+        if (ann.anchor_type === 'measure') {
+          const anchor = ann.anchor_json as unknown as { measureNumber: number; pageHint?: number };
+          pg = measureToPage.get(anchor.measureNumber) ?? anchor.pageHint;
+          // Track measure → annotation ID for edit mode saves
+          measureAnnotationIdsRef.current.set(anchor.measureNumber, ann.id);
+        } else {
+          const anchor = ann.anchor_json as unknown as { page?: number; pageHint?: number };
+          pg = anchor.page ?? anchor.pageHint;
+        }
+        if (pg == null) continue;
+
         const existing = pageOverlays.current.get(pg) ?? { strokes: [], highlights: [] };
 
         if (ann.content_type === 'ink') {
-          // Strokes AND highlights are both stored in the ink annotation content_json
-          existing.strokes = (ann.content_json as { strokes?: Stroke[] }).strokes ?? [];
-          existing.highlights = (ann.content_json as { highlights?: HighlightRect[] }).highlights ?? [];
+          const loadedStrokes = (ann.content_json as { strokes?: Stroke[] }).strokes ?? [];
+          const loadedHighlights = (ann.content_json as { highlights?: HighlightRect[] }).highlights ?? [];
+
+          // Tag loaded strokes with their measure number if from a measure annotation
+          if (ann.anchor_type === 'measure') {
+            const anchor = ann.anchor_json as unknown as {
+              measureNumber: number;
+              measureBounds?: { x: number; y: number; w: number; h: number };
+            };
+            for (const s of loadedStrokes) s.measure = anchor.measureNumber;
+            for (const h of loadedHighlights) h.measure = anchor.measureNumber;
+
+            // ── Client-side stroke relocation ──────────────────────────────
+            // If the strokes aren't positioned at the measure's CURRENT location,
+            // shift them there. This handles:
+            //   - Migrated annotations where backend didn't relocate strokes
+            //   - Annotations on versions where the measure layout changed
+            const currentMeasure = ml.find(
+              m => m.measureNumber === anchor.measureNumber && m.page === pg
+            );
+            if (currentMeasure && loadedStrokes.length > 0) {
+              const allPts = loadedStrokes.flatMap(s => s.points);
+              if (allPts.length > 0) {
+                // Compute stroke centroid
+                const cx = allPts.reduce((a, p) => a + p.x, 0) / allPts.length;
+                const cy = allPts.reduce((a, p) => a + p.y, 0) / allPts.length;
+
+                // Deterministic path: use stored measureBounds from save time
+                if (anchor.measureBounds) {
+                  const oldCenterX = anchor.measureBounds.x + anchor.measureBounds.w / 2;
+                  const oldCenterY = anchor.measureBounds.y + anchor.measureBounds.h / 2;
+                  const newCenterX = currentMeasure.x + currentMeasure.w / 2;
+                  const newCenterY = currentMeasure.y + currentMeasure.h / 2;
+                  const dx = newCenterX - oldCenterX;
+                  const dy = newCenterY - oldCenterY;
+                  if (Math.abs(dx) > 0.001 || Math.abs(dy) > 0.001) {
+                    for (const s of loadedStrokes) {
+                      s.points = s.points.map(p => ({ ...p, x: p.x + dx, y: p.y + dy }));
+                    }
+                    for (const h of loadedHighlights) { h.x += dx; h.y += dy; }
+                    console.log(`[PdfViewer] Relocated m.${anchor.measureNumber} strokes via stored bounds (dx=${dx.toFixed(3)}, dy=${dy.toFixed(3)})`);
+                  }
+                } else {
+                  // Heuristic path: if stroke centroid is outside the current
+                  // measure bounds, shift strokes to the measure center
+                  const inBounds =
+                    cx >= currentMeasure.x && cx <= currentMeasure.x + currentMeasure.w &&
+                    cy >= currentMeasure.y && cy <= currentMeasure.y + currentMeasure.h;
+                  if (!inBounds) {
+                    const newCenterX = currentMeasure.x + currentMeasure.w / 2;
+                    const newCenterY = currentMeasure.y + currentMeasure.h / 2;
+                    const dx = newCenterX - cx;
+                    const dy = newCenterY - cy;
+                    for (const s of loadedStrokes) {
+                      s.points = s.points.map(p => ({ ...p, x: p.x + dx, y: p.y + dy }));
+                    }
+                    for (const h of loadedHighlights) { h.x += dx; h.y += dy; }
+                    console.log(`[PdfViewer] Relocated m.${anchor.measureNumber} strokes via centroid heuristic (dx=${dx.toFixed(3)}, dy=${dy.toFixed(3)})`);
+                  }
+                }
+              }
+            }
+          }
+
+          existing.strokes.push(...loadedStrokes);
+          existing.highlights.push(...loadedHighlights);
           pageAnnotationIds.current.set(pg, ann.id);
+          pageAnnotationAnchors.current.set(pg, ann.anchor_type);
         } else if (ann.content_type === 'highlight') {
-          // Legacy separate highlight annotations
           existing.highlights = (ann.content_json as { highlights?: HighlightRect[] }).highlights ?? [];
         }
         pageOverlays.current.set(pg, existing);
       }
+      if (drawCanvasRef.current) {
+        redrawCanvas(currentPageRef.current, drawCanvasRef.current);
+      }
     }).catch(() => {});
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [partId]);
 
+
   // ── Redraw ──────────────────────────────────────────────────────────────────
+  // Helper: find which measure a point (0-1 coords) falls in on a given page
+  const findMeasureForPoint = useCallback((px: number, py: number, page: number): number | null => {
+    // Check containment first
+    for (const m of measureLayout) {
+      if (m.page !== page) continue;
+      if (px >= m.x && px <= m.x + m.w && py >= m.y && py <= m.y + m.h) {
+        return m.measureNumber;
+      }
+    }
+    // Fall back to nearest measure on this page
+    let nearest: number | null = null;
+    let minDist = Infinity;
+    for (const m of measureLayout) {
+      if (m.page !== page) continue;
+      const cx = m.x + m.w / 2;
+      const cy = m.y + m.h / 2;
+      const dist = Math.sqrt((px - cx) ** 2 + (py - cy) ** 2);
+      if (dist < minDist) { minDist = dist; nearest = m.measureNumber; }
+    }
+    return nearest;
+  }, [measureLayout]);
+
   const redrawCanvas = useCallback((page: number, canvas: HTMLCanvasElement) => {
     const ctx = canvas.getContext('2d')!;
     ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+    // ── Changed measure highlights (yellow, behind annotations) ──────────────
+    if (showChanges && changedMeasureBounds) {
+      for (const [, bounds] of Object.entries(changedMeasureBounds)) {
+        if (bounds.page !== page) continue;
+        const px = bounds.x * canvas.width;
+        const py = bounds.y * canvas.height;
+        const pw = bounds.w * canvas.width;
+        const ph = bounds.h * canvas.height;
+        ctx.fillStyle = 'rgba(250,204,21,0.2)';
+        ctx.fillRect(px, py, pw, ph);
+        ctx.strokeStyle = 'rgba(250,204,21,0.75)';
+        ctx.lineWidth = 2;
+        ctx.strokeRect(px, py, pw, ph);
+      }
+    }
+
+    // ── Measure boxes (edit mode) ────────────────────────────────────────────
+    if (mode === 'edit' && measureLayout.length > 0) {
+      const MBOX_COLORS = [
+        { fill: 'rgba(147,197,253,0.13)', border: 'rgba(96,165,250,0.45)' },
+        { fill: 'rgba(167,243,208,0.13)', border: 'rgba(52,211,153,0.45)' },
+        { fill: 'rgba(196,181,253,0.13)', border: 'rgba(139,92,246,0.45)' },
+        { fill: 'rgba(253,186,186,0.13)', border: 'rgba(248,113,113,0.45)' },
+        { fill: 'rgba(253,230,138,0.13)', border: 'rgba(251,191,36,0.45)' },
+      ];
+      const measuresOnPage = measureLayout.filter(m => m.page === page);
+
+      // Build a set of measure numbers to skip (non-first measures in multi-rest spans)
+      const multiRestSkip = new Set<number>();
+      for (const m of measuresOnPage) {
+        if (m.multiRestCount && m.multiRestCount > 1) {
+          for (let k = 1; k < m.multiRestCount; k++) {
+            multiRestSkip.add(m.measureNumber + k);
+          }
+        }
+      }
+
+      let colorIdx = 0;
+      for (let i = 0; i < measuresOnPage.length; i++) {
+        const m = measuresOnPage[i];
+        if (multiRestSkip.has(m.measureNumber)) continue; // skip non-first multi-rest measures
+
+        const c = MBOX_COLORS[colorIdx++ % MBOX_COLORS.length];
+        const mx = m.x * canvas.width;
+        const my = m.y * canvas.height;
+        const mw = m.w * canvas.width;
+        const mh = m.h * canvas.height;
+
+        ctx.fillStyle = c.fill;
+        ctx.fillRect(mx, my, mw, mh);
+        ctx.strokeStyle = c.border;
+        ctx.lineWidth = 1.5;
+        ctx.strokeRect(mx, my, mw, mh);
+
+        // Measure number label — "mm.1-14" for multi-rest, "m.39" for normal
+        const label = m.multiRestCount && m.multiRestCount > 1
+          ? `mm.${m.measureNumber}-${m.measureNumber + m.multiRestCount - 1}`
+          : `m.${m.measureNumber}`;
+        const fontSize = Math.max(8, Math.min(11, mh * 0.22));
+        ctx.font = `bold ${fontSize}px -apple-system, BlinkMacSystemFont, sans-serif`;
+        const tw = ctx.measureText(label).width;
+        const pad = 3;
+        ctx.fillStyle = 'rgba(0,0,0,0.6)';
+        ctx.fillRect(mx + 2, my + 2, tw + pad * 2, fontSize + pad * 2 - 2);
+        ctx.fillStyle = '#fff';
+        ctx.fillText(label, mx + 2 + pad, my + fontSize + pad);
+      }
+    }
+
     const overlay = pageOverlays.current.get(page);
     if (!overlay) return;
 
@@ -413,7 +613,7 @@ function FullscreenViewer({
       }
       ctx.stroke();
     }
-  }, []);
+  }, [showChanges, changedMeasureBounds, mode, measureLayout]);
 
   // ── Render PDF page ─────────────────────────────────────────────────────────
   useEffect(() => {
@@ -428,7 +628,8 @@ function FullscreenViewer({
         const availW = container.clientWidth - 80;
         const availH = container.clientHeight - 40;
         const vp1 = page.getViewport({ scale: 1 });
-        const scale = Math.min(availW / vp1.width, availH / vp1.height, 2.5);
+        // Cap scale at 2.0 to avoid canvas memory limits on large/complex scores
+        const scale = Math.min(availW / vp1.width, availH / vp1.height, 2.0);
         const vp = page.getViewport({ scale });
         const pdfC = pdfCanvasRef.current!;
         const drawC = drawCanvasRef.current!;
@@ -436,6 +637,8 @@ function FullscreenViewer({
         drawC.width = vp.width; drawC.height = vp.height;
         await page.render({ canvasContext: pdfC.getContext('2d')!, viewport: vp }).promise;
         redrawCanvas(currentPage, drawC);
+      } catch (err) {
+        console.error('[PdfViewer] page render error:', err);
       } finally {
         renderingRef.current = false;
       }
@@ -456,20 +659,28 @@ function FullscreenViewer({
           strokes: overlay.strokes,
           highlights: overlay.highlights,
         } as Record<string, unknown>;
-        if (existingId) {
+        const shouldUpgrade =
+          existingId &&
+          anchorType === 'measure' && measureHintVal && measureHintVal > 0 &&
+          pageAnnotationAnchors.current.get(pg) !== 'measure';
+
+        if (existingId && !shouldUpgrade) {
           await updateAnnotation(existingId, contentJson);
         } else {
-          const anchorJson: Record<string, unknown> = { page: pg };
-          if (anchorType === 'measure' && measureHintVal && measureHintVal > 0) {
-            anchorJson.measureHint = measureHintVal;
-          }
+          // Create new annotation (either fresh, or upgrading page anchor → measure anchor)
+          if (existingId) await deleteAnnotation(existingId);
+          const isMeasure = anchorType === 'measure' && measureHintVal != null && measureHintVal > 0;
+          const anchorJson = isMeasure
+            ? { measureNumber: measureHintVal!, pageHint: pg }
+            : { page: pg };
           const { annotation } = await createAnnotation(partId, {
-            anchorType,
+            anchorType: isMeasure ? 'measure' : 'page',
             anchorJson,
             contentType: 'ink',
             contentJson,
           });
           pageAnnotationIds.current.set(pg, annotation.id);
+          pageAnnotationAnchors.current.set(pg, isMeasure ? 'measure' : 'page');
         }
       }
       setHasUnsaved(false);
@@ -478,33 +689,167 @@ function FullscreenViewer({
     }
   }, [partId]);
 
-  // Check whether any new (unsaved) pages exist
-  function hasNewPages(): boolean {
-    for (const [pg, overlay] of pageOverlays.current.entries()) {
-      if (overlay.strokes.length === 0 && overlay.highlights.length === 0) continue;
-      if (!pageAnnotationIds.current.has(pg)) return true;
+  // Edit-mode save: group strokes by measure and save one annotation per measure
+  const saveEditMode = useCallback(async () => {
+    if (!partId) return;
+    setSaving(true);
+    try {
+      for (const [pg, overlay] of pageOverlays.current.entries()) {
+        // Group strokes and highlights by their tagged measure
+        const groups = new Map<number, { strokes: Stroke[], highlights: HighlightRect[] }>();
+
+        for (const stroke of overlay.strokes) {
+          const m = stroke.measure;
+          if (m == null) continue;
+          if (!groups.has(m)) groups.set(m, { strokes: [], highlights: [] });
+          groups.get(m)!.strokes.push(stroke);
+        }
+        for (const hl of overlay.highlights) {
+          const m = hl.measure;
+          if (m == null) continue;
+          if (!groups.has(m)) groups.set(m, { strokes: [], highlights: [] });
+          groups.get(m)!.highlights.push(hl);
+        }
+
+        // Save each measure group as a measure-anchored annotation
+        for (const [measureNum, data] of groups.entries()) {
+          if (data.strokes.length === 0 && data.highlights.length === 0) continue;
+          const existingId = measureAnnotationIdsRef.current.get(measureNum);
+          const contentJson = { strokes: data.strokes, highlights: data.highlights };
+
+          if (existingId) {
+            await updateAnnotation(existingId, contentJson);
+          } else {
+            // Store measure bounds at save time for deterministic relocation on load
+            const mItem = measureLayout.find(m => m.measureNumber === measureNum && m.page === pg);
+            const anchorJson = {
+              measureNumber: measureNum,
+              pageHint: pg,
+              ...(mItem ? { measureBounds: { x: mItem.x, y: mItem.y, w: mItem.w, h: mItem.h } } : {}),
+            } as { measureNumber: number; pageHint?: number };
+            const { annotation } = await createAnnotation(partId, {
+              anchorType: 'measure',
+              anchorJson,
+              contentType: 'ink',
+              contentJson,
+            });
+            measureAnnotationIdsRef.current.set(measureNum, annotation.id);
+          }
+        }
+
+        // Handle any untagged strokes (drawn outside measure boxes) as page-anchored
+        const untaggedStrokes = overlay.strokes.filter(s => s.measure == null);
+        const untaggedHighlights = overlay.highlights.filter(h => h.measure == null);
+        if (untaggedStrokes.length > 0 || untaggedHighlights.length > 0) {
+          const existingId = pageAnnotationIds.current.get(pg);
+          const contentJson = { strokes: untaggedStrokes, highlights: untaggedHighlights };
+          if (existingId && pageAnnotationAnchors.current.get(pg) === 'page') {
+            await updateAnnotation(existingId, contentJson);
+          } else {
+            const { annotation } = await createAnnotation(partId, {
+              anchorType: 'page',
+              anchorJson: { page: pg },
+              contentType: 'ink',
+              contentJson,
+            });
+            pageAnnotationIds.current.set(pg, annotation.id);
+            pageAnnotationAnchors.current.set(pg, 'page');
+          }
+        }
+      }
+      setHasUnsaved(false);
+    } finally {
+      setSaving(false);
     }
-    return false;
+  }, [partId]);
+
+  // Build an annotated image + annotation coordinates for measure detection.
+  // Returns { imageBase64, cx, cy } where cx/cy are 0-1 fractions of the page.
+  async function buildDetectionImage(): Promise<{ imageBase64: string; cx: number; cy: number } | null> {
+    const pdfC = pdfCanvasRef.current;
+    if (!pdfC) return null;
+    const overlay = pageOverlays.current.get(currentPage);
+    let cx = 0.5, cy = 0.5;
+    if (overlay) {
+      const pts: Point[] = [];
+      for (const s of overlay.strokes) pts.push(...s.points);
+      for (const h of overlay.highlights) pts.push({ x: h.x + h.w / 2, y: h.y + h.h / 2 });
+      if (pts.length) {
+        cx = pts.reduce((a, p) => a + p.x, 0) / pts.length;
+        cy = pts.reduce((a, p) => a + p.y, 0) / pts.length;
+      }
+    }
+
+    // Full page, scaled to max 1200px wide for better legibility
+    const targetW = Math.min(1200, pdfC.width);
+    const scale = targetW / pdfC.width;
+    const targetH = Math.round(pdfC.height * scale);
+
+    const tmp = document.createElement('canvas');
+    tmp.width  = targetW;
+    tmp.height = targetH;
+    const ctx = tmp.getContext('2d')!;
+    ctx.drawImage(pdfC, 0, 0, targetW, targetH);
+
+    // Red dot at the annotation centre
+    const dotX = cx * targetW;
+    const dotY = cy * targetH;
+    const r = Math.max(10, targetW * 0.015);
+    ctx.beginPath();
+    ctx.arc(dotX, dotY, r, 0, Math.PI * 2);
+    ctx.fillStyle = 'rgba(220,30,30,0.9)';
+    ctx.fill();
+    ctx.strokeStyle = '#fff';
+    ctx.lineWidth = 2;
+    ctx.stroke();
+
+    return { imageBase64: tmp.toDataURL('image/jpeg', 0.75), cx, cy };
   }
 
-  // Called when user clicks Save button — always show anchor dialog
-  function handleSaveClick() {
+  // Save click: in edit mode with measure boxes, save directly. Otherwise use anchor dialog.
+  async function handleSaveClick() {
     if (!hasUnsaved || !partId) return;
-    setAnchorChoice('page');
-    setMeasureHint('');
+
+    // Edit mode with measure layout → auto-anchor, no dialog
+    if (mode === 'edit' && measureLayout.length > 0) {
+      await saveEditMode();
+      return;
+    }
+
+    // Legacy flow: detect measure → pre-fill dialog for user confirmation
+    setDetecting(true);
+    let detectedMeasure = 0;
+    try {
+      const detection = await buildDetectionImage();
+      if (detection) {
+        const { imageBase64, cx, cy } = detection;
+        const { measureNumber } = await detectMeasureNumber(partId, imageBase64, cx, cy);
+        detectedMeasure = measureNumber;
+      }
+    } catch {
+      // Detection failed — dialog opens with empty measure field
+    } finally {
+      setDetecting(false);
+    }
+
     const newPages = [...pageOverlays.current.entries()]
       .filter(([pg, ov]) => (ov.strokes.length > 0 || ov.highlights.length > 0) && !pageAnnotationIds.current.has(pg))
       .map(([pg]) => pg);
+    setAnchorChoice('measure');
+    setMeasureHint(detectedMeasure > 0 ? String(detectedMeasure) : '');
     setAnchorDialog({ pages: newPages });
   }
 
   function confirmAnchorDialog() {
-    const m = parseInt(measureHint);
-    saveOverlays({ anchorType: anchorChoice, measureHintVal: m > 0 ? m : undefined });
+    const m = parseInt(measureHint, 10);
+    if (m > 0) {
+      saveOverlays({ anchorType: 'measure', measureHintVal: m });
+    } else {
+      saveOverlays({ anchorType: 'page' });
+    }
     setAnchorDialog(null);
   }
 
-  // Auto-save on close (always as 'page' to avoid blocking)
   async function handleClose() {
     if (hasUnsaved && partId) await saveOverlays();
     onClose();
@@ -517,7 +862,7 @@ function FullscreenViewer({
   }
 
   function onMouseDown(e: React.MouseEvent<HTMLCanvasElement>) {
-    if (tool === 'pointer') return;
+    if (mode !== 'edit' || tool === 'pointer') return;
     e.preventDefault();
     isDrawing.current = true;
     const pos = getPos(e);
@@ -563,7 +908,18 @@ function FullscreenViewer({
     if (tool === 'pen' && liveStroke.current.length >= 2) {
       const pg = currentPage;
       const overlay = pageOverlays.current.get(pg) ?? { strokes: [], highlights: [] };
-      overlay.strokes.push({ points: [...liveStroke.current], color, width: strokeWidth });
+      const newStroke: Stroke = { points: [...liveStroke.current], color, width: strokeWidth };
+
+      // In edit mode, auto-detect which measure this stroke belongs to
+      if (mode === 'edit' && measureLayout.length > 0) {
+        const pts = newStroke.points;
+        const cx = pts.reduce((a, p) => a + p.x, 0) / pts.length;
+        const cy = pts.reduce((a, p) => a + p.y, 0) / pts.length;
+        const m = findMeasureForPoint(cx, cy, pg);
+        if (m != null) newStroke.measure = m;
+      }
+
+      overlay.strokes.push(newStroke);
       pageOverlays.current.set(pg, overlay);
       liveStroke.current = [];
       setHasUnsaved(true);
@@ -574,13 +930,20 @@ function FullscreenViewer({
       if (Math.abs(w) > 0.005 && Math.abs(h) > 0.005) {
         const pg = currentPage;
         const overlay = pageOverlays.current.get(pg) ?? { strokes: [], highlights: [] };
-        // Use brighter opacity for dark mode (score is inverted = dark background)
         const opacity = scoreInverted ? 'bb' : '66';
-        overlay.highlights.push({
+        const newHl: HighlightRect = {
           x: Math.min(ds.x, pos.x), y: Math.min(ds.y, pos.y),
           w: Math.abs(w), h: Math.abs(h),
           color: hlColor + opacity,
-        });
+        };
+
+        // In edit mode, auto-detect which measure this highlight belongs to
+        if (mode === 'edit' && measureLayout.length > 0) {
+          const m = findMeasureForPoint(newHl.x + newHl.w / 2, newHl.y + newHl.h / 2, pg);
+          if (m != null) newHl.measure = m;
+        }
+
+        overlay.highlights.push(newHl);
         pageOverlays.current.set(pg, overlay);
         redrawCanvas(currentPage, canvas);
         setHasUnsaved(true);
@@ -602,8 +965,27 @@ function FullscreenViewer({
     setHasUnsaved(true);
   }
 
+  const [deletingAnnotation, setDeletingAnnotation] = useState(false);
+
+  async function handleDeleteAnnotation() {
+    const annId = pageAnnotationIds.current.get(currentPage);
+    if (!annId) return;
+    setDeletingAnnotation(true);
+    try {
+      await deleteAnnotation(annId);
+      pageAnnotationIds.current.delete(currentPage);
+      pageAnnotationAnchors.current.delete(currentPage);
+      pageOverlays.current.delete(currentPage);
+      redrawCanvas(currentPage, drawCanvasRef.current!);
+      setHasUnsaved(false);
+    } finally {
+      setDeletingAnnotation(false);
+    }
+  }
+
   function goToPage(n: number) {
     if (n < 1 || n > numPages || loading) return;
+    currentPageRef.current = n;
     setCurrentPage(n);
   }
 
@@ -612,15 +994,16 @@ function FullscreenViewer({
       if (ev.key === 'ArrowRight' || ev.key === 'ArrowDown') goToPage(currentPage + 1);
       else if (ev.key === 'ArrowLeft' || ev.key === 'ArrowUp') goToPage(currentPage - 1);
       else if (ev.key === 'Escape') handleClose();
-      else if (ev.key === 'p') setTool('pen');
-      else if (ev.key === 'h') setTool('highlight');
-      else if (ev.key === 'v') setTool('pointer');
-      else if ((ev.metaKey || ev.ctrlKey) && ev.key === 'z') { ev.preventDefault(); handleUndo(); }
+      else if (ev.key === 'e') setMode(m => m === 'edit' ? 'view' : 'edit');
+      else if (mode === 'edit' && ev.key === 'p') setTool('pen');
+      else if (mode === 'edit' && ev.key === 'h') setTool('highlight');
+      else if (mode === 'edit' && ev.key === 'v') setTool('pointer');
+      else if (mode === 'edit' && (ev.metaKey || ev.ctrlKey) && ev.key === 'z') { ev.preventDefault(); handleUndo(); }
     }
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [currentPage, numPages, hasUnsaved, tool]);
+  }, [currentPage, numPages, hasUnsaved, tool, mode]);
 
   const penPalette = isDark ? DARK_PEN_COLORS : LIGHT_PEN_COLORS;
   const hlPalette  = isDark ? DARK_HL_COLORS  : LIGHT_HL_COLORS;
@@ -647,46 +1030,77 @@ function FullscreenViewer({
 
         <div style={{ width: 1, height: 20, background: 'rgba(255,255,255,0.08)', flexShrink: 0 }} />
 
-        <button onClick={() => setTool('pointer')} style={tbBtn(tool === 'pointer')}>Pointer <span style={{ opacity: 0.4, fontSize: 9 }}>V</span></button>
-        <button onClick={() => setTool('pen')} style={tbBtn(tool === 'pen')}>✏ Pen <span style={{ opacity: 0.4, fontSize: 9 }}>P</span></button>
-        <button onClick={() => setTool('highlight')} style={tbBtn(tool === 'highlight')}>▬ Highlight <span style={{ opacity: 0.4, fontSize: 9 }}>H</span></button>
-
-        {/* Color palette */}
-        {(tool === 'pen' || tool === 'highlight') && (
+        {/* ── Edit mode tools ── */}
+        {mode === 'edit' && (
           <>
-            <div style={{ width: 1, height: 20, background: 'rgba(255,255,255,0.08)', flexShrink: 0 }} />
-            {(tool === 'pen' ? penPalette : hlPalette).map(c => (
-              <button key={c} onClick={() => tool === 'pen' ? setColor(c) : setHlColor(c)} style={{
-                width: 16, height: 16, borderRadius: '50%', border: 'none', cursor: 'pointer', flexShrink: 0,
-                background: tool === 'highlight' ? c + '99' : c === '#1c1c28' ? '#e8e8e8' : c,
-                outline: (tool === 'pen' ? color : hlColor) === c ? '2px solid #fff' : '2px solid transparent',
-                outlineOffset: 2,
-              }} />
-            ))}
-          </>
-        )}
+            <button onClick={() => setTool('pointer')} style={tbBtn(tool === 'pointer')}>Pointer <span style={{ opacity: 0.4, fontSize: 9 }}>V</span></button>
+            <button onClick={() => setTool('pen')} style={tbBtn(tool === 'pen')}>Pen <span style={{ opacity: 0.4, fontSize: 9 }}>P</span></button>
+            <button onClick={() => setTool('highlight')} style={tbBtn(tool === 'highlight')}>Highlight <span style={{ opacity: 0.4, fontSize: 9 }}>H</span></button>
 
-        {tool === 'pen' && (
-          <>
-            <div style={{ width: 1, height: 20, background: 'rgba(255,255,255,0.08)', flexShrink: 0 }} />
-            {PEN_WIDTHS.map(w => (
-              <button key={w} onClick={() => setStrokeWidth(w)} style={{
-                width: 26, height: 26, borderRadius: 5, border: 'none', flexShrink: 0,
-                background: strokeWidth === w ? 'rgba(255,255,255,0.1)' : 'transparent',
-                cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center',
-              }}>
-                <div style={{ width: w * 2.5, height: w * 2.5, borderRadius: '50%', background: color === '#1c1c28' ? '#e8e8e8' : color }} />
+            {/* Color palette */}
+            {(tool === 'pen' || tool === 'highlight') && (
+              <>
+                <div style={{ width: 1, height: 20, background: 'rgba(255,255,255,0.08)', flexShrink: 0 }} />
+                {(tool === 'pen' ? penPalette : hlPalette).map(c => (
+                  <button key={c} onClick={() => tool === 'pen' ? setColor(c) : setHlColor(c)} style={{
+                    width: 16, height: 16, borderRadius: '50%', border: 'none', cursor: 'pointer', flexShrink: 0,
+                    background: tool === 'highlight' ? c + '99' : c === '#1c1c28' ? '#e8e8e8' : c,
+                    outline: (tool === 'pen' ? color : hlColor) === c ? '2px solid #fff' : '2px solid transparent',
+                    outlineOffset: 2,
+                  }} />
+                ))}
+              </>
+            )}
+
+            {tool === 'pen' && (
+              <>
+                <div style={{ width: 1, height: 20, background: 'rgba(255,255,255,0.08)', flexShrink: 0 }} />
+                {PEN_WIDTHS.map(w => (
+                  <button key={w} onClick={() => setStrokeWidth(w)} style={{
+                    width: 26, height: 26, borderRadius: 5, border: 'none', flexShrink: 0,
+                    background: strokeWidth === w ? 'rgba(255,255,255,0.1)' : 'transparent',
+                    cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center',
+                  }}>
+                    <div style={{ width: w * 2.5, height: w * 2.5, borderRadius: '50%', background: color === '#1c1c28' ? '#e8e8e8' : color }} />
+                  </button>
+                ))}
+              </>
+            )}
+
+            <button onClick={handleUndo} style={{
+              ...tbBtn(false),
+              fontSize: 11, padding: '3px 8px',
+            }}>Undo <span style={{ opacity: 0.4, fontSize: 9 }}>⌘Z</span></button>
+
+            {pageAnnotationIds.current.has(currentPage) && (
+              <button
+                onClick={handleDeleteAnnotation}
+                disabled={deletingAnnotation}
+                style={{
+                  fontSize: 11, padding: '3px 8px', borderRadius: 5, cursor: 'pointer', flexShrink: 0,
+                  background: 'rgba(255,60,60,0.08)', border: '1px solid rgba(255,60,60,0.15)',
+                  color: '#e55', fontWeight: 500,
+                  opacity: deletingAnnotation ? 0.5 : 1,
+                }}
+              >
+                {deletingAnnotation ? 'Deleting…' : 'Delete'}
               </button>
-            ))}
+            )}
           </>
         )}
-
-        <button onClick={handleUndo} style={{
-          ...tbBtn(false),
-          fontSize: 11, padding: '3px 8px',
-        }}>Undo <span style={{ opacity: 0.4, fontSize: 9 }}>⌘Z</span></button>
 
         <div style={{ flex: 1 }} />
+
+        {/* Changed measures toggle — only shown when diff data is present */}
+        {hasChanges && (
+          <button
+            onClick={() => setShowChanges(v => !v)}
+            title={showChanges ? 'Hide changed measures' : 'Show changed measures'}
+            style={{ ...tbBtn(showChanges), fontSize: 11 }}
+          >
+            {showChanges ? '◆ Changes on' : '◇ Changes off'}
+          </button>
+        )}
 
         {/* Score dark mode toggle */}
         <button
@@ -698,19 +1112,51 @@ function FullscreenViewer({
         </button>
 
         <button onClick={() => setNotesOpen(o => !o)} style={{ ...tbBtn(notesOpen), fontSize: 11 }}>
-          ✎ Notes
+          Notes
         </button>
 
-        {partId && (
-          <button onClick={handleSaveClick} disabled={saving || !hasUnsaved} style={{
-            background: hasUnsaved ? '#5b4cf5' : 'rgba(255,255,255,0.04)',
-            border: `1px solid ${hasUnsaved ? 'rgba(124,111,247,0.4)' : 'rgba(255,255,255,0.07)'}`,
-            borderRadius: 6, color: hasUnsaved ? '#fff' : '#444',
-            cursor: hasUnsaved ? 'pointer' : 'default',
-            fontSize: 11, fontWeight: 600, padding: '4px 12px', flexShrink: 0,
-          }}>
-            {saving ? '…' : hasUnsaved ? 'Save' : '✓ Saved'}
+        {/* Edit / Done toggle */}
+        {partId && mode === 'view' && (
+          <button
+            onClick={() => { setMode('edit'); setTool('pen'); }}
+            style={{
+              background: 'rgba(52,211,153,0.12)',
+              border: '1px solid rgba(52,211,153,0.35)',
+              borderRadius: 6, color: '#6ee7b7',
+              cursor: 'pointer', fontSize: 11, fontWeight: 600,
+              padding: '4px 14px', flexShrink: 0,
+            }}
+          >
+            Edit <span style={{ opacity: 0.4, fontSize: 9 }}>E</span>
           </button>
+        )}
+
+        {mode === 'edit' && (
+          <>
+            {partId && (
+              <button onClick={handleSaveClick} disabled={saving || detecting || !hasUnsaved} style={{
+                background: hasUnsaved ? '#5b4cf5' : 'rgba(255,255,255,0.04)',
+                border: `1px solid ${hasUnsaved ? 'rgba(124,111,247,0.4)' : 'rgba(255,255,255,0.07)'}`,
+                borderRadius: 6, color: hasUnsaved ? '#fff' : '#444',
+                cursor: hasUnsaved ? 'pointer' : 'default',
+                fontSize: 11, fontWeight: 600, padding: '4px 12px', flexShrink: 0,
+              }}>
+                {detecting ? '⟳ Detecting…' : saving ? '…' : hasUnsaved ? 'Save' : '✓ Saved'}
+              </button>
+            )}
+            <button
+              onClick={() => { setMode('view'); setTool('pointer'); }}
+              style={{
+                background: 'rgba(255,255,255,0.06)',
+                border: '1px solid rgba(255,255,255,0.12)',
+                borderRadius: 6, color: '#999',
+                cursor: 'pointer', fontSize: 11, fontWeight: 500,
+                padding: '4px 12px', flexShrink: 0,
+              }}
+            >
+              Done
+            </button>
+          </>
         )}
 
         <button onClick={handleClose} style={{
@@ -751,7 +1197,7 @@ function FullscreenViewer({
                 onMouseLeave={e => isDrawing.current && onMouseUp(e)}
                 style={{
                   position: 'absolute', inset: 0,
-                  cursor: tool !== 'pointer' ? 'crosshair' : 'default',
+                  cursor: mode === 'edit' && tool !== 'pointer' ? 'crosshair' : 'default',
                   touchAction: 'none',
                 }}
               />
@@ -781,12 +1227,30 @@ function FullscreenViewer({
             boxShadow: '0 20px 60px rgba(0,0,0,0.8)',
           }}>
             <h3 style={{ color: '#eee', fontSize: 15, fontWeight: 700, marginBottom: 6 }}>Save annotations</h3>
-            <p style={{ color: '#666', fontSize: 12, lineHeight: 1.5, marginBottom: 20 }}>
+            <p style={{ color: '#666', fontSize: 12, lineHeight: 1.5, marginBottom: anchorChoice === 'measure' && measureHint ? 8 : 20 }}>
               How should these markings anchor to the score?
               {anchorDialog.pages.length > 0 && (
                 <><br/><span style={{ color: '#555', fontSize: 11 }}>New annotation{anchorDialog.pages.length !== 1 ? 's' : ''} on page{anchorDialog.pages.length !== 1 ? 's' : ''} {anchorDialog.pages.map(p => `${p}`).join(', ')}</span></>
               )}
             </p>
+            {detecting && (
+              <p style={{ color: '#666', fontSize: 11, marginBottom: 14, display: 'flex', alignItems: 'center', gap: 6 }}>
+                <span style={{
+                  display: 'inline-block', width: 12, height: 12, borderRadius: '50%',
+                  border: '2px solid rgba(124,111,247,0.3)', borderTopColor: '#9184f9',
+                  animation: 'spin 0.7s linear infinite',
+                }} />
+                Detecting measure number…
+              </p>
+            )}
+            {!detecting && anchorChoice === 'measure' && measureHint && (
+              <p style={{ color: '#9184f9', fontSize: 11, marginBottom: 14, display: 'flex', alignItems: 'center', gap: 5 }}>
+                <span style={{ background: 'rgba(124,111,247,0.12)', border: '1px solid rgba(124,111,247,0.25)', borderRadius: 4, padding: '2px 7px', fontWeight: 700 }}>
+                  m.{measureHint}
+                </span>
+                auto-detected — correct if needed
+              </p>
+            )}
 
             <div style={{ display: 'flex', flexDirection: 'column', gap: 8, marginBottom: 20 }}>
               {/* Page option */}
@@ -882,7 +1346,7 @@ function FullscreenViewer({
 
 // ── Public component ──────────────────────────────────────────────────────────
 
-export function PdfViewer({ url, partId, title }: ViewerProps) {
+export function PdfViewer({ url, partId, title, changedMeasureBounds }: ViewerProps) {
   const [open, setOpen] = useState(false);
 
   const currentUserId = (() => {
@@ -899,6 +1363,7 @@ export function PdfViewer({ url, partId, title }: ViewerProps) {
           partId={partId}
           title={title}
           currentUserId={currentUserId}
+          changedMeasureBounds={changedMeasureBounds}
           onClose={() => setOpen(false)}
         />
       )}

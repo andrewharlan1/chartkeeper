@@ -372,7 +372,14 @@ ensemblesRouter.delete('/:id', async (req: Request, res: Response): Promise<void
   const client = await db.connect();
   try {
     await client.query('BEGIN');
-    // Remove members, instruments, assignments, charts cascade via FK
+    // Soft-delete all charts in this ensemble (preserves music data, avoids FK block)
+    await client.query(
+      `UPDATE charts SET deleted_at = NOW() WHERE ensemble_id = $1 AND deleted_at IS NULL`,
+      [ensembleId]
+    );
+    // Remove invitations, instruments (cascades to assignments), and members
+    await client.query(`DELETE FROM invitations WHERE ensemble_id = $1`, [ensembleId]);
+    await client.query(`DELETE FROM ensemble_instruments WHERE ensemble_id = $1`, [ensembleId]);
     await client.query(`DELETE FROM ensemble_members WHERE ensemble_id = $1`, [ensembleId]);
     await client.query(`DELETE FROM ensembles WHERE id = $1`, [ensembleId]);
     await client.query('COMMIT');

@@ -2,12 +2,20 @@ import dotenv from 'dotenv';
 dotenv.config();
 
 import { claimNextJob, completeJob, failJob, enqueueJob } from '../lib/queue';
-import { uploadFile } from '../lib/s3';
+import { uploadFile, downloadFile } from '../lib/s3';
 import { db } from '../db';
+import { extractMeasureLayout } from '../lib/vision-measure-layout';
+import { annotatePdfWithMeasures } from '../lib/annotate-pdf';
 
 const OMR_SERVICE_URL = process.env.OMR_SERVICE_URL ?? 'http://localhost:3001';
 const POLL_INTERVAL_MS = parseInt(process.env.OMR_POLL_INTERVAL_MS ?? '10000');
 const MAX_ATTEMPTS = parseInt(process.env.OMR_MAX_ATTEMPTS ?? '3');
+
+// OMR_ENGINE controls how the pipeline resolves parts:
+//   'audiveris' — call the omr-service (Audiveris wrapper) — requires omr-service running
+//   'vision'    — use Claude Vision to extract measure layout (page per measure)
+//   'none'      — skip OMR entirely; mark parts complete with empty omr_json
+const OMR_ENGINE = (process.env.OMR_ENGINE ?? 'vision') as 'audiveris' | 'vision' | 'none';
 
 interface OmrJobPayload {
   partId: string;
@@ -33,6 +41,57 @@ interface OmrServiceResponse {
 async function processOmrJob(jobId: string, payload: OmrJobPayload): Promise<void> {
   const { partId, pdfS3Key, chartId, versionId, instrument } = payload;
 
+  if (OMR_ENGINE === 'none') {
+    await db.query(
+      `UPDATE parts
+       SET omr_status = 'complete',
+           omr_json = $1,
+           updated_at = NOW()
+       WHERE id = $2`,
+      [JSON.stringify({ measures: [], sections: [], partName: instrument }), partId]
+    );
+    await completeJob(jobId);
+    console.log(`[omr.worker] Part ${partId} (${instrument}) — OMR_ENGINE=none, skipped OMR`);
+    await maybeEnqueueDiff(chartId, versionId);
+    return;
+  }
+
+  if (OMR_ENGINE === 'vision') {
+    // Use Claude Vision to extract measure layout (which page each measure is on)
+    await db.query(
+      `UPDATE parts SET omr_status = 'processing', updated_at = NOW() WHERE id = $1`,
+      [partId]
+    );
+
+    const pdfBuffer = await downloadFile(pdfS3Key);
+    const omrJson = await extractMeasureLayout(pdfBuffer, instrument);
+
+    // Generate annotated PDF with boxes around each measure
+    let debugPdfKey: string | null = null;
+    try {
+      const annotatedPdf = await annotatePdfWithMeasures(pdfBuffer, omrJson);
+      debugPdfKey = pdfS3Key.replace(/\.pdf$/i, '_measures.pdf');
+      await uploadFile(debugPdfKey, annotatedPdf, 'application/pdf');
+      console.log(`[omr.worker] Part ${partId} (${instrument}) — annotated PDF uploaded: ${debugPdfKey}`);
+    } catch (err) {
+      console.error(`[omr.worker] Part ${partId} — annotated PDF failed:`, err instanceof Error ? err.message : err);
+    }
+
+    await db.query(
+      `UPDATE parts
+       SET omr_status = 'complete',
+           omr_json = $1,
+           updated_at = NOW()
+       WHERE id = $2`,
+      [JSON.stringify(omrJson), partId]
+    );
+    await completeJob(jobId);
+    console.log(`[omr.worker] Part ${partId} (${instrument}) — DONE — ${omrJson.measures.length} measures extracted, boxes drawn`);
+    await maybeEnqueueDiff(chartId, versionId);
+    return;
+  }
+
+  // ── Audiveris path ───────────────────────────────────────────────────────────
   // Mark part as processing
   await db.query(
     `UPDATE parts SET omr_status = 'processing', updated_at = NOW() WHERE id = $1`,
@@ -58,6 +117,18 @@ async function processOmrJob(jobId: string, payload: OmrJobPayload): Promise<voi
   const musicxmlBuffer = Buffer.from(result.musicxml, 'base64');
   await uploadFile(musicxmlKey, musicxmlBuffer, 'application/xml');
 
+  // Generate annotated debug PDF with measure boxes
+  let debugPdfKey: string | null = null;
+  try {
+    const pdfBuffer = await downloadFile(pdfS3Key);
+    const annotatedPdf = await annotatePdfWithMeasures(pdfBuffer, result.omrJson);
+    debugPdfKey = pdfS3Key.replace(/\.pdf$/i, '_measures.pdf');
+    await uploadFile(debugPdfKey, annotatedPdf, 'application/pdf');
+    console.log(`[omr.worker] Part ${partId} (${instrument}) — annotated PDF uploaded: ${debugPdfKey}`);
+  } catch (err) {
+    console.error(`[omr.worker] Part ${partId} — annotated PDF failed:`, err instanceof Error ? err.message : err);
+  }
+
   // Update the part row
   await db.query(
     `UPDATE parts
@@ -70,7 +141,7 @@ async function processOmrJob(jobId: string, payload: OmrJobPayload): Promise<voi
   );
 
   await completeJob(jobId);
-  console.log(`[omr.worker] Part ${partId} (${instrument}) processed successfully`);
+  console.log(`[omr.worker] Part ${partId} (${instrument}) processed via Audiveris — ${result.omrJson.measures.length} measures`);
 
   // Check if all parts for this version are now complete — if so, enqueue diff
   await maybeEnqueueDiff(chartId, versionId);
@@ -141,11 +212,19 @@ async function maybeEnqueueDiff(chartId: string, toVersionId: string): Promise<v
   console.log(`[omr.worker] Enqueued diff job: ${fromVersionId} → ${toVersionId}`);
 }
 
+let processing = false;
+
 async function run(): Promise<void> {
-  console.log(`[omr.worker] Started — polling every ${POLL_INTERVAL_MS}ms`);
-  // Drain any pending jobs immediately on startup, then settle into polling
-  await tick();
-  setInterval(tick, POLL_INTERVAL_MS);
+  console.log(`[omr.worker] Started — polling every ${POLL_INTERVAL_MS}ms, OMR_ENGINE=${OMR_ENGINE}`);
+  setInterval(async () => {
+    if (processing) return; // only one job at a time to avoid API rate limits
+    processing = true;
+    try {
+      await tick();
+    } finally {
+      processing = false;
+    }
+  }, POLL_INTERVAL_MS);
 }
 
 run().catch((err) => {

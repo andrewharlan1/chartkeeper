@@ -46,11 +46,11 @@ annotationsRouter.get('/:partId/annotations', async (req: Request, res: Response
 });
 
 const anchorSchema = z.union([
-  z.object({ measureNumber: z.number().int().positive() }),
-  z.object({ measureNumber: z.number().int().positive(), beat: z.number() }),
+  z.object({ measureNumber: z.number().int().positive(), pageHint: z.number().int().positive().optional() }),
+  z.object({ measureNumber: z.number().int().positive(), beat: z.number(), pageHint: z.number().int().positive().optional() }),
   z.object({ measureNumber: z.number().int().positive(), beat: z.number(), pitch: z.string(), duration: z.string() }),
   z.object({ sectionLabel: z.string(), measureOffset: z.number().int().nonnegative().optional() }),
-  z.object({ page: z.number().int().positive() }),
+  z.object({ page: z.number().int().positive(), measureHint: z.number().int().positive().optional() }),
 ]);
 
 // POST /parts/:partId/annotations

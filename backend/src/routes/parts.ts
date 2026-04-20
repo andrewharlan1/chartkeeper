@@ -5,6 +5,11 @@ import { requireMember } from '../lib/ensembleAuth';
 import { s3, BUCKET } from '../lib/s3';
 import { GetObjectCommand, DeleteObjectCommand } from '@aws-sdk/client-s3';
 import { Readable } from 'stream';
+import Anthropic from '@anthropic-ai/sdk';
+
+const anthropic = process.env.ANTHROPIC_API_KEY
+  ? new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY })
+  : null;
 
 export const partsRouter = Router();
 
@@ -134,6 +139,97 @@ partsRouter.get('/:id/diff', async (req: Request, res: Response): Promise<void> 
   res.json({ diff: partDiff });
 });
 
+// GET /parts/:id/measure-layout — returns per-measure bounding boxes from omr_json
+partsRouter.get('/:id/measure-layout', async (req: Request, res: Response): Promise<void> => {
+  const part = await getPartWithEnsemble(req.params.id);
+  if (!part) { res.status(404).json({ error: 'Part not found' }); return; }
+
+  try {
+    await requireMember(part.ensemble_id, req.user!.id);
+  } catch (err) {
+    if (isHttpError(err)) { res.status(err.status).json({ error: err.message }); return; }
+    throw err;
+  }
+
+  interface OmrMeasureRow { number: number; bounds?: { x: number; y: number; w: number; h: number; page: number }; multiRestCount?: number }
+  const omrJson = part.omr_json as { measures?: OmrMeasureRow[] } | null;
+  if (!omrJson?.measures) {
+    res.json({ measureLayout: [] });
+    return;
+  }
+
+  const measureLayout = omrJson.measures
+    .filter((m) => m.bounds)
+    .map((m) => ({
+      measureNumber: m.number,
+      ...m.bounds!,
+      ...(m.multiRestCount ? { multiRestCount: m.multiRestCount } : {}),
+    }));
+
+  res.json({ measureLayout });
+});
+
+// POST /parts/:id/detect-measure — use Claude Vision to detect measure number from a PDF page image
+partsRouter.post('/:id/detect-measure', async (req: Request, res: Response): Promise<void> => {
+  const part = await getPartWithEnsemble(req.params.id);
+  if (!part) { res.status(404).json({ error: 'Part not found' }); return; }
+
+  try {
+    await requireMember(part.ensemble_id, req.user!.id);
+  } catch (err) {
+    if (isHttpError(err)) { res.status(err.status).json({ error: err.message }); return; }
+    throw err;
+  }
+
+  if (!anthropic) {
+    res.status(503).json({ error: 'ANTHROPIC_API_KEY not configured' });
+    return;
+  }
+
+  const { imageBase64, cx, cy } = req.body as { imageBase64?: string; cx?: number; cy?: number };
+  if (!imageBase64) {
+    res.status(400).json({ error: 'imageBase64 required' });
+    return;
+  }
+
+  // Strip data URL prefix if present
+  const base64Data = imageBase64.replace(/^data:image\/[a-z]+;base64,/, '');
+
+  // Build a location hint so Claude knows exactly where to look
+  const xPct = cx != null ? Math.round(cx * 100) : 50;
+  const yPct = cy != null ? Math.round(cy * 100) : 50;
+  const hPos = xPct < 33 ? 'left third' : xPct < 67 ? 'middle' : 'right third';
+  const vPos = yPct < 33 ? 'top third' : yPct < 67 ? 'middle' : 'bottom third';
+
+  try {
+    const message = await anthropic.messages.create({
+      model: 'claude-opus-4-6',
+      max_tokens: 16,
+      messages: [{
+        role: 'user',
+        content: [
+          {
+            type: 'image',
+            source: { type: 'base64', media_type: 'image/jpeg', data: base64Data },
+          },
+          {
+            type: 'text',
+            text: `This is a page from a music score. A red circle marks a specific location in the ${vPos} of the page, ${hPos} horizontally (approximately ${xPct}% from left, ${yPct}% from top). What is the measure number of the bar containing or nearest to the red circle? Measure numbers are small integers printed above the staff, usually at the start of each system or every few bars. Respond with ONLY the integer (e.g. "42"). If you truly cannot determine it, respond with "0".`,
+          },
+        ],
+      }],
+    });
+
+    const raw = (message.content[0] as { type: string; text: string }).text.trim();
+    const measureNumber = parseInt(raw.replace(/\D/g, ''), 10) || 0;
+    res.json({ measureNumber });
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    console.error('[detect-measure] Claude API error:', msg);
+    res.status(500).json({ error: msg });
+  }
+});
+
 // DELETE /parts/:id  (owner or editor, hard delete from DB + S3)
 partsRouter.delete('/:id', async (req: Request, res: Response): Promise<void> => {
   const part = await getPartWithEnsemble(req.params.id);
@@ -170,28 +266,19 @@ partsRouter.delete('/:id', async (req: Request, res: Response): Promise<void> =>
 
 // GET /parts/:id/pdf  — proxies PDF from S3 through the backend (avoids CORS)
 partsRouter.get('/:id/pdf', async (req: Request, res: Response): Promise<void> => {
-  console.log(`[pdf] GET /parts/${req.params.id}/pdf — auth header: ${req.headers.authorization ? 'present' : 'MISSING'}`);
-
   const part = await getPartWithEnsemble(req.params.id);
-  if (!part) {
-    console.log(`[pdf] part ${req.params.id} not found`);
-    res.status(404).end();
-    return;
-  }
+  if (!part) { res.status(404).end(); return; }
 
   try {
     await requireMember(part.ensemble_id, req.user!.id);
   } catch (err) {
-    console.log(`[pdf] auth failed:`, err);
     if (isHttpError(err)) { res.status(err.status).end(); return; }
     throw err;
   }
 
-  console.log(`[pdf] fetching S3 key: ${part.pdf_s3_key}`);
   try {
     const command = new GetObjectCommand({ Bucket: BUCKET, Key: part.pdf_s3_key });
     const s3Res = await s3.send(command);
-    console.log(`[pdf] S3 response OK, ContentLength: ${s3Res.ContentLength}`);
     res.setHeader('Content-Type', 'application/pdf');
     res.setHeader('Content-Disposition', `inline; filename="${part.instrument_name}.pdf"`);
     if (s3Res.ContentLength) res.setHeader('Content-Length', s3Res.ContentLength);
@@ -199,5 +286,38 @@ partsRouter.get('/:id/pdf', async (req: Request, res: Response): Promise<void> =
   } catch (err) {
     console.error(`[pdf] S3 error:`, err);
     res.status(500).end();
+  }
+});
+
+// GET /parts/:id/debug-pdf  — serves the annotated PDF with measure bounding boxes
+partsRouter.get('/:id/debug-pdf', async (req: Request, res: Response): Promise<void> => {
+  const part = await getPartWithEnsemble(req.params.id);
+  if (!part) { res.status(404).end(); return; }
+
+  try {
+    await requireMember(part.ensemble_id, req.user!.id);
+  } catch (err) {
+    if (isHttpError(err)) { res.status(err.status).end(); return; }
+    throw err;
+  }
+
+  // The annotated PDF is stored alongside the original with _measures suffix
+  const debugKey = part.pdf_s3_key?.replace(/\.pdf$/i, '_measures.pdf');
+  if (!debugKey) { res.status(404).json({ error: 'No PDF key for this part' }); return; }
+
+  try {
+    const command = new GetObjectCommand({ Bucket: BUCKET, Key: debugKey });
+    const s3Res = await s3.send(command);
+    res.setHeader('Content-Type', 'application/pdf');
+    res.setHeader('Content-Disposition', `inline; filename="${part.instrument_name}_measures.pdf"`);
+    if (s3Res.ContentLength) res.setHeader('Content-Length', s3Res.ContentLength);
+    (s3Res.Body as Readable).pipe(res);
+  } catch (err: any) {
+    if (err?.name === 'NoSuchKey' || err?.$metadata?.httpStatusCode === 404) {
+      res.status(404).json({ error: 'Annotated PDF not yet generated. OMR may still be processing.' });
+    } else {
+      console.error(`[debug-pdf] S3 error:`, err);
+      res.status(500).end();
+    }
   }
 });

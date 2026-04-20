@@ -22,6 +22,7 @@ export interface OmrMeasure {
   notes: OmrNote[];
   dynamics: OmrDynamic[];
   bounds?: MeasureBounds; // populated by Audiveris when available
+  multiRestCount?: number; // present on the FIRST measure of a multi-measure rest span
 }
 
 export interface OmrSection {
@@ -44,6 +45,10 @@ export interface PartDiff {
     sectionLabelChanges: string[];
   };
   measureMapping: Record<number, number | null>;
+  // Per-measure confidence scores from Vision API (0–1). Absent for LCS-based diffs.
+  measureConfidence?: Record<number, number>;
+  // Overall confidence for the entire diff (0–1). Absent for LCS-based diffs.
+  overallConfidence?: number;
   // bounds for changed measures in the NEW version, keyed by measure number
   // populated when OMR provides bounding box data; absent otherwise
   changedMeasureBounds?: Record<number, MeasureBounds>;

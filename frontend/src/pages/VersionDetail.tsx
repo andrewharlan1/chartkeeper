@@ -73,24 +73,24 @@ function DiffPanel({ diff, instrument }: { diff: PartDiff; instrument: string })
 // ── Link viewer ───────────────────────────────────────────────────────────────
 
 function LinkViewer({ url, name }: { url: string; name: string }) {
-  const [embedMode, setEmbedMode] = useState(false);
+  const [embedMode, setEmbedMode] = useState(true);
 
   return (
     <div style={{ marginTop: 8 }}>
-      <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: embedMode ? 10 : 0 }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: embedMode ? 8 : 0 }}>
         <a href={url} target="_blank" rel="noopener noreferrer"
-          style={{ color: 'var(--accent)', fontSize: 13, wordBreak: 'break-all' }}>
+          style={{ color: 'var(--accent)', fontSize: 12, wordBreak: 'break-all', flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
           {url}
         </a>
         <button
           onClick={() => setEmbedMode(m => !m)}
           style={{ background: 'none', border: '1px solid var(--border)', borderRadius: 4,
-            color: 'var(--text-muted)', cursor: 'pointer', fontSize: 12, padding: '3px 8px', whiteSpace: 'nowrap' }}>
-          {embedMode ? 'Hide preview' : 'Preview in app'}
+            color: 'var(--text-muted)', cursor: 'pointer', fontSize: 11, padding: '3px 8px', whiteSpace: 'nowrap', flexShrink: 0 }}>
+          {embedMode ? 'Hide' : 'Show in app'}
         </button>
       </div>
       {embedMode && (
-        <div style={{ border: '1px solid var(--border)', borderRadius: 'var(--radius)', overflow: 'hidden', height: 500 }}>
+        <div style={{ border: '1px solid var(--border)', borderRadius: 'var(--radius)', overflow: 'hidden', height: 480 }}>
           <iframe
             src={url}
             title={name}
