@@ -1,6 +1,6 @@
 import { useState, useEffect, FormEvent } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
-import { createVersion } from '../api/versions';
+import { createVersion, getAnnotationSources } from '../api/versions';
 import { uploadPart } from '../api/parts';
 import { getChart } from '../api/charts';
 import { getEnsemble } from '../api/ensembles';
@@ -10,6 +10,7 @@ import { Layout } from '../components/Layout';
 import { Button } from '../components/Button';
 import { FileDropZone } from '../components/FileDropZone';
 import { SlotAssignmentPicker } from '../components/SlotAssignmentPicker';
+import { MigrationModal } from '../components/MigrationModal';
 import { ApiError } from '../api/client';
 
 function humanizeName(filename: string): string {
@@ -46,6 +47,10 @@ export function UploadVersion() {
   const [uploading, setUploading] = useState(false);
   const [error, setError] = useState('');
   const [progress, setProgress] = useState('');
+  // Migration modal state
+  const [newVersionId, setNewVersionId] = useState<string | null>(null);
+  const [newVersionName, setNewVersionName] = useState('');
+  const [showMigration, setShowMigration] = useState(false);
 
   function addFiles(files: File[]) {
     const added: UploadEntry[] = files.map(file => {
@@ -93,7 +98,22 @@ export function UploadVersion() {
         });
       }
 
-      navigate(`/charts/${chartId}`);
+      // Check if there are annotation sources worth migrating
+      setProgress('Checking for annotations to migrate...');
+      try {
+        const { sources } = await getAnnotationSources(version.id);
+        const hasAnnotations = Object.values(sources).some(s => s.length > 0);
+        if (hasAnnotations) {
+          setNewVersionId(version.id);
+          setNewVersionName(version.name);
+          setShowMigration(true);
+          return; // Don't navigate yet — modal handles it
+        }
+      } catch {
+        // If annotation source check fails, skip migration silently
+      }
+
+      navigate(`/charts/${chartId}/versions/${version.id}`);
     } catch (err) {
       setError(err instanceof ApiError ? err.message : 'Upload failed');
     } finally {
@@ -193,6 +213,21 @@ export function UploadVersion() {
             : `Upload ${entries.length} file${entries.length !== 1 ? 's' : ''}`}
         </Button>
       </form>
+
+      {showMigration && newVersionId && (
+        <MigrationModal
+          versionId={newVersionId}
+          versionName={newVersionName}
+          onClose={() => {
+            setShowMigration(false);
+            navigate(`/charts/${chartId}/versions/${newVersionId}`);
+          }}
+          onComplete={() => {
+            setShowMigration(false);
+            navigate(`/charts/${chartId}/versions/${newVersionId}`);
+          }}
+        />
+      )}
     </Layout>
   );
 }

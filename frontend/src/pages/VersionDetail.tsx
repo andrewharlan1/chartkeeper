@@ -15,6 +15,7 @@ import { PdfViewer } from '../components/PdfViewer';
 import { InstrumentIcon } from '../components/InstrumentIcon';
 import { FileDropZone } from '../components/FileDropZone';
 import { SlotAssignmentPicker } from '../components/SlotAssignmentPicker';
+import { MigrationModal } from '../components/MigrationModal';
 import { ApiError } from '../api/client';
 
 // ── Annotation panel ──────────────────────────────────────────────────────────
@@ -355,6 +356,7 @@ export function VersionDetail() {
   const [loading, setLoading] = useState(true);
   const [deletingPart, setDeletingPart] = useState<string | null>(null);
   const [deletePartError, setDeletePartError] = useState('');
+  const [showMigration, setShowMigration] = useState(false);
   const [chartName, setChartName] = useState('');
   const [ensembleName, setEnsembleName] = useState('');
   const [ensembleId, setEnsembleId] = useState('');
@@ -424,6 +426,9 @@ export function VersionDetail() {
         <span style={{ color: 'var(--text-muted)', fontSize: 13 }}>
           {new Date(version.createdAt).toLocaleDateString()}
         </span>
+        <Button variant="ghost" size="sm" onClick={() => setShowMigration(true)}>
+          Migrate annotations
+        </Button>
       </div>
 
       <section>
@@ -474,6 +479,15 @@ export function VersionDetail() {
           />
         </div>
       </section>
+
+      {showMigration && version && (
+        <MigrationModal
+          versionId={version.id}
+          versionName={version.name}
+          onClose={() => setShowMigration(false)}
+          onComplete={() => { setShowMigration(false); load(); }}
+        />
+      )}
     </Layout>
   );
 }
