@@ -41,16 +41,16 @@ export function PlayerView() {
     });
   }
 
-  if (loading) return <Layout title="My Parts"><p style={{ color: 'var(--text-muted)' }}>Loading...</p></Layout>;
+  if (loading) return <Layout title="My Parts" breadcrumbs={[{ label: 'Home', to: '/' }, { label: 'My Parts' }]}><p style={{ color: 'var(--text-muted)' }}>Loading...</p></Layout>;
 
   if (error) return (
-    <Layout title="My Parts">
+    <Layout title="My Parts" breadcrumbs={[{ label: 'Home', to: '/' }, { label: 'My Parts' }]}>
       <p style={{ color: 'var(--danger)' }}>{error}</p>
     </Layout>
   );
 
   if (parts.length === 0) return (
-    <Layout title="My Parts">
+    <Layout title="My Parts" breadcrumbs={[{ label: 'Home', to: '/' }, { label: 'My Parts' }]}>
       <div style={{ textAlign: 'center', padding: '60px 0', color: 'var(--text-muted)' }}>
         <p style={{ marginBottom: 8 }}>No parts yet.</p>
         <p style={{ fontSize: 13 }}>Upload parts to see them here.</p>
@@ -61,7 +61,7 @@ export function PlayerView() {
   const byEnsemble = groupBy(parts, p => p.ensembleId);
 
   return (
-    <Layout title="My Parts">
+    <Layout title="My Parts" breadcrumbs={[{ label: 'Home', to: '/' }, { label: 'My Parts' }]}>
       <div style={{ display: 'flex', flexDirection: 'column', gap: 32 }}>
         {[...byEnsemble.entries()].map(([, ensembleParts]) => {
           const { ensembleName } = ensembleParts[0];

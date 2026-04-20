@@ -1,7 +1,9 @@
-import { useState, FormEvent, DragEvent, ChangeEvent } from 'react';
+import { useState, useEffect, FormEvent, DragEvent, ChangeEvent } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { createVersion } from '../api/versions';
 import { uploadPart } from '../api/parts';
+import { getChart } from '../api/charts';
+import { getEnsemble } from '../api/ensembles';
 import { UploadEntry, PartKind } from '../types';
 import { Layout } from '../components/Layout';
 import { Button } from '../components/Button';
@@ -14,6 +16,22 @@ function humanizeName(filename: string): string {
 export function UploadVersion() {
   const { id: chartId } = useParams<{ id: string }>();
   const navigate = useNavigate();
+
+  const [chartName, setChartName] = useState('');
+  const [ensembleName, setEnsembleName] = useState('');
+  const [ensembleId, setEnsembleId] = useState('');
+
+  useEffect(() => {
+    if (!chartId) return;
+    getChart(chartId).then(async ({ chart }) => {
+      setChartName(chart.name);
+      try {
+        const { ensemble } = await getEnsemble(chart.ensembleId);
+        setEnsembleName(ensemble.name);
+        setEnsembleId(chart.ensembleId);
+      } catch { /* breadcrumb will be partial */ }
+    }).catch(() => {});
+  }, [chartId]);
 
   const [entries, setEntries] = useState<UploadEntry[]>([]);
   const [versionName, setVersionName] = useState('');
@@ -98,7 +116,12 @@ export function UploadVersion() {
   return (
     <Layout
       title="Upload New Version"
-      back={{ label: 'Chart', to: `/charts/${chartId}` }}
+      breadcrumbs={[
+        { label: 'Home', to: '/' },
+        ...(ensembleName ? [{ label: ensembleName, to: `/ensembles/${ensembleId}` }] : []),
+        ...(chartName ? [{ label: chartName, to: `/charts/${chartId}` }] : []),
+        { label: 'Upload' },
+      ]}
     >
       <form onSubmit={handleSubmit} style={{ maxWidth: 620 }}>
 

@@ -4,15 +4,17 @@ import { useAuth } from '../hooks/useAuth';
 import { useDarkMode } from '../hooks/useDarkMode';
 import { getEnsembles, createEnsemble } from '../api/ensembles';
 import { Ensemble } from '../types';
+import { Breadcrumbs, BreadcrumbItem } from './Breadcrumbs';
 
 interface Props {
   children: ReactNode;
   title?: string;
   back?: { label: string; to: string };
+  breadcrumbs?: BreadcrumbItem[];
   actions?: ReactNode;
 }
 
-export function Layout({ children, title, back, actions }: Props) {
+export function Layout({ children, title, back, breadcrumbs, actions }: Props) {
   const { user, workspaceId, logout } = useAuth();
   const navigate = useNavigate();
   const location = useLocation();
@@ -295,19 +297,20 @@ export function Layout({ children, title, back, actions }: Props) {
       <div style={{ marginLeft: sidebarOpen ? 'var(--sidebar-width)' : 0, flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column', transition: 'margin-left 0.2s ease' }}>
 
         {/* Top bar */}
-        {(title || back || actions) && (
+        {(title || back || actions || breadcrumbs) && (
           <div style={{
             borderBottom: '1px solid var(--border)',
             padding: '0 32px',
-            height: 52,
+            minHeight: 52,
             display: 'flex', alignItems: 'center', justifyContent: 'space-between',
             position: 'sticky', top: 0, zIndex: 10,
             background: 'var(--bg)',
             backdropFilter: 'blur(16px)',
             flexShrink: 0,
           }}>
-            <div style={{ display: 'flex', flexDirection: 'column', justifyContent: 'center', gap: 1 }}>
-              {back && (
+            <div style={{ display: 'flex', flexDirection: 'column', justifyContent: 'center', gap: 2, padding: '8px 0' }}>
+              {breadcrumbs && breadcrumbs.length > 0 && <Breadcrumbs items={breadcrumbs} />}
+              {!breadcrumbs && back && (
                 <Link to={back.to} style={{
                   color: 'var(--text-faint)', fontSize: 11, fontWeight: 500,
                   display: 'flex', alignItems: 'center', gap: 3, textDecoration: 'none',
@@ -316,7 +319,7 @@ export function Layout({ children, title, back, actions }: Props) {
                   ← {back.label}
                 </Link>
               )}
-              {title && <h1>{title}</h1>}
+              {title && <h1 style={{ margin: 0 }}>{title}</h1>}
             </div>
             {actions && <div style={{ display: 'flex', gap: 8 }}>{actions}</div>}
           </div>

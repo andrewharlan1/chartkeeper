@@ -134,7 +134,10 @@ export function EnsemblePage() {
   return (
     <Layout
       title={ensemble.name}
-      back={{ label: 'Dashboard', to: '/' }}
+      breadcrumbs={[
+        { label: 'Home', to: '/' },
+        { label: ensemble.name },
+      ]}
       actions={
         <>
           <Button size="sm" onClick={() => setShowCreateChart(true)}>+ New chart</Button>

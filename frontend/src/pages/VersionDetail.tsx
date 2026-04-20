@@ -2,6 +2,8 @@ import { useEffect, useState, useCallback } from 'react';
 import { useParams } from 'react-router-dom';
 import { useAuth } from '../hooks/useAuth';
 import { getVersion } from '../api/versions';
+import { getChart } from '../api/charts';
+import { getEnsemble } from '../api/ensembles';
 import { getParts, deletePart, uploadPart } from '../api/parts';
 import { getAnnotations, createAnnotation, deleteAnnotation } from '../api/annotations';
 import { Version, Part, Annotation, AnnotationKind, ContentJson } from '../types';
@@ -235,6 +237,9 @@ export function VersionDetail() {
   const [loading, setLoading] = useState(true);
   const [deletingPart, setDeletingPart] = useState<string | null>(null);
   const [deletePartError, setDeletePartError] = useState('');
+  const [chartName, setChartName] = useState('');
+  const [ensembleName, setEnsembleName] = useState('');
+  const [ensembleId, setEnsembleId] = useState('');
 
   const load = useCallback(async () => {
     if (!vId) return;
@@ -248,7 +253,18 @@ export function VersionDetail() {
 
   useEffect(() => {
     load().finally(() => setLoading(false));
-  }, [load]);
+    // Fetch parent names for breadcrumbs
+    if (chartId) {
+      getChart(chartId).then(async ({ chart }) => {
+        setChartName(chart.name);
+        try {
+          const { ensemble } = await getEnsemble(chart.ensembleId);
+          setEnsembleName(ensemble.name);
+          setEnsembleId(chart.ensembleId);
+        } catch { /* breadcrumb will be partial */ }
+      }).catch(() => {});
+    }
+  }, [load, chartId]);
 
   // Poll while OMR is in progress
   useEffect(() => {
@@ -278,7 +294,12 @@ export function VersionDetail() {
   return (
     <Layout
       title={version.name}
-      back={{ label: 'Chart', to: `/charts/${chartId}` }}
+      breadcrumbs={[
+        { label: 'Home', to: '/' },
+        ...(ensembleName ? [{ label: ensembleName, to: `/ensembles/${ensembleId}` }] : []),
+        ...(chartName ? [{ label: chartName, to: `/charts/${chartId}` }] : []),
+        { label: version.name },
+      ]}
     >
       <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginTop: -20, marginBottom: 28 }}>
         <span style={{ color: 'var(--text-muted)', fontSize: 13 }}>

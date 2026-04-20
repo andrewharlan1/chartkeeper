@@ -3,6 +3,7 @@ import { useParams, Link, useNavigate } from 'react-router-dom';
 import { getChart, deleteChart } from '../api/charts';
 import { getVersions, createVersion, deleteVersion } from '../api/versions';
 import { getParts } from '../api/parts';
+import { getEnsemble } from '../api/ensembles';
 import { Chart as ChartType, Version, Part } from '../types';
 import { Layout } from '../components/Layout';
 import { Button } from '../components/Button';
@@ -19,6 +20,7 @@ export function ChartPage() {
   const navigate = useNavigate();
 
   const [chart, setChart] = useState<ChartType | null>(null);
+  const [ensembleName, setEnsembleName] = useState('');
   const [versions, setVersions] = useState<VersionWithParts[]>([]);
   const [loading, setLoading] = useState(true);
 
@@ -47,8 +49,12 @@ export function ChartPage() {
     Promise.all([
       getChart(id),
       loadVersions(id),
-    ]).then(([chartRes]) => {
+    ]).then(async ([chartRes]) => {
       setChart(chartRes.chart);
+      try {
+        const { ensemble } = await getEnsemble(chartRes.chart.ensembleId);
+        setEnsembleName(ensemble.name);
+      } catch { /* breadcrumb will just be missing ensemble name */ }
     }).catch(() => navigate('/'))
       .finally(() => setLoading(false));
   }, [id, loadVersions, navigate]);
@@ -112,7 +118,11 @@ export function ChartPage() {
   return (
     <Layout
       title={chart.name}
-      back={{ label: 'Ensemble', to: `/ensembles/${chart.ensembleId}` }}
+      breadcrumbs={[
+        { label: 'Home', to: '/' },
+        ...(ensembleName ? [{ label: ensembleName, to: `/ensembles/${chart.ensembleId}` }] : []),
+        { label: chart.name },
+      ]}
       actions={
         <>
           <Button size="sm" onClick={() => setShowCreateVersion(true)}>+ New version</Button>
