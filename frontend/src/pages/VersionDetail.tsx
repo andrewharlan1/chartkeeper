@@ -294,6 +294,7 @@ export function VersionDetail() {
   return (
     <Layout
       title={version.name}
+      backTo={`/charts/${chartId}`}
       breadcrumbs={[
         { label: 'Home', to: '/' },
         ...(ensembleName ? [{ label: ensembleName, to: `/ensembles/${ensembleId}` }] : []),

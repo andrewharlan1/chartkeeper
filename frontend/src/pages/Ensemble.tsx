@@ -134,6 +134,7 @@ export function EnsemblePage() {
   return (
     <Layout
       title={ensemble.name}
+      backTo="/"
       breadcrumbs={[
         { label: 'Home', to: '/' },
         { label: ensemble.name },

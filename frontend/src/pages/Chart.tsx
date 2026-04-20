@@ -118,6 +118,7 @@ export function ChartPage() {
   return (
     <Layout
       title={chart.name}
+      backTo={`/ensembles/${chart.ensembleId}`}
       breadcrumbs={[
         { label: 'Home', to: '/' },
         ...(ensembleName ? [{ label: ensembleName, to: `/ensembles/${chart.ensembleId}` }] : []),

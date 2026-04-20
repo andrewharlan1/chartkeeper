@@ -5,6 +5,7 @@ import { useDarkMode } from '../hooks/useDarkMode';
 import { getEnsembles, createEnsemble } from '../api/ensembles';
 import { Ensemble } from '../types';
 import { Breadcrumbs, BreadcrumbItem } from './Breadcrumbs';
+import { BackButton } from './BackButton';
 
 // Module-level cache to avoid re-fetching on every Layout mount
 let cachedEnsembles: Ensemble[] | null = null;
@@ -16,11 +17,12 @@ interface Props {
   children: ReactNode;
   title?: string;
   back?: { label: string; to: string };
+  backTo?: string;
   breadcrumbs?: BreadcrumbItem[];
   actions?: ReactNode;
 }
 
-export function Layout({ children, title, back, breadcrumbs, actions }: Props) {
+export function Layout({ children, title, back, backTo, breadcrumbs, actions }: Props) {
   const { user, workspaceId, logout } = useAuth();
   const navigate = useNavigate();
   const location = useLocation();
@@ -321,7 +323,7 @@ export function Layout({ children, title, back, breadcrumbs, actions }: Props) {
       <div style={{ marginLeft: sidebarOpen ? 'var(--sidebar-width)' : 0, flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column', transition: 'margin-left 0.2s ease' }}>
 
         {/* Top bar */}
-        {(title || back || actions || breadcrumbs) && (
+        {(title || back || backTo || actions || breadcrumbs) && (
           <div style={{
             borderBottom: '1px solid var(--border)',
             padding: '0 32px',
@@ -332,7 +334,9 @@ export function Layout({ children, title, back, breadcrumbs, actions }: Props) {
             backdropFilter: 'blur(16px)',
             flexShrink: 0,
           }}>
-            <div style={{ display: 'flex', flexDirection: 'column', justifyContent: 'center', gap: 2, padding: '8px 0' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 10, flex: 1, minWidth: 0 }}>
+              {backTo && <BackButton to={backTo} />}
+              <div style={{ display: 'flex', flexDirection: 'column', justifyContent: 'center', gap: 2, padding: '8px 0' }}>
               {breadcrumbs && breadcrumbs.length > 0 && <Breadcrumbs items={breadcrumbs} />}
               {!breadcrumbs && back && (
                 <Link to={back.to} style={{
@@ -344,6 +348,7 @@ export function Layout({ children, title, back, breadcrumbs, actions }: Props) {
                 </Link>
               )}
               {title && <h1 style={{ margin: 0 }}>{title}</h1>}
+            </div>
             </div>
             {actions && <div style={{ display: 'flex', gap: 8 }}>{actions}</div>}
           </div>

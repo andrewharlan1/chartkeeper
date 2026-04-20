@@ -105,6 +105,7 @@ export function UploadVersion() {
   return (
     <Layout
       title="Upload New Version"
+      backTo={`/charts/${chartId}`}
       breadcrumbs={[
         { label: 'Home', to: '/' },
         ...(ensembleName ? [{ label: ensembleName, to: `/ensembles/${ensembleId}` }] : []),
