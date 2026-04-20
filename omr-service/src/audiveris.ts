@@ -59,15 +59,22 @@ export async function runAudiveris(pdfPath: string, partName: string): Promise<O
   try {
     // Run Audiveris: -batch -export exports MusicXML to jobDir
     // JAVA_HOME must be set so the Audiveris shell script finds the right JVM
-    const env = JAVA_HOME
+    const baseEnv: Record<string, string | undefined> = JAVA_HOME
       ? { ...process.env, JAVA_HOME, PATH: `${JAVA_HOME}/bin:${process.env.PATH ?? ''}` }
-      : process.env;
+      : { ...process.env };
+    // Force AWT headless mode so Audiveris doesn't open a GUI window on macOS.
+    // JAVA_TOOL_OPTIONS is read by the JVM regardless of how it's launched
+    // (direct java invocation, shell wrapper, etc.).
+    const existingOpts = baseEnv.JAVA_TOOL_OPTIONS ?? '';
+    if (!existingOpts.includes('-Djava.awt.headless')) {
+      baseEnv.JAVA_TOOL_OPTIONS = `${existingOpts} -Djava.awt.headless=true`.trim();
+    }
     await execFileAsync(AUDIVERIS_PATH, [
       '-batch',
       '-export',
       '-output', jobDir,
       pdfPath,
-    ], { env });
+    ], { env: baseEnv });
 
     // Audiveris outputs <basename>.mxl (compressed) or <basename>.xml
     const files = await fs.readdir(jobDir);
