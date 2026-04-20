@@ -4,6 +4,9 @@ import { getMyParts } from '../api/parts';
 import { PlayerPart } from '../types';
 import { Layout } from '../components/Layout';
 import { PdfViewer } from '../components/PdfViewer';
+import { AnnotationToolbar } from '../components/annotations/AnnotationToolbar';
+import { useAnnotationMode } from '../hooks/useAnnotationMode';
+import { SaveStatus } from '../components/annotations/SaveStatusIndicator';
 
 function groupBy<T>(arr: T[], key: (item: T) => string): Map<string, T[]> {
   const map = new Map<string, T[]>();
@@ -20,6 +23,8 @@ export function PlayerView() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
+  const [saveStatus] = useState<SaveStatus>('idle');
+  const annotationMode = useAnnotationMode();
 
   useEffect(() => {
     getMyParts()
@@ -62,6 +67,19 @@ export function PlayerView() {
 
   return (
     <Layout title="My Parts" backTo="/" breadcrumbs={[{ label: 'Home', to: '/' }, { label: 'My Parts' }]}>
+      <AnnotationToolbar
+        mode={annotationMode.mode}
+        onModeChange={annotationMode.setMode}
+        tool={annotationMode.tool}
+        onToolChange={annotationMode.setTool}
+        inkColor={annotationMode.inkColor}
+        onInkColorChange={annotationMode.setInkColor}
+        textColor={annotationMode.textColor}
+        onTextColorChange={annotationMode.setTextColor}
+        highlightColor={annotationMode.highlightColor}
+        onHighlightColorChange={annotationMode.setHighlightColor}
+        saveStatus={saveStatus}
+      />
       <div style={{ display: 'flex', flexDirection: 'column', gap: 32 }}>
         {[...byEnsemble.entries()].map(([, ensembleParts]) => {
           const { ensembleName } = ensembleParts[0];
