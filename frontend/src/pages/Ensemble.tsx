@@ -3,7 +3,10 @@ import { useParams, Link, useNavigate } from 'react-router-dom';
 import { useAuth } from '../hooks/useAuth';
 import { getEnsemble, deleteEnsemble } from '../api/ensembles';
 import { getCharts, createChart, deleteChart } from '../api/charts';
-import { getInstrumentSlots, createInstrumentSlot, deleteInstrumentSlot } from '../api/instrumentSlots';
+import {
+  getInstrumentSlots, createInstrumentSlot, deleteInstrumentSlot,
+  getSlotAssignmentsByEnsemble, assignUserToSlot, unassignUserFromSlot, SlotAssignmentUser,
+} from '../api/instrumentSlots';
 import { getWorkspaceMembers, addWorkspaceMember, removeWorkspaceMember, seedDummyMembers } from '../api/workspaces';
 import { Ensemble as EnsembleType, Chart, InstrumentSlot, WorkspaceMember } from '../types';
 import { Layout } from '../components/Layout';
@@ -38,6 +41,10 @@ export function EnsemblePage() {
 
   const [deletingEnsemble, setDeletingEnsemble] = useState(false);
 
+  // Slot assignments: slotId → assigned users
+  const [slotAssignments, setSlotAssignments] = useState<Record<string, SlotAssignmentUser[]>>({});
+  const [assignDropdownSlot, setAssignDropdownSlot] = useState<string | null>(null);
+
   const [showAddMember, setShowAddMember] = useState(false);
   const [memberName, setMemberName] = useState('');
   const [memberEmail, setMemberEmail] = useState('');
@@ -59,10 +66,14 @@ export function EnsemblePage() {
       setEnsemble(ensRes.ensemble);
       setCharts(chartsRes.charts);
       setSlots(slotsRes.instrumentSlots);
-      // Load workspace members
+      // Load workspace members and slot assignments
       try {
-        const { members: m } = await getWorkspaceMembers(ensRes.ensemble.workspaceId);
-        setMembers(m);
+        const [membersRes, assignRes] = await Promise.all([
+          getWorkspaceMembers(ensRes.ensemble.workspaceId),
+          getSlotAssignmentsByEnsemble(id!),
+        ]);
+        setMembers(membersRes.members);
+        setSlotAssignments(assignRes.assignments);
       } catch { /* non-critical */ }
     }).catch(() => navigate('/'))
       .finally(() => setLoading(false));
@@ -132,6 +143,36 @@ export function EnsemblePage() {
       alert('Failed to remove instrument');
     } finally {
       setRemovingSlot(null);
+    }
+  }
+
+  async function handleAssignUser(slotId: string, userId: string) {
+    try {
+      await assignUserToSlot(slotId, userId);
+      const assigned = members.find(m => m.id === userId);
+      if (assigned) {
+        setSlotAssignments(prev => ({
+          ...prev,
+          [slotId]: [...(prev[slotId] || []), {
+            userId: assigned.id, name: assigned.name, email: assigned.email, isDummy: assigned.isDummy,
+          }],
+        }));
+      }
+    } catch (err) {
+      alert(err instanceof ApiError ? err.message : 'Failed to assign user');
+    }
+    setAssignDropdownSlot(null);
+  }
+
+  async function handleUnassignUser(slotId: string, userId: string) {
+    try {
+      await unassignUserFromSlot(slotId, userId);
+      setSlotAssignments(prev => ({
+        ...prev,
+        [slotId]: (prev[slotId] || []).filter(a => a.userId !== userId),
+      }));
+    } catch {
+      alert('Failed to remove assignment');
     }
   }
 
@@ -324,42 +365,106 @@ export function EnsemblePage() {
 
         {slotsOpen && slots.length > 0 && (
           <div style={{ display: 'flex', flexDirection: 'column', gap: 8, marginBottom: 16 }}>
-            {slots.map(slot => (
-              <div key={slot.id} style={{
-                display: 'flex', alignItems: 'center', gap: 12,
-                padding: '14px 18px',
-                background: 'var(--surface-raised)',
-                border: '1px solid var(--border)',
-                borderRadius: 14,
-                boxShadow: 'var(--shadow-sm)',
-              }}>
-                <div style={{
-                  width: 40, height: 40, borderRadius: 12, flexShrink: 0,
-                  background: 'var(--accent-subtle)',
-                  border: '1px solid var(--accent-glow)',
-                  display: 'flex', alignItems: 'center', justifyContent: 'center',
-                  color: 'var(--accent)',
+            {slots.map(slot => {
+              const assigned = slotAssignments[slot.id] || [];
+              const assignedIds = new Set(assigned.map(a => a.userId));
+              const availableToAssign = members.filter(m => !assignedIds.has(m.id));
+
+              return (
+                <div key={slot.id} style={{
+                  padding: '14px 18px',
+                  background: 'var(--surface-raised)',
+                  border: '1px solid var(--border)',
+                  borderRadius: 14,
+                  boxShadow: 'var(--shadow-sm)',
                 }}>
-                  <InstrumentIcon name={slot.name} size={24} />
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+                    <div style={{
+                      width: 40, height: 40, borderRadius: 12, flexShrink: 0,
+                      background: 'var(--accent-subtle)',
+                      border: '1px solid var(--accent-glow)',
+                      display: 'flex', alignItems: 'center', justifyContent: 'center',
+                      color: 'var(--accent)',
+                    }}>
+                      <InstrumentIcon name={slot.name} size={24} />
+                    </div>
+                    <div style={{ flex: 1 }}>
+                      <span style={{ fontSize: 15, fontWeight: 600 }}>{slot.name}</span>
+                      {slot.section && (
+                        <span style={{ color: 'var(--text-muted)', marginLeft: 8, fontSize: 12 }}>{slot.section}</span>
+                      )}
+                    </div>
+                    <button
+                      onClick={() => handleRemoveSlot(slot.id, slot.name)}
+                      disabled={removingSlot === slot.id}
+                      style={{
+                        background: 'none', border: 'none', color: 'var(--text-faint)',
+                        cursor: 'pointer', fontSize: 13, padding: '3px 6px', borderRadius: 5,
+                      }}
+                    >
+                      {removingSlot === slot.id ? '...' : 'Remove'}
+                    </button>
+                  </div>
+
+                  {/* Assigned users */}
+                  <div style={{ marginTop: 8, marginLeft: 52, display: 'flex', flexWrap: 'wrap', gap: 6, alignItems: 'center' }}>
+                    {assigned.length === 0 && (
+                      <span style={{ fontSize: 12, color: 'var(--text-faint)', fontStyle: 'italic' }}>(unassigned)</span>
+                    )}
+                    {assigned.map(a => (
+                      <span
+                        key={a.userId}
+                        onClick={() => handleUnassignUser(slot.id, a.userId)}
+                        title={`Click to remove ${a.name || a.email} from ${slot.name}`}
+                        style={{
+                          fontSize: 12, padding: '2px 8px', borderRadius: 10,
+                          background: a.isDummy ? 'var(--surface)' : 'var(--accent-subtle)',
+                          border: `1px solid ${a.isDummy ? 'var(--border)' : 'var(--accent-glow)'}`,
+                          cursor: 'pointer',
+                        }}
+                      >
+                        {a.name || a.email}
+                        {a.userId === user?.id && ' (you)'}
+                      </span>
+                    ))}
+                    <div style={{ position: 'relative' }}>
+                      <button
+                        onClick={() => setAssignDropdownSlot(assignDropdownSlot === slot.id ? null : slot.id)}
+                        style={{
+                          background: 'none', border: '1px dashed var(--border)', borderRadius: 10,
+                          padding: '2px 8px', fontSize: 12, cursor: 'pointer', color: 'var(--text-muted)',
+                        }}
+                      >
+                        + Assign
+                      </button>
+                      {assignDropdownSlot === slot.id && availableToAssign.length > 0 && (
+                        <div style={{
+                          position: 'absolute', top: '100%', left: 0, marginTop: 4, zIndex: 20,
+                          background: 'var(--surface-raised)', border: '1px solid var(--border)',
+                          borderRadius: 8, boxShadow: 'var(--shadow-md)', minWidth: 200, padding: 4,
+                        }}>
+                          {availableToAssign.map(m => (
+                            <button
+                              key={m.id}
+                              onClick={() => handleAssignUser(slot.id, m.id)}
+                              style={{
+                                display: 'block', width: '100%', textAlign: 'left',
+                                background: 'none', border: 'none', padding: '6px 10px',
+                                fontSize: 13, cursor: 'pointer', borderRadius: 6,
+                              }}
+                            >
+                              {m.name || m.email}
+                              {m.isDummy && <span style={{ color: 'var(--text-faint)', marginLeft: 6, fontSize: 11 }}>dummy</span>}
+                              <span style={{ color: 'var(--text-faint)', marginLeft: 6, fontSize: 11 }}>{m.role}</span>
+                            </button>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                  </div>
                 </div>
-                <div style={{ flex: 1 }}>
-                  <span style={{ fontSize: 15, fontWeight: 600 }}>{slot.name}</span>
-                  {slot.section && (
-                    <span style={{ color: 'var(--text-muted)', marginLeft: 8, fontSize: 12 }}>{slot.section}</span>
-                  )}
-                </div>
-                <button
-                  onClick={() => handleRemoveSlot(slot.id, slot.name)}
-                  disabled={removingSlot === slot.id}
-                  style={{
-                    background: 'none', border: 'none', color: 'var(--text-faint)',
-                    cursor: 'pointer', fontSize: 13, padding: '3px 6px', borderRadius: 5,
-                  }}
-                >
-                  {removingSlot === slot.id ? '...' : 'Remove'}
-                </button>
-              </div>
-            ))}
+              );
+            })}
           </div>
         )}
 

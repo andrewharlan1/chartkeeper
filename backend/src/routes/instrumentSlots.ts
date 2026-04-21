@@ -2,7 +2,7 @@ import { Router, Request, Response } from 'express';
 import { z } from 'zod';
 import { eq, and, isNull, sql } from 'drizzle-orm';
 import { dz } from '../db';
-import { instrumentSlots, ensembles } from '../schema';
+import { instrumentSlots, instrumentSlotAssignments, users } from '../schema';
 import { requireAuth } from '../middleware/auth';
 import { requireEnsembleMember, requireEnsembleAdmin } from '../lib/ensembleAuth';
 
@@ -20,6 +20,41 @@ function handleError(err: unknown, res: Response): void {
     throw err;
   }
 }
+
+// GET /instrument-slots/assignments/by-ensemble?ensembleId=...
+// Bulk fetch all slot assignments for an ensemble (avoids N+1)
+// Must be registered BEFORE /:id routes to avoid being caught by :id param
+instrumentSlotsRouter.get('/assignments/by-ensemble', async (req: Request, res: Response): Promise<void> => {
+  const ensembleId = req.query.ensembleId as string | undefined;
+  if (!ensembleId) { res.status(400).json({ error: 'ensembleId required' }); return; }
+
+  try {
+    await requireEnsembleMember(ensembleId, req.user!.id);
+  } catch (err) {
+    handleError(err, res);
+    return;
+  }
+
+  const rows = await dz.select({
+    slotId: instrumentSlotAssignments.slotId,
+    userId: users.id,
+    name: users.displayName,
+    email: users.email,
+    isDummy: users.isDummy,
+  })
+    .from(instrumentSlotAssignments)
+    .innerJoin(users, eq(users.id, instrumentSlotAssignments.userId))
+    .innerJoin(instrumentSlots, eq(instrumentSlots.id, instrumentSlotAssignments.slotId))
+    .where(and(eq(instrumentSlots.ensembleId, ensembleId), isNull(instrumentSlots.deletedAt)));
+
+  // Group by slotId
+  const bySlot: Record<string, typeof rows> = {};
+  for (const row of rows) {
+    (bySlot[row.slotId] ??= []).push(row);
+  }
+
+  res.json({ assignments: bySlot });
+});
 
 // GET /instrument-slots?ensembleId=...
 instrumentSlotsRouter.get('/', async (req: Request, res: Response): Promise<void> => {
@@ -150,5 +185,89 @@ instrumentSlotsRouter.delete('/:id', async (req: Request, res: Response): Promis
     .set({ deletedAt: new Date() })
     .where(eq(instrumentSlots.id, req.params.id));
 
+  res.json({ deleted: true });
+});
+
+// ── Slot assignments (users → instrument slots) ──────────────────────────────
+
+// GET /instrument-slots/:id/assignments
+instrumentSlotsRouter.get('/:id/assignments', async (req: Request, res: Response): Promise<void> => {
+  const [slot] = await dz.select().from(instrumentSlots)
+    .where(and(eq(instrumentSlots.id, req.params.id), isNull(instrumentSlots.deletedAt)));
+  if (!slot) { res.status(404).json({ error: 'Instrument slot not found' }); return; }
+
+  try {
+    await requireEnsembleMember(slot.ensembleId, req.user!.id);
+  } catch (err) {
+    handleError(err, res);
+    return;
+  }
+
+  const rows = await dz.select({
+    userId: users.id,
+    name: users.displayName,
+    email: users.email,
+    isDummy: users.isDummy,
+    assignedAt: instrumentSlotAssignments.createdAt,
+  })
+    .from(instrumentSlotAssignments)
+    .innerJoin(users, eq(users.id, instrumentSlotAssignments.userId))
+    .where(eq(instrumentSlotAssignments.slotId, req.params.id));
+
+  res.json({ assignments: rows });
+});
+
+// POST /instrument-slots/:id/assignments
+instrumentSlotsRouter.post('/:id/assignments', async (req: Request, res: Response): Promise<void> => {
+  const [slot] = await dz.select().from(instrumentSlots)
+    .where(and(eq(instrumentSlots.id, req.params.id), isNull(instrumentSlots.deletedAt)));
+  if (!slot) { res.status(404).json({ error: 'Instrument slot not found' }); return; }
+
+  try {
+    await requireEnsembleAdmin(slot.ensembleId, req.user!.id);
+  } catch (err) {
+    handleError(err, res);
+    return;
+  }
+
+  const parsed = z.object({ userId: z.string().uuid() }).safeParse(req.body);
+  if (!parsed.success) { res.status(400).json({ error: parsed.error.flatten() }); return; }
+
+  try {
+    const [assignment] = await dz.insert(instrumentSlotAssignments).values({
+      slotId: req.params.id,
+      userId: parsed.data.userId,
+    }).returning();
+    res.status(201).json({ assignment });
+  } catch (err: any) {
+    if (err?.code === '23505') {
+      res.status(409).json({ error: 'User is already assigned to this instrument' });
+      return;
+    }
+    throw err;
+  }
+});
+
+// DELETE /instrument-slots/:id/assignments/:userId
+instrumentSlotsRouter.delete('/:id/assignments/:userId', async (req: Request, res: Response): Promise<void> => {
+  const [slot] = await dz.select().from(instrumentSlots)
+    .where(eq(instrumentSlots.id, req.params.id));
+  if (!slot) { res.status(404).json({ error: 'Instrument slot not found' }); return; }
+
+  try {
+    await requireEnsembleAdmin(slot.ensembleId, req.user!.id);
+  } catch (err) {
+    handleError(err, res);
+    return;
+  }
+
+  const [deleted] = await dz.delete(instrumentSlotAssignments)
+    .where(and(
+      eq(instrumentSlotAssignments.slotId, req.params.id),
+      eq(instrumentSlotAssignments.userId, req.params.userId),
+    ))
+    .returning();
+
+  if (!deleted) { res.status(404).json({ error: 'Assignment not found' }); return; }
   res.json({ deleted: true });
 });

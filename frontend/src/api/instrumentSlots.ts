@@ -27,3 +27,24 @@ export function updateInstrumentSlot(id: string, data: {
 export function deleteInstrumentSlot(id: string): Promise<{ deleted: boolean }> {
   return api.delete(`/instrument-slots/${id}`);
 }
+
+export interface SlotAssignmentUser {
+  userId: string;
+  name: string | null;
+  email: string;
+  isDummy: boolean;
+}
+
+export function getSlotAssignmentsByEnsemble(
+  ensembleId: string,
+): Promise<{ assignments: Record<string, SlotAssignmentUser[]> }> {
+  return api.get(`/instrument-slots/assignments/by-ensemble?ensembleId=${ensembleId}`);
+}
+
+export function assignUserToSlot(slotId: string, userId: string): Promise<{ assignment: unknown }> {
+  return api.post(`/instrument-slots/${slotId}/assignments`, { userId });
+}
+
+export function unassignUserFromSlot(slotId: string, userId: string): Promise<{ deleted: boolean }> {
+  return api.delete(`/instrument-slots/${slotId}/assignments/${userId}`);
+}

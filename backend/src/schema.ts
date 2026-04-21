@@ -131,6 +131,23 @@ export const instrumentSlots = pgTable(
   }),
 );
 
+// ── Instrument Slot Assignments (users → slots) ──────────────────────────────
+
+export const instrumentSlotAssignments = pgTable(
+  'instrument_slot_assignments',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    slotId: uuid('slot_id').notNull().references(() => instrumentSlots.id, { onDelete: 'cascade' }),
+    userId: uuid('user_id').notNull().references(() => users.id, { onDelete: 'cascade' }),
+    createdAt: timestamp('created_at').notNull().defaultNow(),
+  },
+  (t) => ({
+    uniq: unique('instrument_slot_assignments_uniq').on(t.slotId, t.userId),
+    slotIdx: index('isa_slot_idx').on(t.slotId),
+    userIdx: index('isa_user_idx').on(t.userId),
+  }),
+);
+
 // ── Versions ───────────────────────────────────────────────────────────────
 
 export const versions = pgTable(
