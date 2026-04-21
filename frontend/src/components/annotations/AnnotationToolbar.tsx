@@ -47,13 +47,13 @@ interface Props {
   selectedAnnotationKind?: 'ink' | 'text' | 'highlight' | null;
 }
 
-const MODES: { value: AnnotationMode; label: string }[] = [
+const MODES: { value: AnnotationMode; label: string; shortcut?: string }[] = [
   { value: 'read', label: 'Read' },
-  { value: 'ink', label: 'Ink' },
-  { value: 'text', label: 'Text' },
-  { value: 'highlight', label: 'Highlight' },
-  { value: 'select', label: 'Select' },
-  { value: 'erase', label: 'Erase' },
+  { value: 'ink', label: 'Ink', shortcut: 'P' },
+  { value: 'text', label: 'Text', shortcut: 'T' },
+  { value: 'highlight', label: 'Highlight', shortcut: 'H' },
+  { value: 'select', label: 'Select', shortcut: 'V' },
+  { value: 'erase', label: 'Erase', shortcut: 'E' },
 ];
 
 const ACCENT = '#7c6ff7';
@@ -159,6 +159,16 @@ export function AnnotationToolbar({
             }}
           >
             {m.label}
+            {m.shortcut && (
+              <span style={{
+                fontSize: 9,
+                fontWeight: 500,
+                color: mode === m.value ? 'rgba(196, 188, 255, 0.5)' : '#444',
+                marginLeft: 3,
+              }}>
+                {m.shortcut}
+              </span>
+            )}
           </button>
         ))}
         <div style={{ width: 1, height: 20, background: SURFACE_BORDER, margin: '0 4px' }} />

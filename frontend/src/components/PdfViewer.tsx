@@ -948,26 +948,58 @@ function FullscreenViewer({
   }
 
   useEffect(() => {
+    function isTyping(): boolean {
+      const el = document.activeElement;
+      if (!el) return false;
+      const tag = el.tagName.toLowerCase();
+      return tag === 'input' || tag === 'textarea' || (el as HTMLElement).isContentEditable;
+    }
+
     function onKey(ev: KeyboardEvent) {
-      if (ev.key === 'ArrowRight' || ev.key === 'ArrowDown') goToPage(currentPage + 1);
-      else if (ev.key === 'ArrowLeft' || ev.key === 'ArrowUp') goToPage(currentPage - 1);
-      else if (ev.key === 'Escape') {
+      // Page navigation (always active)
+      if (ev.key === 'ArrowRight' || ev.key === 'ArrowDown') { goToPage(currentPage + 1); return; }
+      if (ev.key === 'ArrowLeft' || ev.key === 'ArrowUp') { goToPage(currentPage - 1); return; }
+
+      // Escape cascade: deselect → read mode → close viewer
+      if (ev.key === 'Escape') {
+        if (isTyping()) return; // let inputs handle their own Escape
         if (annotationMode.selectedAnnotationId) {
           annotationMode.setSelectedAnnotationId(null);
+        } else if (annotationMode.mode !== 'read') {
+          annotationMode.setMode('read');
         } else {
           handleClose();
         }
+        return;
       }
-      else if ((ev.metaKey || ev.ctrlKey) && ev.key === 'e') {
+
+      // Modifier combos
+      if ((ev.metaKey || ev.ctrlKey) && ev.key === 'e') {
         ev.preventDefault();
         setMode(m => m === 'edit' ? 'view' : 'edit');
+        return;
       }
-      else if (mode === 'edit' && (ev.metaKey || ev.ctrlKey) && ev.key === 'z') { ev.preventDefault(); handleUndo(); }
+      if (mode === 'edit' && (ev.metaKey || ev.ctrlKey) && ev.key === 'z') {
+        ev.preventDefault();
+        handleUndo();
+        return;
+      }
+
+      // Annotation mode hotkeys — skip when typing in inputs or with modifiers
+      if (isTyping() || ev.metaKey || ev.ctrlKey || ev.altKey) return;
+
+      switch (ev.key.toLowerCase()) {
+        case 'v': annotationMode.setMode('select'); break;
+        case 'p': annotationMode.setMode('ink'); break;
+        case 'h': annotationMode.setMode('highlight'); break;
+        case 't': annotationMode.setMode('text'); break;
+        case 'e': annotationMode.setMode('erase'); break;
+      }
     }
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [currentPage, numPages, hasUnsaved, tool, mode]);
+  }, [currentPage, numPages, hasUnsaved, tool, mode, annotationMode.mode, annotationMode.selectedAnnotationId]);
 
   return (
     <div style={{ position: 'fixed', inset: 0, zIndex: 1000, background: '#080812', display: 'flex', flexDirection: 'column' }}>
