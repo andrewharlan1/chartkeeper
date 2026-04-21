@@ -1,10 +1,13 @@
 import { Router, Request, Response } from 'express';
 import { z } from 'zod';
-import { eq, and, isNull, sql } from 'drizzle-orm';
+import { eq, and, isNull, sql, desc } from 'drizzle-orm';
 import { dz } from '../db';
-import { charts, ensembles, versions, parts, annotations, partSlotAssignments, instrumentSlots } from '../schema';
+import {
+  charts, ensembles, versions, parts, annotations,
+  partSlotAssignments, instrumentSlots, instrumentSlotAssignments, users, versionDiffs,
+} from '../schema';
 import { requireAuth } from '../middleware/auth';
-import { requireEnsembleMember, requireEnsembleAdmin } from '../lib/ensembleAuth';
+import { requireEnsembleMember, requireEnsembleAdmin, getWorkspaceRole } from '../lib/ensembleAuth';
 
 export const chartsRouter = Router();
 chartsRouter.use(requireAuth);
@@ -362,4 +365,216 @@ chartsRouter.get('/:id/migration-sources', async (req: Request, res: Response): 
   });
 
   res.json({ versions: result });
+});
+
+// GET /charts/:id/versions/:vId/instruments
+// Returns the instrument-centric view of a chart version.
+// Each instrument slot in the ensemble gets a row with its assigned users,
+// current version parts, and fallback parts from previous versions.
+chartsRouter.get('/:id/versions/:vId/instruments', async (req: Request, res: Response): Promise<void> => {
+  const ensembleId = await getChartEnsembleId(req.params.id);
+  if (!ensembleId) { res.status(404).json({ error: 'Chart not found' }); return; }
+
+  let userRole: string;
+  try {
+    userRole = await requireEnsembleMember(ensembleId, req.user!.id);
+  } catch (err) {
+    handleError(err, res);
+    return;
+  }
+
+  const [chart] = await dz.select().from(charts)
+    .where(and(eq(charts.id, req.params.id), isNull(charts.deletedAt)));
+  if (!chart) { res.status(404).json({ error: 'Chart not found' }); return; }
+
+  const [version] = await dz.select().from(versions)
+    .where(and(eq(versions.id, req.params.vId), isNull(versions.deletedAt)));
+  if (!version) { res.status(404).json({ error: 'Version not found' }); return; }
+
+  // All instrument slots for the ensemble
+  const allSlots = await dz.select()
+    .from(instrumentSlots)
+    .where(and(eq(instrumentSlots.ensembleId, ensembleId), isNull(instrumentSlots.deletedAt)))
+    .orderBy(instrumentSlots.sortOrder);
+
+  // All slot assignments (users → slots)
+  const slotUserRows = await dz.select({
+    slotId: instrumentSlotAssignments.slotId,
+    userId: users.id,
+    name: users.displayName,
+    isDummy: users.isDummy,
+  })
+    .from(instrumentSlotAssignments)
+    .innerJoin(users, eq(users.id, instrumentSlotAssignments.userId))
+    .innerJoin(instrumentSlots, eq(instrumentSlots.id, instrumentSlotAssignments.slotId))
+    .where(and(eq(instrumentSlots.ensembleId, ensembleId), isNull(instrumentSlots.deletedAt)));
+
+  const slotUsersMap: Record<string, Array<{ userId: string; name: string | null; isDummy: boolean }>> = {};
+  for (const r of slotUserRows) {
+    (slotUsersMap[r.slotId] ??= []).push({ userId: r.userId, name: r.name, isDummy: r.isDummy });
+  }
+
+  // All parts for the current version
+  const currentParts = await dz.select({
+    id: parts.id, name: parts.name, kind: parts.kind,
+    pdfS3Key: parts.pdfS3Key, omrStatus: parts.omrStatus,
+    linkUrl: parts.linkUrl,
+  })
+    .from(parts)
+    .where(and(eq(parts.versionId, req.params.vId), isNull(parts.deletedAt)));
+
+  // Annotation counts for current parts
+  const annCountRows = currentParts.length > 0
+    ? await dz.select({
+        partId: annotations.partId,
+        count: sql<number>`count(*)`,
+      })
+        .from(annotations)
+        .where(and(
+          sql`${annotations.partId} in (${sql.join(currentParts.map(p => sql`${p.id}`), sql`, `)})`,
+          isNull(annotations.deletedAt),
+        ))
+        .groupBy(annotations.partId)
+    : [];
+  const annCountMap: Record<string, number> = {};
+  for (const r of annCountRows) annCountMap[r.partId] = Number(r.count);
+
+  // Part→slot mapping for current parts
+  const psa = currentParts.length > 0
+    ? await dz.select({ partId: partSlotAssignments.partId, slotId: partSlotAssignments.instrumentSlotId })
+        .from(partSlotAssignments)
+        .where(sql`${partSlotAssignments.partId} in (${sql.join(currentParts.map(p => sql`${p.id}`), sql`, `)})`)
+    : [];
+  const partToSlots: Record<string, string[]> = {};
+  const slotToParts: Record<string, string[]> = {};
+  for (const r of psa) {
+    (partToSlots[r.partId] ??= []).push(r.slotId);
+    (slotToParts[r.slotId] ??= []).push(r.partId);
+  }
+
+  // Diff data for current parts (compared to previous version)
+  const diffRows = currentParts.length > 0
+    ? await dz.select({
+        toPartId: versionDiffs.toPartId,
+        diffJson: versionDiffs.diffJson,
+      })
+        .from(versionDiffs)
+        .where(sql`${versionDiffs.toPartId} in (${sql.join(currentParts.map(p => sql`${p.id}`), sql`, `)})`)
+    : [];
+  const diffMap: Record<string, { changedMeasureCount: number }> = {};
+  for (const r of diffRows) {
+    const d = r.diffJson as { changedMeasures?: number[] };
+    diffMap[r.toPartId] = { changedMeasureCount: d.changedMeasures?.length ?? 0 };
+  }
+
+  // Previous version parts (for fallback state B)
+  const previousVersions = await dz.select({ id: versions.id, name: versions.name })
+    .from(versions)
+    .where(and(
+      eq(versions.chartId, req.params.id),
+      isNull(versions.deletedAt),
+      sql`${versions.sortOrder} < ${version.sortOrder}`,
+    ))
+    .orderBy(desc(versions.sortOrder));
+
+  let prevPartsBySlot: Record<string, Array<{ partId: string; name: string; versionId: string; versionName: string }>> = {};
+  if (previousVersions.length > 0) {
+    const prevParts = await dz.select({
+      id: parts.id, name: parts.name, versionId: parts.versionId,
+    })
+      .from(parts)
+      .where(and(
+        sql`${parts.versionId} in (${sql.join(previousVersions.map(v => sql`${v.id}`), sql`, `)})`,
+        isNull(parts.deletedAt),
+      ));
+
+    const prevPartIds = prevParts.map(p => p.id);
+    const prevPsa = prevPartIds.length > 0
+      ? await dz.select({ partId: partSlotAssignments.partId, slotId: partSlotAssignments.instrumentSlotId })
+          .from(partSlotAssignments)
+          .where(sql`${partSlotAssignments.partId} in (${sql.join(prevPartIds.map(id => sql`${id}`), sql`, `)})`)
+      : [];
+
+    const prevPartToSlots: Record<string, string[]> = {};
+    for (const r of prevPsa) (prevPartToSlots[r.partId] ??= []).push(r.slotId);
+
+    const versionNameMap = new Map(previousVersions.map(v => [v.id, v.name]));
+
+    for (const p of prevParts) {
+      const slots = prevPartToSlots[p.id] || [];
+      for (const slotId of slots) {
+        (prevPartsBySlot[slotId] ??= []).push({
+          partId: p.id, name: p.name, versionId: p.versionId,
+          versionName: versionNameMap.get(p.versionId) || '',
+        });
+      }
+    }
+    // Keep only the most recent previous version's part per slot
+    for (const slotId of Object.keys(prevPartsBySlot)) {
+      const sortedPrev = prevPartsBySlot[slotId].sort((a, b) => {
+        const ai = previousVersions.findIndex(v => v.id === a.versionId);
+        const bi = previousVersions.findIndex(v => v.id === b.versionId);
+        return ai - bi; // lower index = more recent
+      });
+      prevPartsBySlot[slotId] = [sortedPrev[0]];
+    }
+  }
+
+  // Access control: filter by user's assignments if not admin/owner
+  const isAdmin = userRole === 'owner' || userRole === 'admin';
+  let userSlotIds: Set<string> | null = null;
+  if (!isAdmin) {
+    const userAssignments = await dz.select({ slotId: instrumentSlotAssignments.slotId })
+      .from(instrumentSlotAssignments)
+      .where(eq(instrumentSlotAssignments.userId, req.user!.id));
+    userSlotIds = new Set(userAssignments.map(a => a.slotId));
+  }
+
+  const partsById = new Map(currentParts.map(p => [p.id, p]));
+
+  // Build instrument rows
+  const instrumentRows = allSlots
+    .filter(slot => {
+      if (isAdmin) return true;
+      return userSlotIds!.has(slot.id);
+    })
+    .map(slot => {
+      const partIds = slotToParts[slot.id] || [];
+      return {
+        slotId: slot.id,
+        instrumentName: slot.name,
+        section: slot.section,
+        sortOrder: slot.sortOrder,
+        assignedUsers: slotUsersMap[slot.id] || [],
+        currentParts: partIds.map(pid => {
+          const p = partsById.get(pid)!;
+          return {
+            partId: p.id,
+            name: p.name,
+            kind: p.kind,
+            annotationCount: annCountMap[p.id] || 0,
+            diffStatus: diffMap[p.id] || null,
+          };
+        }),
+        previousVersionParts: !partIds.length ? (prevPartsBySlot[slot.id] || []) : [],
+      };
+    });
+
+  // Score parts (visible to all) — parts of kind 'score' in current version
+  const scoreParts = currentParts
+    .filter(p => p.kind === 'score')
+    .map(p => ({
+      partId: p.id,
+      name: p.name,
+      kind: p.kind,
+      annotationCount: annCountMap[p.id] || 0,
+      diffStatus: diffMap[p.id] || null,
+    }));
+
+  res.json({
+    chart: { id: chart.id, name: chart.name, composer: chart.composer, ensembleId },
+    version: { id: version.id, name: version.name, isCurrent: version.isCurrent },
+    instruments: instrumentRows,
+    scoreParts,
+  });
 });

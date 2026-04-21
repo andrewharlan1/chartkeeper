@@ -67,3 +67,49 @@ export interface MigrationSourceVersion {
 export function getChartMigrationSources(chartId: string): Promise<{ versions: MigrationSourceVersion[] }> {
   return api.get(`/charts/${chartId}/migration-sources`);
 }
+
+// ── Instrument-centric chart view ────────────────────────────────────────
+
+export interface InstrumentUser {
+  userId: string;
+  name: string | null;
+  isDummy: boolean;
+}
+
+export interface InstrumentPart {
+  partId: string;
+  name: string;
+  kind: string;
+  annotationCount: number;
+  diffStatus: { changedMeasureCount: number } | null;
+}
+
+export interface PreviousVersionPart {
+  partId: string;
+  name: string;
+  versionId: string;
+  versionName: string;
+}
+
+export interface InstrumentRow {
+  slotId: string;
+  instrumentName: string;
+  section: string | null;
+  sortOrder: number;
+  assignedUsers: InstrumentUser[];
+  currentParts: InstrumentPart[];
+  previousVersionParts: PreviousVersionPart[];
+}
+
+export interface InstrumentViewResponse {
+  chart: { id: string; name: string; composer: string | null; ensembleId: string };
+  version: { id: string; name: string; isCurrent: boolean };
+  instruments: InstrumentRow[];
+  scoreParts: InstrumentPart[];
+}
+
+export function getChartVersionInstruments(
+  chartId: string, versionId: string,
+): Promise<InstrumentViewResponse> {
+  return api.get(`/charts/${chartId}/versions/${versionId}/instruments`);
+}
