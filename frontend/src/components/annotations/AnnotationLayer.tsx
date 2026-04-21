@@ -1123,9 +1123,23 @@ export function AnnotationLayer({
       {pageAnnotations.map(a => {
         const isFading = fadingIds.has(a.id);
         const isDragging = dragRef.current?.type === 'body' && dragRef.current.annotationId === a.id && dragOffset;
-        const dragTransform = isDragging ? `translate(${dragOffset!.dx * canvasWidth}, ${dragOffset!.dy * canvasHeight})` : undefined;
+        const isResizing = dragRef.current?.type === 'handle' && dragRef.current.annotationId === a.id && resizeBounds;
+        let groupTransform: string | undefined;
+        if (isDragging) {
+          groupTransform = `translate(${dragOffset!.dx * canvasWidth}, ${dragOffset!.dy * canvasHeight})`;
+        } else if (isResizing) {
+          const ob = dragRef.current!.originalBounds;
+          const rb = resizeBounds!;
+          if (ob.w > 0 && ob.h > 0) {
+            const sx = rb.w / ob.w;
+            const sy = rb.h / ob.h;
+            const tx = (rb.x - ob.x * sx) * canvasWidth;
+            const ty = (rb.y - ob.y * sy) * canvasHeight;
+            groupTransform = `matrix(${sx}, 0, 0, ${sy}, ${tx}, ${ty})`;
+          }
+        }
         return (
-          <g key={a.id} style={{ opacity: isFading ? 0 : 1, transition: isFading ? 'opacity 0.15s ease-out' : undefined, cursor: isDragging ? 'grabbing' : undefined }} transform={dragTransform}>
+          <g key={a.id} style={{ opacity: isFading ? 0 : 1, transition: isFading ? 'opacity 0.15s ease-out' : undefined, cursor: isDragging ? 'grabbing' : undefined }} transform={groupTransform}>
             {a.kind === 'highlight' ? (
               <HighlightRenderer
                 annotation={a}
