@@ -29,3 +29,22 @@ export function updateChart(id: string, data: {
 export function deleteChart(id: string): Promise<{ deleted: boolean }> {
   return api.delete(`/charts/${id}`);
 }
+
+export interface AnnotationSourcePart {
+  partId: string;
+  partName: string;
+  kind: string;
+  annotationCount: number;
+  slotIds: string[];
+}
+
+export interface AnnotationSourceVersion {
+  versionId: string;
+  versionName: string;
+  sortOrder: number;
+  parts: AnnotationSourcePart[];
+}
+
+export function getChartAnnotationSources(chartId: string): Promise<{ sources: AnnotationSourceVersion[] }> {
+  return api.get(`/charts/${chartId}/annotation-sources`);
+}

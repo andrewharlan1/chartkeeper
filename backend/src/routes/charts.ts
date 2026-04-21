@@ -2,7 +2,7 @@ import { Router, Request, Response } from 'express';
 import { z } from 'zod';
 import { eq, and, isNull, sql } from 'drizzle-orm';
 import { dz } from '../db';
-import { charts, ensembles } from '../schema';
+import { charts, ensembles, versions, parts, annotations, partSlotAssignments } from '../schema';
 import { requireAuth } from '../middleware/auth';
 import { requireEnsembleMember, requireEnsembleAdmin } from '../lib/ensembleAuth';
 
@@ -157,4 +157,87 @@ chartsRouter.delete('/:id', async (req: Request, res: Response): Promise<void> =
     .where(eq(charts.id, req.params.id));
 
   res.json({ deleted: true });
+});
+
+// GET /charts/:id/annotation-sources
+// Returns all parts across all versions of this chart that have annotations,
+// grouped by version, with their instrument slot assignments.
+chartsRouter.get('/:id/annotation-sources', async (req: Request, res: Response): Promise<void> => {
+  const ensembleId = await getChartEnsembleId(req.params.id);
+  if (!ensembleId) { res.status(404).json({ error: 'Chart not found' }); return; }
+
+  try {
+    await requireEnsembleMember(ensembleId, req.user!.id);
+  } catch (err) {
+    handleError(err, res);
+    return;
+  }
+
+  // Get all versions for this chart
+  const versionRows = await dz.select({
+    id: versions.id,
+    name: versions.name,
+    sortOrder: versions.sortOrder,
+  })
+    .from(versions)
+    .where(and(eq(versions.chartId, req.params.id), isNull(versions.deletedAt)))
+    .orderBy(versions.sortOrder);
+
+  // Get all parts across all versions with annotation counts
+  const partRows = await dz.select({
+    id: parts.id,
+    name: parts.name,
+    kind: parts.kind,
+    versionId: parts.versionId,
+    annotationCount: sql<number>`(
+      select count(*) from annotations
+      where annotations.part_id = ${parts.id}
+      and annotations.deleted_at is null
+    )`,
+  })
+    .from(parts)
+    .where(and(
+      sql`${parts.versionId} in (select id from versions where chart_id = ${req.params.id} and deleted_at is null)`,
+      isNull(parts.deletedAt),
+    ));
+
+  // Get slot assignments for annotated parts
+  const annotatedParts = partRows.filter(p => Number(p.annotationCount) > 0);
+  const slotMap: Record<string, string[]> = {};
+
+  if (annotatedParts.length > 0) {
+    const slotRows = await dz.select({
+      partId: partSlotAssignments.partId,
+      slotId: partSlotAssignments.instrumentSlotId,
+    })
+      .from(partSlotAssignments)
+      .where(sql`${partSlotAssignments.partId} in (${sql.join(annotatedParts.map(p => sql`${p.id}`), sql`, `)})`);
+
+    for (const row of slotRows) {
+      if (!slotMap[row.partId]) slotMap[row.partId] = [];
+      slotMap[row.partId].push(row.slotId);
+    }
+  }
+
+  // Build response grouped by version
+  const versionMap = new Map(versionRows.map(v => [v.id, v]));
+  const sources = versionRows.map(v => ({
+    versionId: v.id,
+    versionName: v.name,
+    sortOrder: v.sortOrder,
+    parts: annotatedParts
+      .filter(p => p.versionId === v.id)
+      .map(p => ({
+        partId: p.id,
+        partName: p.name,
+        kind: p.kind,
+        annotationCount: Number(p.annotationCount),
+        slotIds: slotMap[p.id] ?? [],
+      })),
+  })).filter(v => v.parts.length > 0);
+
+  // Most recent version first
+  sources.sort((a, b) => b.sortOrder - a.sortOrder);
+
+  res.json({ sources });
 });
