@@ -95,12 +95,16 @@ authRouter.post('/login', async (req: Request, res: Response): Promise<void> => 
 
   const { email, password } = parsed.data;
 
-  const result = await db.query<{ id: string; email: string; display_name: string | null; password_hash: string }>(
-    `SELECT id, email, display_name, password_hash FROM users WHERE email = $1`,
+  const result = await db.query<{ id: string; email: string; display_name: string | null; password_hash: string; is_dummy: boolean }>(
+    `SELECT id, email, display_name, password_hash, is_dummy FROM users WHERE email = $1`,
     [email.toLowerCase()]
   );
 
   const user = result.rows[0];
+  if (user?.is_dummy) {
+    res.status(401).json({ error: 'Invalid email or password' });
+    return;
+  }
   const valid = user && await bcrypt.compare(password, user.password_hash);
 
   if (!valid) {

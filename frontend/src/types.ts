@@ -15,6 +15,15 @@ export interface Workspace {
 
 export type WorkspaceRole = 'owner' | 'admin' | 'member' | 'viewer';
 
+export interface WorkspaceMember {
+  id: string;
+  email: string;
+  name: string | null;
+  isDummy: boolean;
+  role: WorkspaceRole;
+  joinedAt: string;
+}
+
 export interface Ensemble {
   id: string;
   workspaceId: string;

@@ -47,6 +47,7 @@ export const users = pgTable('users', {
   email: text('email').notNull().unique(),
   passwordHash: text('password_hash').notNull(),
   displayName: text('display_name'),
+  isDummy: boolean('is_dummy').notNull().default(false),
   ...timestamps,
 });
 

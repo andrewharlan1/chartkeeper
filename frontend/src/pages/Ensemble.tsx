@@ -1,9 +1,11 @@
 import { useEffect, useState, FormEvent } from 'react';
 import { useParams, Link, useNavigate } from 'react-router-dom';
+import { useAuth } from '../hooks/useAuth';
 import { getEnsemble, deleteEnsemble } from '../api/ensembles';
 import { getCharts, createChart, deleteChart } from '../api/charts';
 import { getInstrumentSlots, createInstrumentSlot, deleteInstrumentSlot } from '../api/instrumentSlots';
-import { Ensemble as EnsembleType, Chart, InstrumentSlot } from '../types';
+import { getWorkspaceMembers, addWorkspaceMember, removeWorkspaceMember, seedDummyMembers } from '../api/workspaces';
+import { Ensemble as EnsembleType, Chart, InstrumentSlot, WorkspaceMember } from '../types';
 import { Layout } from '../components/Layout';
 import { Button } from '../components/Button';
 import { Modal } from '../components/Modal';
@@ -13,10 +15,12 @@ import { InstrumentIcon } from '../components/InstrumentIcon';
 export function EnsemblePage() {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
+  const { user } = useAuth();
 
   const [ensemble, setEnsemble] = useState<EnsembleType | null>(null);
   const [charts, setCharts] = useState<Chart[]>([]);
   const [slots, setSlots] = useState<InstrumentSlot[]>([]);
+  const [members, setMembers] = useState<WorkspaceMember[]>([]);
   const [loading, setLoading] = useState(true);
 
   const [showCreateChart, setShowCreateChart] = useState(false);
@@ -34,16 +38,32 @@ export function EnsemblePage() {
 
   const [deletingEnsemble, setDeletingEnsemble] = useState(false);
 
+  const [showAddMember, setShowAddMember] = useState(false);
+  const [memberName, setMemberName] = useState('');
+  const [memberEmail, setMemberEmail] = useState('');
+  const [memberRole, setMemberRole] = useState<'admin' | 'member' | 'viewer'>('member');
+  const [memberIsDummy, setMemberIsDummy] = useState(true);
+  const [addingMember, setAddingMember] = useState(false);
+  const [memberError, setMemberError] = useState('');
+  const [removingMember, setRemovingMember] = useState<string | null>(null);
+  const [seeding, setSeeding] = useState(false);
+  const [teamOpen, setTeamOpen] = useState(true);
+
   useEffect(() => {
     if (!id) return;
     Promise.all([
       getEnsemble(id),
       getCharts(id),
       getInstrumentSlots(id),
-    ]).then(([ensRes, chartsRes, slotsRes]) => {
+    ]).then(async ([ensRes, chartsRes, slotsRes]) => {
       setEnsemble(ensRes.ensemble);
       setCharts(chartsRes.charts);
       setSlots(slotsRes.instrumentSlots);
+      // Load workspace members
+      try {
+        const { members: m } = await getWorkspaceMembers(ensRes.ensemble.workspaceId);
+        setMembers(m);
+      } catch { /* non-critical */ }
     }).catch(() => navigate('/'))
       .finally(() => setLoading(false));
   }, [id, navigate]);
@@ -115,6 +135,59 @@ export function EnsemblePage() {
     }
   }
 
+  async function handleAddMember(e: FormEvent) {
+    e.preventDefault();
+    if (!ensemble) return;
+    setMemberError('');
+    setAddingMember(true);
+    try {
+      const { member } = await addWorkspaceMember(ensemble.workspaceId, {
+        name: memberName.trim(),
+        email: memberEmail.trim() || undefined,
+        role: memberRole,
+        isDummy: memberIsDummy,
+      });
+      setMembers(prev => [...prev, member]);
+      setShowAddMember(false);
+      setMemberName('');
+      setMemberEmail('');
+      setMemberRole('member');
+      setMemberIsDummy(true);
+    } catch (err) {
+      setMemberError(err instanceof ApiError ? err.message : 'Something went wrong');
+    } finally {
+      setAddingMember(false);
+    }
+  }
+
+  async function handleRemoveMember(userId: string, name: string | null) {
+    if (!ensemble) return;
+    if (!confirm(`Remove ${name || 'this member'} from the workspace?`)) return;
+    setRemovingMember(userId);
+    try {
+      await removeWorkspaceMember(ensemble.workspaceId, userId);
+      setMembers(prev => prev.filter(m => m.id !== userId));
+    } catch (err) {
+      alert(err instanceof ApiError ? err.message : 'Failed to remove member');
+    } finally {
+      setRemovingMember(null);
+    }
+  }
+
+  async function handleSeedDummies() {
+    if (!ensemble) return;
+    setSeeding(true);
+    try {
+      await seedDummyMembers(ensemble.workspaceId);
+      const { members: m } = await getWorkspaceMembers(ensemble.workspaceId);
+      setMembers(m);
+    } catch (err) {
+      alert(err instanceof ApiError ? err.message : 'Failed to seed dummy users');
+    } finally {
+      setSeeding(false);
+    }
+  }
+
   async function handleDeleteEnsemble() {
     if (!id || !ensemble) return;
     if (!confirm(`Permanently delete "${ensemble.name}"? This cannot be undone.`)) return;
@@ -148,6 +221,86 @@ export function EnsemblePage() {
         </>
       }
     >
+      {/* Team */}
+      <section style={{ marginBottom: 36 }}>
+        <button
+          onClick={() => setTeamOpen(o => !o)}
+          style={{
+            display: 'flex', alignItems: 'center', gap: 8, marginBottom: teamOpen ? 14 : 0,
+            background: 'none', border: 'none', padding: 0, cursor: 'pointer', width: '100%',
+          }}
+        >
+          <h2 style={{ margin: 0, flex: 1, textAlign: 'left' }}>
+            Team <span style={{ fontSize: 11, color: 'var(--text-faint)', fontWeight: 400 }}>({members.length})</span>
+          </h2>
+          <span style={{ color: 'var(--text-muted)', fontSize: 12 }}>{teamOpen ? '\u25BE' : '\u25B8'}</span>
+        </button>
+
+        {teamOpen && (
+          <>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 6, marginBottom: 12 }}>
+              {members.map(m => (
+                <div key={m.id} style={{
+                  display: 'flex', alignItems: 'center', gap: 12,
+                  padding: '10px 16px',
+                  background: 'var(--surface-raised)',
+                  border: '1px solid var(--border)',
+                  borderRadius: 12,
+                }}>
+                  <div style={{
+                    width: 32, height: 32, borderRadius: '50%', flexShrink: 0,
+                    background: m.isDummy ? 'var(--surface)' : 'var(--accent-subtle)',
+                    border: `1px solid ${m.isDummy ? 'var(--border)' : 'var(--accent-glow)'}`,
+                    display: 'flex', alignItems: 'center', justifyContent: 'center',
+                    fontSize: 14, fontWeight: 600, color: m.isDummy ? 'var(--text-muted)' : 'var(--accent)',
+                  }}>
+                    {(m.name || '?')[0].toUpperCase()}
+                  </div>
+                  <div style={{ flex: 1 }}>
+                    <span style={{ fontSize: 14, fontWeight: 500 }}>
+                      {m.name || m.email}
+                    </span>
+                    {m.id === user?.id && (
+                      <span style={{ color: 'var(--text-muted)', fontSize: 12, marginLeft: 6 }}>(you)</span>
+                    )}
+                    <span style={{ color: 'var(--text-muted)', fontSize: 11, marginLeft: 8 }}>
+                      {m.role}
+                    </span>
+                    {m.isDummy && (
+                      <span style={{
+                        fontSize: 10, fontWeight: 600, color: 'var(--text-faint)',
+                        background: 'var(--surface)', padding: '1px 6px',
+                        borderRadius: 8, marginLeft: 6, textTransform: 'uppercase', letterSpacing: 0.3,
+                      }}>
+                        dummy
+                      </span>
+                    )}
+                  </div>
+                  {m.id !== user?.id && (
+                    <button
+                      onClick={() => handleRemoveMember(m.id, m.name)}
+                      disabled={removingMember === m.id}
+                      style={{
+                        background: 'none', border: 'none', color: 'var(--text-faint)',
+                        cursor: 'pointer', fontSize: 12, padding: '2px 6px', borderRadius: 5,
+                      }}
+                    >
+                      {removingMember === m.id ? '...' : 'Remove'}
+                    </button>
+                  )}
+                </div>
+              ))}
+            </div>
+            <div style={{ display: 'flex', gap: 8 }}>
+              <Button size="sm" onClick={() => setShowAddMember(true)}>+ Add team member</Button>
+              <Button size="sm" variant="secondary" loading={seeding} onClick={handleSeedDummies}>
+                Seed dummy users
+              </Button>
+            </div>
+          </>
+        )}
+      </section>
+
       {/* Instrument Slots */}
       <section style={{ marginBottom: 36 }}>
         <button
@@ -298,6 +451,53 @@ export function EnsemblePage() {
           </div>
         )}
       </section>
+
+      {/* Add team member modal */}
+      {showAddMember && (
+        <Modal title="Add Team Member" onClose={() => setShowAddMember(false)}>
+          <form onSubmit={handleAddMember}>
+            <div className="form-group" style={{ marginBottom: 12 }}>
+              <label style={{ display: 'flex', alignItems: 'center', gap: 10, cursor: 'pointer', fontSize: 14 }}>
+                <input
+                  type="radio"
+                  checked={memberIsDummy}
+                  onChange={() => setMemberIsDummy(true)}
+                />
+                Create dummy user (for testing)
+              </label>
+              <label style={{ display: 'flex', alignItems: 'center', gap: 10, cursor: 'pointer', fontSize: 14, marginTop: 4 }}>
+                <input
+                  type="radio"
+                  checked={!memberIsDummy}
+                  onChange={() => setMemberIsDummy(false)}
+                />
+                Invite real user
+              </label>
+            </div>
+            <div className="form-group">
+              <label>Name</label>
+              <input value={memberName} onChange={e => setMemberName(e.target.value)} autoFocus placeholder="e.g. Sarah Chen" />
+            </div>
+            <div className="form-group">
+              <label>Email {memberIsDummy && <span style={{ color: 'var(--text-muted)', fontWeight: 400 }}>(optional for dummy)</span>}</label>
+              <input value={memberEmail} onChange={e => setMemberEmail(e.target.value)} placeholder={memberIsDummy ? 'optional' : 'user@example.com'} type="email" />
+            </div>
+            <div className="form-group">
+              <label>Role</label>
+              <select value={memberRole} onChange={e => setMemberRole(e.target.value as 'admin' | 'member' | 'viewer')}>
+                <option value="admin">Admin</option>
+                <option value="member">Member</option>
+                <option value="viewer">Viewer</option>
+              </select>
+            </div>
+            {memberError && <p className="form-error">{memberError}</p>}
+            <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end', marginTop: 8 }}>
+              <Button variant="secondary" type="button" onClick={() => setShowAddMember(false)}>Cancel</Button>
+              <Button type="submit" loading={addingMember} disabled={!memberName.trim()}>Add</Button>
+            </div>
+          </form>
+        </Modal>
+      )}
 
       {/* Create chart modal */}
       {showCreateChart && (
