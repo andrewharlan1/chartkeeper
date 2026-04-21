@@ -21,8 +21,13 @@ export function createVersion(data: {
 export function updateVersion(id: string, data: {
   name?: string;
   notes?: string | null;
+  isCurrent?: boolean;
 }): Promise<{ version: Version }> {
   return api.patch(`/versions/${id}`, data);
+}
+
+export function setCurrentVersion(id: string): Promise<{ version: Version }> {
+  return api.patch(`/versions/${id}`, { isCurrent: true });
 }
 
 export function deleteVersion(id: string): Promise<{ deleted: boolean }> {

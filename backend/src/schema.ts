@@ -141,6 +141,7 @@ export const versions = pgTable(
     sortOrder: integer('sort_order').notNull().default(0),
     seededFromVersionId: uuid('seeded_from_version_id').references((): any => versions.id),
     notes: text('notes'),
+    isCurrent: boolean('is_current').notNull().default(false),
     ...timestamps,
   },
   (t) => ({

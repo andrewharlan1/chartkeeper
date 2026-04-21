@@ -1,7 +1,7 @@
 import { useEffect, useState, useCallback } from 'react';
 import { useParams, Link, useNavigate } from 'react-router-dom';
 import { getChart, deleteChart } from '../api/charts';
-import { getVersions, createVersion, deleteVersion } from '../api/versions';
+import { getVersions, createVersion, deleteVersion, setCurrentVersion } from '../api/versions';
 import { getParts } from '../api/parts';
 import { getEnsemble } from '../api/ensembles';
 import { Chart as ChartType, Version, Part } from '../types';
@@ -31,6 +31,7 @@ export function ChartPage() {
 
   const [deletingVersion, setDeletingVersion] = useState<string | null>(null);
   const [deletingChart, setDeletingChart] = useState(false);
+  const [settingCurrent, setSettingCurrent] = useState<string | null>(null);
 
   const loadVersions = useCallback(async (chartId: string) => {
     const { versions: vers } = await getVersions(chartId);
@@ -112,6 +113,22 @@ export function ChartPage() {
     }
   }
 
+  async function handleSetCurrent(versionId: string, name: string) {
+    if (!confirm(`Set "${name}" as the current version?`)) return;
+    setSettingCurrent(versionId);
+    try {
+      await setCurrentVersion(versionId);
+      setVersions(prev => prev.map(v => ({ ...v, isCurrent: v.id === versionId })));
+    } catch (err) {
+      alert(err instanceof ApiError ? err.message : 'Failed to set current version');
+    } finally {
+      setSettingCurrent(null);
+    }
+  }
+
+  // Sort versions newest-first (highest sortOrder first)
+  const sortedVersions = [...versions].sort((a, b) => b.sortOrder - a.sortOrder);
+
   if (loading) return <Layout><p style={{ color: 'var(--text-muted)' }}>Loading...</p></Layout>;
   if (!chart) return null;
 
@@ -126,7 +143,12 @@ export function ChartPage() {
       ]}
       actions={
         <>
-          <Button size="sm" onClick={() => setShowCreateVersion(true)}>+ New version</Button>
+          {sortedVersions.find(v => v.isCurrent) && (
+            <Link to={`/charts/${id}/versions/${sortedVersions.find(v => v.isCurrent)!.id}`}>
+              <Button size="sm">View current version</Button>
+            </Link>
+          )}
+          <Button size="sm" variant="secondary" onClick={() => setShowCreateVersion(true)}>+ New version</Button>
           <Link to={`/charts/${id}/upload`}>
             <Button variant="secondary" size="sm">Upload parts</Button>
           </Link>
@@ -152,21 +174,39 @@ export function ChartPage() {
         </div>
       ) : (
         <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-          {versions.map(v => (
+          {sortedVersions.map(v => (
             <div
               key={v.id}
               style={{
                 background: 'var(--surface)',
-                border: '1px solid var(--border)',
+                border: v.isCurrent ? '2px solid var(--primary)' : '1px solid var(--border)',
                 borderRadius: 'var(--radius)',
                 padding: '16px 20px',
+                opacity: v.isCurrent ? 1 : 0.85,
               }}
             >
               <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 10 }}>
                 <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-                  <Link to={`/charts/${id}/versions/${v.id}`} style={{ fontWeight: 600, fontSize: 15 }}>
+                  <Link
+                    to={`/charts/${id}/versions/${v.id}`}
+                    style={{ fontWeight: v.isCurrent ? 700 : 600, fontSize: 15 }}
+                  >
                     {v.name}
                   </Link>
+                  {v.isCurrent && (
+                    <span style={{
+                      fontSize: 11,
+                      fontWeight: 600,
+                      color: 'var(--primary)',
+                      background: 'var(--primary-light, rgba(59,130,246,0.1))',
+                      padding: '2px 8px',
+                      borderRadius: 10,
+                      textTransform: 'uppercase',
+                      letterSpacing: 0.5,
+                    }}>
+                      Current
+                    </span>
+                  )}
                   <span style={{ color: 'var(--text-muted)', fontSize: 12 }}>
                     {v.parts.length} part{v.parts.length !== 1 ? 's' : ''}
                   </span>
@@ -175,6 +215,16 @@ export function ChartPage() {
                   <span style={{ color: 'var(--text-muted)', fontSize: 12 }}>
                     {new Date(v.createdAt).toLocaleDateString()}
                   </span>
+                  {!v.isCurrent && (
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      loading={settingCurrent === v.id}
+                      onClick={() => handleSetCurrent(v.id, v.name)}
+                    >
+                      Set as current
+                    </Button>
+                  )}
                   <Button
                     variant="ghost"
                     size="sm"

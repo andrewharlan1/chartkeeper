@@ -85,12 +85,19 @@ versionsRouter.post('/', async (req: Request, res: Response): Promise<void> => {
     next: sql<number>`coalesce(max(${versions.sortOrder}), -1) + 1`,
   }).from(versions).where(eq(versions.chartId, parsed.data.chartId));
 
+  // Clear current flag on all existing versions for this chart
+  await dz.update(versions)
+    .set({ isCurrent: false, updatedAt: new Date() })
+    .where(and(eq(versions.chartId, parsed.data.chartId), eq(versions.isCurrent, true)));
+
+  // Create the new version as current
   const [ver] = await dz.insert(versions).values({
     chartId: parsed.data.chartId,
     name: parsed.data.name,
     notes: parsed.data.notes ?? null,
     seededFromVersionId: parsed.data.seededFromVersionId ?? null,
     sortOrder: Number(next),
+    isCurrent: true,
   }).returning();
 
   res.status(201).json({ version: ver });
@@ -137,12 +144,26 @@ versionsRouter.patch('/:id', async (req: Request, res: Response): Promise<void> 
   const parsed = z.object({
     name: z.string().min(1).optional(),
     notes: z.string().nullable().optional(),
+    isCurrent: z.boolean().optional(),
   }).safeParse(req.body);
   if (!parsed.success) { res.status(400).json({ error: parsed.error.flatten() }); return; }
+
+  // If setting as current, clear the flag on the previous current version
+  if (parsed.data.isCurrent === true) {
+    // Look up this version's chartId
+    const [ver] = await dz.select({ chartId: versions.chartId })
+      .from(versions).where(eq(versions.id, req.params.id));
+    if (ver) {
+      await dz.update(versions)
+        .set({ isCurrent: false, updatedAt: new Date() })
+        .where(and(eq(versions.chartId, ver.chartId), eq(versions.isCurrent, true)));
+    }
+  }
 
   const updates: Record<string, unknown> = { updatedAt: new Date() };
   if (parsed.data.name !== undefined) updates.name = parsed.data.name;
   if (parsed.data.notes !== undefined) updates.notes = parsed.data.notes;
+  if (parsed.data.isCurrent !== undefined) updates.isCurrent = parsed.data.isCurrent;
 
   const [updated] = await dz.update(versions)
     .set(updates)

@@ -42,6 +42,7 @@ export interface Version {
   sortOrder: number;
   seededFromVersionId: string | null;
   notes: string | null;
+  isCurrent: boolean;
   createdAt: string;
   updatedAt: string;
   partCount?: number;
