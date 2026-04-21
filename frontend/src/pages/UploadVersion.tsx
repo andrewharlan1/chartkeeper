@@ -1,7 +1,7 @@
 import { useState, useEffect, FormEvent } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { createVersion } from '../api/versions';
-import { uploadPart } from '../api/parts';
+import { uploadPart, migrateFrom } from '../api/parts';
 import { getChart, getChartAnnotationSources, AnnotationSourceVersion } from '../api/charts';
 import { getEnsemble } from '../api/ensembles';
 import { getInstrumentSlots } from '../api/instrumentSlots';
@@ -120,9 +120,30 @@ export function UploadVersion() {
         uploadedParts.push({ entryId: entry.id, partId: part.id });
       }
 
-      // Migration will be wired in a follow-up commit
-      // For now, store uploadedParts for future use
-      void uploadedParts;
+      // Run migrations for entries that have a source selected
+      const migrationsToRun = entries
+        .filter(entry => entry.migrationSourcePartId != null)
+        .map(entry => ({
+          targetPartId: uploadedParts.find(u => u.entryId === entry.id)?.partId,
+          sourcePartId: entry.migrationSourcePartId!,
+        }))
+        .filter((m): m is { targetPartId: string; sourcePartId: string } => m.targetPartId != null);
+
+      if (migrationsToRun.length > 0) {
+        setProgress(`Migrating annotations (${migrationsToRun.length} part${migrationsToRun.length !== 1 ? 's' : ''})...`);
+        const migrationErrors: string[] = [];
+        for (const m of migrationsToRun) {
+          try {
+            await migrateFrom(m.targetPartId, m.sourcePartId);
+          } catch {
+            migrationErrors.push(m.targetPartId);
+          }
+        }
+        if (migrationErrors.length > 0) {
+          // Non-blocking: navigate anyway, show warning on the version page
+          console.warn(`[UploadVersion] Migration failed for ${migrationErrors.length} part(s)`);
+        }
+      }
 
       navigate(`/charts/${chartId}/versions/${version.id}`);
     } catch (err) {
