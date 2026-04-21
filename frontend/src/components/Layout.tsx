@@ -3,7 +3,8 @@ import { Link, useNavigate, useLocation } from 'react-router-dom';
 import { useAuth } from '../hooks/useAuth';
 import { useDarkMode } from '../hooks/useDarkMode';
 import { getEnsembles, createEnsemble } from '../api/ensembles';
-import { Ensemble } from '../types';
+import { getWorkspaceMembers } from '../api/workspaces';
+import { Ensemble, WorkspaceMember } from '../types';
 import { Breadcrumbs, BreadcrumbItem } from './Breadcrumbs';
 import { BackButton } from './BackButton';
 
@@ -22,8 +23,34 @@ interface Props {
   actions?: ReactNode;
 }
 
+function useImpersonation() {
+  const [impersonateUserId, setImpersonateState] = useState<string | null>(
+    () => localStorage.getItem('impersonateUserId'),
+  );
+  const [impersonateName, setImpersonateName] = useState<string | null>(
+    () => localStorage.getItem('impersonateName'),
+  );
+
+  function startImpersonating(userId: string, name: string) {
+    localStorage.setItem('impersonateUserId', userId);
+    localStorage.setItem('impersonateName', name);
+    setImpersonateState(userId);
+    setImpersonateName(name);
+  }
+
+  function stopImpersonating() {
+    localStorage.removeItem('impersonateUserId');
+    localStorage.removeItem('impersonateName');
+    setImpersonateState(null);
+    setImpersonateName(null);
+  }
+
+  return { impersonateUserId, impersonateName, startImpersonating, stopImpersonating };
+}
+
 export function Layout({ children, title, back, backTo, breadcrumbs, actions }: Props) {
   const { user, workspaceId, logout } = useAuth();
+  const { impersonateUserId, impersonateName, startImpersonating, stopImpersonating } = useImpersonation();
   const navigate = useNavigate();
   const location = useLocation();
   const isPlayerView = location.pathname === '/my-parts';
@@ -36,6 +63,8 @@ export function Layout({ children, title, back, backTo, breadcrumbs, actions }: 
   const [dark, setDark] = useDarkMode();
   const [sidebarOpen, setSidebarOpen] = useState(true);
   const fetchedRef = useRef(false);
+  const [viewAsMembers, setViewAsMembers] = useState<WorkspaceMember[]>([]);
+  const [showViewAs, setShowViewAs] = useState(false);
 
   useEffect(() => {
     if (!user || !workspaceId) return;
@@ -53,6 +82,12 @@ export function Layout({ children, title, back, backTo, breadcrumbs, actions }: 
       setEnsembles(r.ensembles);
     }).catch(() => {});
   }, [user, workspaceId]);
+
+  // Load members for "View as" once
+  useEffect(() => {
+    if (!workspaceId) return;
+    getWorkspaceMembers(workspaceId).then(r => setViewAsMembers(r.members)).catch(() => {});
+  }, [workspaceId]);
 
   function handleLogout() {
     logout();
@@ -286,6 +321,59 @@ export function Layout({ children, title, back, backTo, breadcrumbs, actions }: 
           </div>
         </div>
 
+        {/* View As selector */}
+        {viewAsMembers.length > 1 && (
+          <div style={{ padding: '6px 10px 0', position: 'relative' }}>
+            <button
+              onClick={() => setShowViewAs(s => !s)}
+              style={{
+                width: '100%', padding: '5px 8px', fontSize: 11, fontWeight: 600,
+                background: impersonateUserId ? 'var(--warning-subtle, #fef3cd)' : 'transparent',
+                border: '1px solid var(--border)', borderRadius: 'var(--radius-xs)',
+                color: 'var(--text-muted)', cursor: 'pointer', textAlign: 'left',
+                fontFamily: 'inherit',
+              }}
+            >
+              VIEW AS: {impersonateName || user.name || 'yourself'} {'\u25BE'}
+            </button>
+            {showViewAs && (
+              <div style={{
+                position: 'absolute', bottom: '100%', left: 10, right: 10, marginBottom: 4,
+                background: 'var(--surface-raised)', border: '1px solid var(--border)',
+                borderRadius: 8, boxShadow: 'var(--shadow-md)', padding: 4, zIndex: 50,
+                maxHeight: 200, overflowY: 'auto',
+              }}>
+                <button
+                  onClick={() => { stopImpersonating(); setShowViewAs(false); window.location.reload(); }}
+                  style={{
+                    display: 'block', width: '100%', textAlign: 'left',
+                    background: !impersonateUserId ? 'var(--accent-subtle)' : 'none',
+                    border: 'none', padding: '5px 8px', fontSize: 12, cursor: 'pointer',
+                    borderRadius: 5, fontFamily: 'inherit',
+                  }}
+                >
+                  {user.name || user.email} (you)
+                </button>
+                {viewAsMembers.filter(m => m.id !== user.id).map(m => (
+                  <button
+                    key={m.id}
+                    onClick={() => { startImpersonating(m.id, m.name || m.email); setShowViewAs(false); window.location.reload(); }}
+                    style={{
+                      display: 'block', width: '100%', textAlign: 'left',
+                      background: impersonateUserId === m.id ? 'var(--accent-subtle)' : 'none',
+                      border: 'none', padding: '5px 8px', fontSize: 12, cursor: 'pointer',
+                      borderRadius: 5, fontFamily: 'inherit',
+                    }}
+                  >
+                    {m.name || m.email}
+                    {m.isDummy && <span style={{ color: 'var(--text-faint)', marginLeft: 4, fontSize: 10 }}>dummy</span>}
+                  </button>
+                ))}
+              </div>
+            )}
+          </div>
+        )}
+
         {/* Footer: dark mode + sign out */}
         <div style={{ padding: '8px 10px 14px', borderTop: '1px solid var(--sidebar-border)' }}>
           <div style={{ fontSize: 12, color: 'var(--text-muted)', marginBottom: 8, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', fontWeight: 500 }}>
@@ -351,6 +439,28 @@ export function Layout({ children, title, back, backTo, breadcrumbs, actions }: 
             </div>
             </div>
             {actions && <div style={{ display: 'flex', gap: 8 }}>{actions}</div>}
+          </div>
+        )}
+
+        {impersonateUserId && (
+          <div style={{
+            padding: '8px 32px', background: 'var(--warning-subtle, #fef3cd)',
+            borderBottom: '1px solid var(--border)',
+            display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+            fontSize: 13,
+          }}>
+            <span>
+              Viewing as <strong>{impersonateName}</strong> (impersonating)
+            </span>
+            <button
+              onClick={() => { stopImpersonating(); window.location.reload(); }}
+              style={{
+                background: 'none', border: '1px solid var(--border)', borderRadius: 6,
+                padding: '2px 10px', fontSize: 12, cursor: 'pointer', fontFamily: 'inherit',
+              }}
+            >
+              Exit
+            </button>
           </div>
         )}
 

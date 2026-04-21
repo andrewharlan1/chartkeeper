@@ -15,6 +15,8 @@ async function request<T>(
   const headers: Record<string, string> = {};
   if (token) headers['Authorization'] = `Bearer ${token}`;
   if (body !== undefined) headers['Content-Type'] = 'application/json';
+  const impersonateId = localStorage.getItem('impersonateUserId');
+  if (impersonateId) headers['X-Impersonate-User-Id'] = impersonateId;
 
   const res = await fetch(`${BASE}${path}`, {
     method,
@@ -38,6 +40,8 @@ export async function multipartRequest<T>(
   const token = localStorage.getItem('token');
   const headers: Record<string, string> = {};
   if (token) headers['Authorization'] = `Bearer ${token}`;
+  const impersonateId = localStorage.getItem('impersonateUserId');
+  if (impersonateId) headers['X-Impersonate-User-Id'] = impersonateId;
 
   const res = await fetch(`${BASE}${path}`, {
     method: 'POST',
