@@ -10,6 +10,7 @@ import { s3, BUCKET, uploadFile } from '../lib/s3';
 import { GetObjectCommand } from '@aws-sdk/client-s3';
 import { Readable } from 'stream';
 import { enqueueJob } from '../lib/queue';
+import { migratePartAnnotations } from '../lib/annotation-migration';
 
 export const partsRouter = Router();
 partsRouter.use(requireAuth);
@@ -288,6 +289,46 @@ partsRouter.delete('/:id', async (req: Request, res: Response): Promise<void> =>
     .where(eq(parts.id, req.params.id));
 
   res.json({ deleted: true });
+});
+
+// POST /parts/:id/migrate-from
+// Migrate annotations from a source part to this target part
+partsRouter.post('/:id/migrate-from', async (req: Request, res: Response): Promise<void> => {
+  const part = await getPartWithEnsemble(req.params.id);
+  if (!part) { res.status(404).json({ error: 'Part not found' }); return; }
+
+  try {
+    await requireEnsembleAdmin(part.ensembleId, req.user!.id);
+  } catch (err) {
+    handleError(err, res);
+    return;
+  }
+
+  const parsed = z.object({
+    sourcePartId: z.string().uuid(),
+  }).safeParse(req.body);
+  if (!parsed.success) { res.status(400).json({ error: parsed.error.flatten() }); return; }
+
+  // Verify the source part exists
+  const sourcePart = await getPartWithEnsemble(parsed.data.sourcePartId);
+  if (!sourcePart) {
+    res.status(400).json({ error: 'Source part not found' });
+    return;
+  }
+
+  try {
+    const result = await migratePartAnnotations(parsed.data.sourcePartId, req.params.id);
+    res.json({
+      migratedCount: result.migrated,
+      flaggedCount: result.flagged,
+      skippedCount: result.skipped,
+      total: result.total,
+      instrument: result.instrument,
+    });
+  } catch (err) {
+    console.error('[migrate-from] Migration failed:', err);
+    res.status(500).json({ error: 'Migration failed' });
+  }
 });
 
 // ── Player router (mounted at /player) ───────────────────────────────────────

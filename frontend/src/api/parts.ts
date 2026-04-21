@@ -36,3 +36,15 @@ export function getMeasureLayout(partId: string): Promise<{ measureLayout: Measu
 export function getMyParts(): Promise<{ parts: PlayerPart[] }> {
   return api.get('/player/my-parts');
 }
+
+export interface MigrateFromResult {
+  migratedCount: number;
+  flaggedCount: number;
+  skippedCount: number;
+  total: number;
+  instrument: string;
+}
+
+export function migrateFrom(targetPartId: string, sourcePartId: string): Promise<MigrateFromResult> {
+  return api.post(`/parts/${targetPartId}/migrate-from`, { sourcePartId });
+}
