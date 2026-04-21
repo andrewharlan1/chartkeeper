@@ -2,7 +2,7 @@ import { Router, Request, Response } from 'express';
 import { z } from 'zod';
 import { eq, and, isNull, sql } from 'drizzle-orm';
 import { dz } from '../db';
-import { versions, charts, parts } from '../schema';
+import { versions, charts, parts, annotations } from '../schema';
 import { requireAuth } from '../middleware/auth';
 import { requireEnsembleMember, requireEnsembleAdmin } from '../lib/ensembleAuth';
 import { getChartEnsembleId } from './charts';
@@ -190,6 +190,34 @@ versionsRouter.get('/:id/annotation-sources', async (req: Request, res: Response
     .where(and(eq(parts.versionId, req.params.id), isNull(parts.deletedAt)));
 
   res.json({ parts: partRows, sources });
+});
+
+// GET /versions/:id/flagged-count
+// Returns the number of annotations with _needsReview flag across all parts in this version
+versionsRouter.get('/:id/flagged-count', async (req: Request, res: Response): Promise<void> => {
+  const ensembleId = await getVersionEnsembleId(req.params.id);
+  if (!ensembleId) { res.status(404).json({ error: 'Version not found' }); return; }
+
+  try {
+    await requireEnsembleMember(ensembleId, req.user!.id);
+  } catch (err) {
+    handleError(err, res);
+    return;
+  }
+
+  const [{ count }] = await dz.select({
+    count: sql<number>`count(*)`,
+  })
+    .from(annotations)
+    .innerJoin(parts, eq(parts.id, annotations.partId))
+    .where(and(
+      eq(parts.versionId, req.params.id),
+      isNull(parts.deletedAt),
+      isNull(annotations.deletedAt),
+      sql`${annotations.contentJson}->>'_needsReview' = 'true'`,
+    ));
+
+  res.json({ flaggedCount: Number(count) });
 });
 
 // POST /versions/:id/migrate

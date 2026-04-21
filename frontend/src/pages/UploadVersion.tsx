@@ -129,12 +129,14 @@ export function UploadVersion() {
         }))
         .filter((m): m is { targetPartId: string; sourcePartId: string } => m.targetPartId != null);
 
+      let totalFlagged = 0;
       if (migrationsToRun.length > 0) {
         setProgress(`Migrating annotations (${migrationsToRun.length} part${migrationsToRun.length !== 1 ? 's' : ''})...`);
         const migrationErrors: string[] = [];
         for (const m of migrationsToRun) {
           try {
-            await migrateFrom(m.targetPartId, m.sourcePartId);
+            const result = await migrateFrom(m.targetPartId, m.sourcePartId);
+            totalFlagged += result.flaggedCount;
           } catch {
             migrationErrors.push(m.targetPartId);
           }
@@ -145,7 +147,9 @@ export function UploadVersion() {
         }
       }
 
-      navigate(`/charts/${chartId}/versions/${version.id}`);
+      navigate(`/charts/${chartId}/versions/${version.id}`, {
+        state: totalFlagged > 0 ? { migrationFlagged: totalFlagged } : undefined,
+      });
     } catch (err) {
       setError(err instanceof ApiError ? err.message : 'Upload failed');
     } finally {

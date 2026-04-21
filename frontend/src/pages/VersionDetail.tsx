@@ -1,7 +1,7 @@
-import { useEffect, useState, useCallback } from 'react';
-import { useParams } from 'react-router-dom';
+import { useEffect, useState, useCallback, useRef } from 'react';
+import { useParams, useLocation } from 'react-router-dom';
 import { useAuth } from '../hooks/useAuth';
-import { getVersion } from '../api/versions';
+import { getVersion, getFlaggedCount } from '../api/versions';
 import { getChart } from '../api/charts';
 import { getEnsemble } from '../api/ensembles';
 import { getInstrumentSlots } from '../api/instrumentSlots';
@@ -350,6 +350,7 @@ function InlineAddPart({ versionId, ensembleId, hasParts, onAdded }: {
 
 export function VersionDetail() {
   const { id: chartId, vId } = useParams<{ id: string; vId: string }>();
+  const location = useLocation();
   const { user } = useAuth();
   const [version, setVersion] = useState<Version | null>(null);
   const [parts, setParts] = useState<Part[]>([]);
@@ -357,19 +358,24 @@ export function VersionDetail() {
   const [deletingPart, setDeletingPart] = useState<string | null>(null);
   const [deletePartError, setDeletePartError] = useState('');
   const [showMigration, setShowMigration] = useState(false);
-  const [migrationFlagged, setMigrationFlagged] = useState(0);
+  const [migrationFlagged, setMigrationFlagged] = useState(
+    () => (location.state as { migrationFlagged?: number } | null)?.migrationFlagged ?? 0,
+  );
+  const flaggedDismissedRef = useRef(false);
   const [chartName, setChartName] = useState('');
   const [ensembleName, setEnsembleName] = useState('');
   const [ensembleId, setEnsembleId] = useState('');
 
   const load = useCallback(async () => {
     if (!vId) return;
-    const [verRes, partsRes] = await Promise.all([
+    const [verRes, partsRes, flaggedRes] = await Promise.all([
       getVersion(vId),
       getParts(vId),
+      getFlaggedCount(vId).catch(() => ({ flaggedCount: 0 })),
     ]);
     setVersion(verRes.version);
     setParts(partsRes.parts);
+    if (flaggedRes.flaggedCount > 0 && !flaggedDismissedRef.current) setMigrationFlagged(flaggedRes.flaggedCount);
   }, [vId]);
 
   useEffect(() => {
@@ -447,7 +453,7 @@ export function VersionDetail() {
             {migrationFlagged} annotation{migrationFlagged !== 1 ? 's' : ''} may have shifted to unexpected positions — review them in the part viewer.
           </span>
           <button
-            onClick={() => setMigrationFlagged(0)}
+            onClick={() => { flaggedDismissedRef.current = true; setMigrationFlagged(0); }}
             style={{ background: 'none', border: 'none', color: '#eab308', cursor: 'pointer', fontSize: 16, padding: '0 4px' }}
           >
             {'\u00D7'}

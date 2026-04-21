@@ -54,6 +54,10 @@ export function getAnnotationSources(versionId: string): Promise<AnnotationSourc
   return api.get(`/versions/${versionId}/annotation-sources`);
 }
 
+export function getFlaggedCount(versionId: string): Promise<{ flaggedCount: number }> {
+  return api.get(`/versions/${versionId}/flagged-count`);
+}
+
 export function migrateAnnotations(
   versionId: string,
   migrations: { targetPartId: string; sourcePartId: string }[],
