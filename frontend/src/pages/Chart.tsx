@@ -225,6 +225,19 @@ export function ChartPage() {
                                   {sp.annotationCount} annotation{sp.annotationCount !== 1 ? 's' : ''}
                                 </span>
                               )}
+                              {sp.diffStatus && sp.diffStatus.changedMeasureCount > 0 && (
+                                <span style={{
+                                  fontSize: 11, marginLeft: 6, padding: '1px 8px', borderRadius: 8,
+                                  background: 'var(--warning-subtle, #fef3cd)',
+                                  color: 'var(--warning-text, #856404)',
+                                  fontWeight: 500,
+                                }}>
+                                  {sp.diffStatus.changedMeasureCount} measure{sp.diffStatus.changedMeasureCount !== 1 ? 's' : ''} changed
+                                  {sp.diffStatus.sourceVersionName && (
+                                    <span style={{ fontWeight: 400, opacity: 0.8 }}> vs {sp.diffStatus.sourceVersionName}</span>
+                                  )}
+                                </span>
+                              )}
                             </div>
                             <Link to={`/charts/${id}/versions/${selectedVersionId}`}>
                               <Button size="sm" variant="secondary">Open</Button>
@@ -378,10 +391,20 @@ function PartRow({
           {part.annotationCount} annotation{part.annotationCount !== 1 ? 's' : ''}
         </span>
         {part.diffStatus && (
-          <span style={{ color: 'var(--text-muted)', fontSize: 12, marginLeft: 6 }}>
+          <span style={{
+            fontSize: 11, marginLeft: 6, padding: '1px 8px', borderRadius: 8,
+            background: part.diffStatus.changedMeasureCount > 0 ? 'var(--warning-subtle, #fef3cd)' : 'var(--success-subtle, #d4edda)',
+            color: part.diffStatus.changedMeasureCount > 0 ? 'var(--warning-text, #856404)' : 'var(--success-text, #155724)',
+            fontWeight: 500,
+          }}>
             {part.diffStatus.changedMeasureCount > 0
               ? `${part.diffStatus.changedMeasureCount} measure${part.diffStatus.changedMeasureCount !== 1 ? 's' : ''} changed`
               : 'no changes'}
+            {part.diffStatus.sourceVersionName && (
+              <span style={{ fontWeight: 400, opacity: 0.8 }}>
+                {' '}vs {part.diffStatus.sourceVersionName}
+              </span>
+            )}
           </span>
         )}
       </div>
