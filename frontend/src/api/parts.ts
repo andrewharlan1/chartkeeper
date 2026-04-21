@@ -51,6 +51,24 @@ export function getMyParts(): Promise<{ parts: PlayerPart[] }> {
   return api.get('/player/my-parts');
 }
 
+export interface SlotDiff {
+  slotId: string | null;
+  instrumentName: string;
+  sourcePartId: string;
+  sourceVersionId: string | null;
+  sourceVersionName: string;
+  changedMeasures: number[];
+  changeDescriptions: Record<string, string>;
+  changedMeasureBounds: Record<string, { x: number; y: number; w: number; h: number; page: number }>;
+  changelog: string;
+  computedAt: string | null;
+}
+
+export interface PartDiffResponse {
+  diffs: SlotDiff[];
+}
+
+// Legacy single-diff shape for backward compat in useDiff consumers
 export interface PartDiffData {
   changedMeasures: number[];
   changeDescriptions: Record<string, string>;
@@ -60,8 +78,48 @@ export interface PartDiffData {
   comparedToVersionName: string;
 }
 
-export function getPartDiff(partId: string): Promise<PartDiffData> {
+export function getPartDiffs(partId: string): Promise<PartDiffResponse> {
   return api.get(`/parts/${partId}/diff`);
+}
+
+export function getPartDiff(partId: string): Promise<PartDiffData> {
+  return (api.get(`/parts/${partId}/diff`) as Promise<PartDiffResponse>).then((res) => {
+    if (res.diffs.length === 0) {
+      return {
+        changedMeasures: [],
+        changeDescriptions: {},
+        changedMeasureBounds: {},
+        changelog: '',
+        comparedToVersionId: null,
+        comparedToVersionName: '',
+      };
+    }
+    // Union all diffs into a single legacy-shaped response
+    const allChanged = new Set<number>();
+    const allDescriptions: Record<string, string> = {};
+    const allBounds: Record<string, { x: number; y: number; w: number; h: number; page: number }> = {};
+    const changelogs: string[] = [];
+    let sourceVersionId: string | null = null;
+    let sourceVersionName = '';
+
+    for (const d of res.diffs) {
+      for (const m of d.changedMeasures) allChanged.add(m);
+      Object.assign(allDescriptions, d.changeDescriptions);
+      Object.assign(allBounds, d.changedMeasureBounds);
+      if (d.changelog) changelogs.push(d.changelog);
+      sourceVersionId = d.sourceVersionId;
+      sourceVersionName = d.sourceVersionName;
+    }
+
+    return {
+      changedMeasures: [...allChanged].sort((a, b) => a - b),
+      changeDescriptions: allDescriptions,
+      changedMeasureBounds: allBounds,
+      changelog: changelogs.join('\n'),
+      comparedToVersionId: sourceVersionId,
+      comparedToVersionName: sourceVersionName,
+    };
+  });
 }
 
 export interface MigrateFromResult {

@@ -452,19 +452,44 @@ chartsRouter.get('/:id/versions/:vId/instruments', async (req: Request, res: Res
     (slotToParts[r.slotId] ??= []).push(r.partId);
   }
 
-  // Diff data for current parts (compared to previous version)
+  // Diff data for current parts — now keyed by (partId, slotId) for per-instrument diffs
   const diffRows = currentParts.length > 0
     ? await dz.select({
         toPartId: versionDiffs.toPartId,
+        slotId: versionDiffs.slotId,
+        fromPartId: versionDiffs.fromPartId,
         diffJson: versionDiffs.diffJson,
       })
         .from(versionDiffs)
         .where(sql`${versionDiffs.toPartId} in (${sql.join(currentParts.map(p => sql`${p.id}`), sql`, `)})`)
     : [];
-  const diffMap: Record<string, { changedMeasureCount: number }> = {};
+
+  // Get source version names for diff display
+  const diffFromPartIds = [...new Set(diffRows.map(r => r.fromPartId))];
+  const diffSourceVersionMap: Record<string, string> = {};
+  if (diffFromPartIds.length > 0) {
+    const sourceRows = await dz.select({ partId: parts.id, versionName: versions.name })
+      .from(parts)
+      .innerJoin(versions, eq(versions.id, parts.versionId))
+      .where(sql`${parts.id} in (${sql.join(diffFromPartIds.map(id => sql`${id}`), sql`, `)})`);
+    for (const r of sourceRows) diffSourceVersionMap[r.partId] = r.versionName;
+  }
+
+  // Keyed by "partId:slotId" for slot-specific lookups, and "partId" for aggregate
+  const slotDiffMap: Record<string, { changedMeasureCount: number; sourceVersionName: string }> = {};
+  const partDiffMap: Record<string, { changedMeasureCount: number; sourceVersionName: string; hasChangelog: boolean }> = {};
   for (const r of diffRows) {
-    const d = r.diffJson as { changedMeasures?: number[] };
-    diffMap[r.toPartId] = { changedMeasureCount: d.changedMeasures?.length ?? 0 };
+    const d = r.diffJson as { changedMeasures?: number[]; changeDescriptions?: Record<string, string> };
+    const count = d.changedMeasures?.length ?? 0;
+    const sourceVersionName = diffSourceVersionMap[r.fromPartId] || '';
+    const hasChangelog = Object.keys(d.changeDescriptions ?? {}).length > 0;
+    const slotKey = `${r.toPartId}:${r.slotId ?? 'score'}`;
+    slotDiffMap[slotKey] = { changedMeasureCount: count, sourceVersionName };
+    // Aggregate: keep highest count for the part
+    const existing = partDiffMap[r.toPartId];
+    if (!existing || count > existing.changedMeasureCount) {
+      partDiffMap[r.toPartId] = { changedMeasureCount: count, sourceVersionName, hasChangelog };
+    }
   }
 
   // Previous version parts (for fallback state B)
@@ -548,12 +573,19 @@ chartsRouter.get('/:id/versions/:vId/instruments', async (req: Request, res: Res
         assignedUsers: slotUsersMap[slot.id] || [],
         currentParts: partIds.map(pid => {
           const p = partsById.get(pid)!;
+          const slotKey = `${p.id}:${slot.id}`;
+          const slotDiff = slotDiffMap[slotKey];
           return {
             partId: p.id,
             name: p.name,
             kind: p.kind,
             annotationCount: annCountMap[p.id] || 0,
-            diffStatus: diffMap[p.id] || null,
+            diffStatus: slotDiff ? {
+              slotId: slot.id,
+              sourceVersionName: slotDiff.sourceVersionName,
+              changedMeasureCount: slotDiff.changedMeasureCount,
+              hasChangelog: true,
+            } : null,
           };
         }),
         previousVersionParts: !partIds.length ? (prevPartsBySlot[slot.id] || []) : [],
@@ -563,13 +595,21 @@ chartsRouter.get('/:id/versions/:vId/instruments', async (req: Request, res: Res
   // Score parts (visible to all) — parts of kind 'score' in current version
   const scoreParts = currentParts
     .filter(p => p.kind === 'score')
-    .map(p => ({
-      partId: p.id,
-      name: p.name,
-      kind: p.kind,
-      annotationCount: annCountMap[p.id] || 0,
-      diffStatus: diffMap[p.id] || null,
-    }));
+    .map(p => {
+      const scoreDiff = partDiffMap[p.id];
+      return {
+        partId: p.id,
+        name: p.name,
+        kind: p.kind,
+        annotationCount: annCountMap[p.id] || 0,
+        diffStatus: scoreDiff ? {
+          slotId: null as string | null,
+          sourceVersionName: scoreDiff.sourceVersionName,
+          changedMeasureCount: scoreDiff.changedMeasureCount,
+          hasChangelog: scoreDiff.hasChangelog,
+        } : null,
+      };
+    });
 
   res.json({
     chart: { id: chart.id, name: chart.name, composer: chart.composer, ensembleId },

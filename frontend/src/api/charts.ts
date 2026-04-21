@@ -76,12 +76,19 @@ export interface InstrumentUser {
   isDummy: boolean;
 }
 
+export interface InstrumentPartDiffStatus {
+  slotId: string | null;
+  sourceVersionName: string;
+  changedMeasureCount: number;
+  hasChangelog: boolean;
+}
+
 export interface InstrumentPart {
   partId: string;
   name: string;
   kind: string;
   annotationCount: number;
-  diffStatus: { changedMeasureCount: number } | null;
+  diffStatus: InstrumentPartDiffStatus | null;
 }
 
 export interface PreviousVersionPart {

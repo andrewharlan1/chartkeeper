@@ -498,7 +498,7 @@ partsRouter.post('/:id/migrate-from', async (req: Request, res: Response): Promi
   }
 });
 
-// GET /parts/:id/diff — returns diff data for this part compared to the previous version
+// GET /parts/:id/diff — returns array of diffs for this part, one per instrument slot
 partsRouter.get('/:id/diff', async (req: Request, res: Response): Promise<void> => {
   const part = await getPartWithEnsemble(req.params.id);
   if (!part) { res.status(404).json({ error: 'Part not found' }); return; }
@@ -510,56 +510,76 @@ partsRouter.get('/:id/diff', async (req: Request, res: Response): Promise<void> 
     return;
   }
 
-  // Look up diff where this part is the target (toPartId)
+  // Look up all diffs where this part is the target (one per slot)
   const diffRows = await dz.select({
     diffJson: versionDiffs.diffJson,
     fromPartId: versionDiffs.fromPartId,
+    slotId: versionDiffs.slotId,
+    computedAt: versionDiffs.createdAt,
   })
     .from(versionDiffs)
-    .where(eq(versionDiffs.toPartId, req.params.id))
-    .limit(1);
+    .where(eq(versionDiffs.toPartId, req.params.id));
 
   if (diffRows.length === 0) {
-    // No diff available — normal case for first versions
-    res.json({ changedMeasures: [], changeDescriptions: {}, changelog: '', comparedToVersionId: null, comparedToVersionName: '' });
+    res.json({ diffs: [] });
     return;
   }
 
-  const diff = diffRows[0].diffJson as {
-    changedMeasures?: number[];
-    changeDescriptions?: Record<string, string>;
-    changedMeasureBounds?: Record<string, { x: number; y: number; w: number; h: number; page: number }>;
-    structuralChanges?: { insertedMeasures?: number[]; deletedMeasures?: number[] };
-  };
+  // Batch-fetch slot names and source version info
+  const slotIds = diffRows.map(r => r.slotId).filter((id): id is string => id !== null);
+  const slotNameMap: Record<string, string> = {};
+  if (slotIds.length > 0) {
+    const slotRows = await dz.select({ id: instrumentSlots.id, name: instrumentSlots.name })
+      .from(instrumentSlots)
+      .where(sql`${instrumentSlots.id} in (${sql.join(slotIds.map(id => sql`${id}`), sql`, `)})`);
+    for (const s of slotRows) slotNameMap[s.id] = s.name;
+  }
 
-  // Get the source part's version info for the "compared to" label
-  const fromPartRows = await dz.select({
-    versionId: versions.id,
-    versionName: versions.name,
-  })
-    .from(parts)
-    .innerJoin(versions, eq(versions.id, parts.versionId))
-    .where(eq(parts.id, diffRows[0].fromPartId))
-    .limit(1);
+  const fromPartIds = [...new Set(diffRows.map(r => r.fromPartId))];
+  const fromVersionMap: Record<string, { versionId: string; versionName: string }> = {};
+  if (fromPartIds.length > 0) {
+    const fromRows = await dz.select({
+      partId: parts.id,
+      versionId: versions.id,
+      versionName: versions.name,
+    })
+      .from(parts)
+      .innerJoin(versions, eq(versions.id, parts.versionId))
+      .where(sql`${parts.id} in (${sql.join(fromPartIds.map(id => sql`${id}`), sql`, `)})`);
+    for (const r of fromRows) fromVersionMap[r.partId] = { versionId: r.versionId, versionName: r.versionName };
+  }
 
-  const comparedTo = fromPartRows[0] ?? null;
+  const diffs = diffRows.map(row => {
+    const diff = row.diffJson as {
+      changedMeasures?: number[];
+      changeDescriptions?: Record<string, string>;
+      changedMeasureBounds?: Record<string, { x: number; y: number; w: number; h: number; page: number }>;
+      structuralChanges?: { insertedMeasures?: number[]; deletedMeasures?: number[] };
+    };
 
-  // Build changelog string from change descriptions
-  const descriptions = diff.changeDescriptions ?? {};
-  const changelog = Object.values(descriptions).join('\n');
+    const descriptions = diff.changeDescriptions ?? {};
+    const changelog = Object.values(descriptions).join('\n');
 
-  // Merge inserted measures into changedMeasures for highlighting
-  const changed = new Set(diff.changedMeasures ?? []);
-  for (const m of diff.structuralChanges?.insertedMeasures ?? []) changed.add(m);
+    const changed = new Set(diff.changedMeasures ?? []);
+    for (const m of diff.structuralChanges?.insertedMeasures ?? []) changed.add(m);
 
-  res.json({
-    changedMeasures: [...changed].sort((a, b) => a - b),
-    changeDescriptions: descriptions,
-    changedMeasureBounds: diff.changedMeasureBounds ?? {},
-    changelog,
-    comparedToVersionId: comparedTo?.versionId ?? null,
-    comparedToVersionName: comparedTo?.versionName ?? '',
+    const source = fromVersionMap[row.fromPartId];
+
+    return {
+      slotId: row.slotId,
+      instrumentName: row.slotId ? (slotNameMap[row.slotId] || 'Unknown') : 'Score',
+      sourcePartId: row.fromPartId,
+      sourceVersionId: source?.versionId ?? null,
+      sourceVersionName: source?.versionName ?? '',
+      changedMeasures: [...changed].sort((a, b) => a - b),
+      changeDescriptions: descriptions,
+      changedMeasureBounds: diff.changedMeasureBounds ?? {},
+      changelog,
+      computedAt: row.computedAt?.toISOString() ?? null,
+    };
   });
+
+  res.json({ diffs });
 });
 
 // ── Player router (mounted at /player) ───────────────────────────────────────
