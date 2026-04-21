@@ -7,11 +7,12 @@ import { getEnsemble } from '../api/ensembles';
 import { getInstrumentSlots } from '../api/instrumentSlots';
 import { getParts, deletePart, uploadPart } from '../api/parts';
 import { getAnnotations, createAnnotation, deleteAnnotation } from '../api/annotations';
-import { Version, Part, Annotation, AnnotationKind, ContentJson, InstrumentSlot, PartKind } from '../types';
+import { Version, Part, Annotation, AnnotationKind, ContentJson, InstrumentSlot, PartKind, ANNOTATABLE_KINDS } from '../types';
 import { Layout } from '../components/Layout';
 import { OmrBadge } from '../components/Badge';
 import { Button } from '../components/Button';
-import { PdfViewer } from '../components/PdfViewer';
+import { PartRenderer } from '../components/PartRenderer';
+import { ContentKindIcon, KIND_LABELS } from '../components/ContentKindIcon';
 import { InstrumentIcon } from '../components/InstrumentIcon';
 import { FileDropZone } from '../components/FileDropZone';
 import { SlotAssignmentPicker } from '../components/SlotAssignmentPicker';
@@ -176,8 +177,17 @@ function AnnotationPanel({ partId, currentUserId }: { partId: string; currentUse
 
 // ── Inline add part ──────────────────────────────────────────────────────────
 
+const ALL_KINDS: PartKind[] = ['part', 'score', 'chart', 'link', 'audio', 'other'];
+
 function humanizeName(filename: string): string {
-  return filename.replace(/\.pdf$/i, '').replace(/[-_]/g, ' ').trim();
+  return filename.replace(/\.(pdf|musicxml|mxl|mp3|wav|m4a|ogg|flac)$/i, '').replace(/[-_]/g, ' ').trim();
+}
+
+function guessKindFromFile(file: File): PartKind {
+  const lower = file.name.toLowerCase();
+  if (lower.includes('score')) return 'score';
+  if (/\.(mp3|wav|m4a|ogg|flac)$/.test(lower)) return 'audio';
+  return 'part';
 }
 
 function InlineAddPart({ versionId, ensembleId, hasParts, onAdded }: {
@@ -190,6 +200,7 @@ function InlineAddPart({ versionId, ensembleId, hasParts, onAdded }: {
   const [file, setFile] = useState<File | null>(null);
   const [name, setName] = useState('');
   const [kind, setKind] = useState<PartKind>('part');
+  const [linkUrl, setLinkUrl] = useState('');
   const [slotIds, setSlotIds] = useState<string[]>([]);
   const [slots, setSlots] = useState<InstrumentSlot[]>([]);
   const [uploading, setUploading] = useState(false);
@@ -204,6 +215,7 @@ function InlineAddPart({ versionId, ensembleId, hasParts, onAdded }: {
     setFile(null);
     setName('');
     setKind('part');
+    setLinkUrl('');
     setSlotIds([]);
     setErr('');
     setOpen(false);
@@ -214,22 +226,23 @@ function InlineAddPart({ versionId, ensembleId, hasParts, onAdded }: {
     if (!f) return;
     setFile(f);
     setName(humanizeName(f.name));
-    const guessedKind: PartKind = f.name.toLowerCase().includes('score') ? 'score' : 'part';
-    setKind(guessedKind);
+    setKind(guessKindFromFile(f));
   }
 
   async function handleUpload() {
     if (!name.trim()) { setErr('Name is required.'); return; }
-    if (!file) { setErr('Select a file.'); return; }
+    if (kind === 'link' && !linkUrl.trim()) { setErr('URL is required for links.'); return; }
+    if (kind !== 'link' && !file) { setErr('Select a file.'); return; }
     setUploading(true);
     setErr('');
     try {
       const { part } = await uploadPart({
         versionId,
         name: name.trim(),
-        file,
+        file: file,
         kind,
         slotIds: slotIds.length > 0 ? slotIds : undefined,
+        linkUrl: kind === 'link' ? linkUrl : undefined,
       });
       onAdded(part);
       reset();
@@ -241,9 +254,9 @@ function InlineAddPart({ versionId, ensembleId, hasParts, onAdded }: {
   }
 
   // State 1: collapsed button (only when parts exist)
-  const showCollapsed = hasParts && !open && !file;
-  // State 2: drop zone visible (auto-open when no parts, or user clicked +)
-  const showDropZone = !hasParts || open || !!file;
+  const showCollapsed = hasParts && !open && !file && kind !== 'link';
+  // State 2: form visible
+  const showForm = !hasParts || open || !!file || kind === 'link';
 
   if (showCollapsed) {
     return (
@@ -259,32 +272,56 @@ function InlineAddPart({ versionId, ensembleId, hasParts, onAdded }: {
     );
   }
 
-  if (!showDropZone) return null;
+  if (!showForm) return null;
 
-  // State 3: file selected — show full form
-  if (file) {
+  const hasContent = !!file || kind === 'link';
+
+  if (hasContent) {
     return (
       <div style={{
         background: 'var(--surface)', border: '1px solid var(--accent)',
         borderRadius: 'var(--radius)', padding: '16px 18px',
       }}>
-        {/* Drop zone for re-selection */}
-        <FileDropZone
-          onFiles={handleFiles}
-          multiple={false}
-          label={file.name}
-          hint="Drop a different file to replace, or click to browse"
-        />
+        {/* Drop zone for re-selection (file-based kinds) */}
+        {kind !== 'link' && (
+          <FileDropZone
+            onFiles={handleFiles}
+            accept=".pdf,.musicxml,.mxl,.mp3,.wav,.m4a,.ogg,.flac"
+            multiple={false}
+            label={file?.name ?? 'Drop a file or click to browse'}
+            hint="Drop a different file to replace, or click to browse"
+          />
+        )}
+
+        {/* URL input (link kind) */}
+        {kind === 'link' && (
+          <div>
+            <label style={{ fontSize: 12, fontWeight: 600, color: 'var(--text-muted)', display: 'block', marginBottom: 4 }}>
+              URL
+            </label>
+            <input
+              value={linkUrl}
+              onChange={e => setLinkUrl(e.target.value)}
+              placeholder="https://..."
+              type="url"
+              style={{
+                width: '100%', background: 'var(--bg)', border: '1px solid var(--border)',
+                borderRadius: 4, padding: '6px 10px', color: 'var(--text)', fontSize: 14,
+                boxSizing: 'border-box',
+              }}
+            />
+          </div>
+        )}
 
         {/* Name field */}
         <div style={{ marginTop: 12 }}>
           <label style={{ fontSize: 12, fontWeight: 600, color: 'var(--text-muted)', display: 'block', marginBottom: 4 }}>
-            Part name
+            Name
           </label>
           <input
             value={name}
             onChange={e => setName(e.target.value)}
-            placeholder="Part name..."
+            placeholder="Name..."
             style={{
               width: '100%', background: 'var(--bg)', border: '1px solid var(--border)',
               borderRadius: 4, padding: '6px 10px', color: 'var(--text)', fontSize: 14,
@@ -294,16 +331,20 @@ function InlineAddPart({ versionId, ensembleId, hasParts, onAdded }: {
         </div>
 
         {/* Kind selector */}
-        <div style={{ marginTop: 10, display: 'flex', alignItems: 'center', gap: 14 }}>
+        <div style={{ marginTop: 10, display: 'flex', alignItems: 'center', gap: 8 }}>
           <label style={{ fontSize: 12, fontWeight: 600, color: 'var(--text-muted)' }}>Kind</label>
-          <label style={{ fontSize: 13, display: 'flex', alignItems: 'center', gap: 4, cursor: 'pointer', color: 'var(--text)' }}>
-            <input type="radio" name="inline-kind" value="part" checked={kind === 'part'} onChange={() => setKind('part')} />
-            Part
-          </label>
-          <label style={{ fontSize: 13, display: 'flex', alignItems: 'center', gap: 4, cursor: 'pointer', color: 'var(--text)' }}>
-            <input type="radio" name="inline-kind" value="score" checked={kind === 'score'} onChange={() => setKind('score')} />
-            Score
-          </label>
+          <select
+            value={kind}
+            onChange={e => setKind(e.target.value as PartKind)}
+            style={{
+              background: 'var(--bg)', border: '1px solid var(--border)',
+              borderRadius: 4, padding: '4px 8px', color: 'var(--text)', fontSize: 13,
+            }}
+          >
+            {ALL_KINDS.map(k => (
+              <option key={k} value={k}>{KIND_LABELS[k]}</option>
+            ))}
+          </select>
         </div>
 
         {/* Slot assignment */}
@@ -328,20 +369,29 @@ function InlineAddPart({ versionId, ensembleId, hasParts, onAdded }: {
     );
   }
 
-  // State 2: drop zone visible, no file selected yet
+  // No file selected yet — show drop zone
   return (
     <div>
       <FileDropZone
         onFiles={handleFiles}
+        accept=".pdf,.musicxml,.mxl,.mp3,.wav,.m4a,.ogg,.flac"
         multiple={false}
-        label="Drop a PDF here or click to browse"
-        hint="Add a part to this version"
+        label="Drop a file here or click to browse"
+        hint="Add a part, audio file, or other content to this version"
       />
-      {hasParts && (
-        <div style={{ textAlign: 'right', marginTop: 6 }}>
-          <Button size="sm" variant="ghost" onClick={reset}>Cancel</Button>
-        </div>
-      )}
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: 6 }}>
+        <button
+          type="button"
+          onClick={() => { setKind('link'); setOpen(true); }}
+          style={{
+            background: 'none', border: 'none', color: 'var(--text-muted)',
+            cursor: 'pointer', fontSize: 12, fontFamily: 'inherit', padding: 0,
+          }}
+        >
+          + Add a link instead
+        </button>
+        {hasParts && <Button size="sm" variant="ghost" onClick={reset}>Cancel</Button>}
+      </div>
     </div>
   );
 }
@@ -475,9 +525,15 @@ export function VersionDetail() {
                 <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
                   <InstrumentIcon name={p.name} size={24} />
                   <span style={{ fontWeight: 600, fontSize: 15 }}>{p.name}</span>
-                  {p.kind === 'score' && (
-                    <span style={{ fontSize: 11, padding: '2px 7px', background: 'rgba(99,102,241,0.15)',
-                      border: '1px solid rgba(99,102,241,0.4)', borderRadius: 99, color: 'var(--accent)' }}>Score</span>
+                  {p.kind !== 'part' && (
+                    <span style={{
+                      display: 'inline-flex', alignItems: 'center', gap: 4,
+                      fontSize: 11, padding: '2px 7px', background: 'rgba(99,102,241,0.15)',
+                      border: '1px solid rgba(99,102,241,0.4)', borderRadius: 99, color: 'var(--accent)',
+                    }}>
+                      <ContentKindIcon kind={p.kind} size={12} />
+                      {KIND_LABELS[p.kind]}
+                    </span>
                   )}
                   <OmrBadge status={p.omrStatus} />
                 </div>
@@ -488,16 +544,17 @@ export function VersionDetail() {
                 </Button>
               </div>
 
-              {/* PDF viewer */}
-              <PdfViewer
-                url={`/parts/${p.id}/pdf`}
-                partId={p.id}
+              {/* Content renderer — switches based on kind */}
+              <PartRenderer
+                part={p}
                 versionId={vId}
                 title={`${p.name} — ${version.name}`}
               />
 
-              {/* Annotations */}
-              <AnnotationPanel partId={p.id} currentUserId={user?.id ?? ''} />
+              {/* Annotations — only for annotatable kinds */}
+              {ANNOTATABLE_KINDS.includes(p.kind) && (
+                <AnnotationPanel partId={p.id} currentUserId={user?.id ?? ''} />
+              )}
             </div>
           ))}
 

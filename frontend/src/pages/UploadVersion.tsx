@@ -5,11 +5,12 @@ import { uploadPart, migrateFrom } from '../api/parts';
 import { getChart, getChartAnnotationSources, AnnotationSourceVersion } from '../api/charts';
 import { getEnsemble } from '../api/ensembles';
 import { getInstrumentSlots } from '../api/instrumentSlots';
-import { UploadEntry, PartKind, InstrumentSlot } from '../types';
+import { UploadEntry, PartKind, InstrumentSlot, ANNOTATABLE_KINDS } from '../types';
 import { Layout } from '../components/Layout';
 import { Button } from '../components/Button';
 import { FileDropZone } from '../components/FileDropZone';
 import { SlotAssignmentPicker } from '../components/SlotAssignmentPicker';
+import { ContentKindIcon, KIND_LABELS } from '../components/ContentKindIcon';
 import { ApiError } from '../api/client';
 
 type MigrationEntry = UploadEntry & {
@@ -17,8 +18,49 @@ type MigrationEntry = UploadEntry & {
   showAllInstruments: boolean;
 };
 
+const ALL_KINDS: PartKind[] = ['part', 'score', 'chart', 'link', 'audio', 'other'];
+
+/** File accept string for each kind */
+const ACCEPT_BY_KIND: Record<PartKind, string> = {
+  part: '.pdf,.musicxml,.mxl',
+  score: '.pdf,.musicxml,.mxl',
+  chart: '.pdf,.musicxml,.mxl',
+  link: '',
+  audio: '.mp3,.wav,.m4a,.ogg,.flac',
+  other: '*',
+};
+
+/** Whether a file is needed for a kind */
+function kindNeedsFile(kind: PartKind): boolean {
+  return kind !== 'link';
+}
+
 function humanizeName(filename: string): string {
-  return filename.replace(/\.pdf$/i, '').replace(/[-_]/g, ' ').trim();
+  return filename.replace(/\.(pdf|musicxml|mxl|mp3|wav|m4a|ogg|flac)$/i, '').replace(/[-_]/g, ' ').trim();
+}
+
+function guessKindFromFile(file: File): PartKind {
+  const lower = file.name.toLowerCase();
+  if (lower.includes('score')) return 'score';
+  if (/\.(mp3|wav|m4a|ogg|flac)$/.test(lower)) return 'audio';
+  return 'part';
+}
+
+/** Get audio duration using HTML5 Audio API */
+function getAudioDuration(file: File): Promise<number | undefined> {
+  return new Promise((resolve) => {
+    const audio = new Audio();
+    audio.preload = 'metadata';
+    audio.onloadedmetadata = () => {
+      resolve(isFinite(audio.duration) ? Math.round(audio.duration) : undefined);
+      URL.revokeObjectURL(audio.src);
+    };
+    audio.onerror = () => {
+      resolve(undefined);
+      URL.revokeObjectURL(audio.src);
+    };
+    audio.src = URL.createObjectURL(file);
+  });
 }
 
 export function UploadVersion() {
@@ -67,13 +109,20 @@ export function UploadVersion() {
   function addFiles(files: File[]) {
     const added: MigrationEntry[] = files.map(file => {
       const name = humanizeName(file.name);
-      const kind: PartKind = name.toLowerCase().includes('score') ? 'score' : 'part';
+      const kind = guessKindFromFile(file);
       return { id: crypto.randomUUID(), file, name, kind, slotIds: [], migrationSourcePartId: null, showAllInstruments: false };
     });
     setEntries(prev => [...prev, ...added]);
   }
 
-  function updateEntry(id: string, patch: Partial<Pick<MigrationEntry, 'name' | 'kind' | 'slotIds' | 'migrationSourcePartId' | 'showAllInstruments'>>) {
+  function addLinkEntry() {
+    setEntries(prev => [...prev, {
+      id: crypto.randomUUID(), file: null, name: '', kind: 'link' as PartKind,
+      slotIds: [], linkUrl: '', migrationSourcePartId: null, showAllInstruments: false,
+    }]);
+  }
+
+  function updateEntry(id: string, patch: Partial<Pick<MigrationEntry, 'name' | 'kind' | 'slotIds' | 'migrationSourcePartId' | 'showAllInstruments' | 'linkUrl'>>) {
     setEntries(prev => prev.map(e => {
       if (e.id !== id) return e;
       const updated = { ...e, ...patch };
@@ -94,8 +143,20 @@ export function UploadVersion() {
     if (!chartId || entries.length === 0) return;
 
     const names = entries.map(e => e.name.trim());
-    if (names.some(n => !n)) { setError('All files must have a name.'); return; }
-    if (new Set(names).size !== names.length) { setError('Each file must have a unique name.'); return; }
+    if (names.some(n => !n)) { setError('All entries must have a name.'); return; }
+    if (new Set(names).size !== names.length) { setError('Each entry must have a unique name.'); return; }
+
+    // Validate link entries have URLs
+    for (const entry of entries) {
+      if (entry.kind === 'link' && !entry.linkUrl?.trim()) {
+        setError(`"${entry.name || 'Untitled link'}" needs a URL.`);
+        return;
+      }
+      if (kindNeedsFile(entry.kind) && !entry.file) {
+        setError(`"${entry.name || 'Untitled'}" needs a file.`);
+        return;
+      }
+    }
 
     setError('');
     setUploading(true);
@@ -110,12 +171,21 @@ export function UploadVersion() {
       for (let i = 0; i < entries.length; i++) {
         const entry = entries[i];
         setProgress(`Uploading ${entry.name} (${i + 1}/${entries.length})...`);
+
+        // Extract audio duration for audio files
+        let audioDurationSeconds: number | undefined;
+        if (entry.kind === 'audio' && entry.file) {
+          audioDurationSeconds = await getAudioDuration(entry.file);
+        }
+
         const { part } = await uploadPart({
           versionId: version.id,
           name: entry.name.trim(),
           file: entry.file,
           kind: entry.kind,
           slotIds: entry.slotIds,
+          linkUrl: entry.kind === 'link' ? entry.linkUrl : undefined,
+          audioDurationSeconds,
         });
         uploadedParts.push({ entryId: entry.id, partId: part.id });
       }
@@ -142,7 +212,6 @@ export function UploadVersion() {
           }
         }
         if (migrationErrors.length > 0) {
-          // Non-blocking: navigate anyway, show warning on the version page
           console.warn(`[UploadVersion] Migration failed for ${migrationErrors.length} part(s)`);
         }
       }
@@ -157,6 +226,8 @@ export function UploadVersion() {
       setProgress('');
     }
   }
+
+  const showMigration = (kind: PartKind) => ANNOTATABLE_KINDS.includes(kind);
 
   return (
     <Layout
@@ -181,15 +252,27 @@ export function UploadVersion() {
           />
         </div>
 
-        {/* Drop zone */}
+        {/* Drop zone for file-based entries */}
         <div style={{ marginBottom: 16 }}>
           <FileDropZone
             onFiles={addFiles}
-            hint="Select as many files as you like — name each after adding"
+            accept=".pdf,.musicxml,.mxl,.mp3,.wav,.m4a,.ogg,.flac"
+            hint="Drop PDFs, audio files, or other files — name each after adding"
           />
         </div>
 
-        {/* File entries */}
+        {/* Add link button */}
+        <div style={{ marginBottom: 16 }}>
+          <button type="button" onClick={addLinkEntry} style={{
+            background: 'none', border: '1px dashed var(--border)', borderRadius: 'var(--radius-sm)',
+            color: 'var(--text-muted)', cursor: 'pointer', fontSize: 12, fontWeight: 500,
+            padding: '8px 14px', fontFamily: 'inherit', display: 'flex', alignItems: 'center', gap: 6,
+          }}>
+            <ContentKindIcon kind="link" size={14} /> Add link (URL)
+          </button>
+        </div>
+
+        {/* Entries */}
         {entries.length > 0 && (
           <div style={{ marginBottom: 24, display: 'flex', flexDirection: 'column', gap: 8 }}>
             {entries.map(entry => (
@@ -203,7 +286,7 @@ export function UploadVersion() {
                   <input
                     value={entry.name}
                     onChange={e => updateEntry(entry.id, { name: e.target.value })}
-                    placeholder="Name this file..."
+                    placeholder="Name this entry..."
                     style={{
                       width: '100%', background: 'var(--bg)',
                       border: '1px solid var(--border)', borderRadius: 4,
@@ -219,24 +302,64 @@ export function UploadVersion() {
                       borderRadius: 4, padding: '6px 8px', color: 'var(--text)', fontSize: 13, height: 32,
                     }}
                   >
-                    <option value="part">Part</option>
-                    <option value="score">Score</option>
+                    {ALL_KINDS.map(k => (
+                      <option key={k} value={k}>{KIND_LABELS[k]}</option>
+                    ))}
                   </select>
                   <button type="button" onClick={() => removeEntry(entry.id)} style={{
                     background: 'none', border: 'none', color: 'var(--text-muted)',
                     cursor: 'pointer', fontSize: 18, padding: '2px 6px', lineHeight: 1,
                   }}>{'\u00D7'}</button>
                 </div>
-                <p style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: 4, marginBottom: 0 }}>
-                  {entry.file.name} {'\u00B7'} {(entry.file.size / 1024).toFixed(0)} KB
-                </p>
+
+                {/* File info (for file-based kinds) */}
+                {entry.file && (
+                  <p style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: 4, marginBottom: 0 }}>
+                    {entry.file.name} {'\u00B7'} {(entry.file.size / 1024).toFixed(0)} KB
+                  </p>
+                )}
+
+                {/* URL input (for link kind) */}
+                {entry.kind === 'link' && (
+                  <div style={{ marginTop: 6 }}>
+                    <input
+                      value={entry.linkUrl ?? ''}
+                      onChange={e => updateEntry(entry.id, { linkUrl: e.target.value })}
+                      placeholder="https://..."
+                      type="url"
+                      style={{
+                        width: '100%', background: 'var(--bg)',
+                        border: '1px solid var(--border)', borderRadius: 4,
+                        padding: '5px 8px', color: 'var(--text)', fontSize: 13,
+                        boxSizing: 'border-box',
+                      }}
+                    />
+                  </div>
+                )}
+
+                {/* File type mismatch warning */}
+                {entry.file && entry.kind !== 'other' && (() => {
+                  const accept = ACCEPT_BY_KIND[entry.kind];
+                  if (!accept || accept === '*') return null;
+                  const exts = accept.split(',');
+                  const fileName = entry.file.name.toLowerCase();
+                  const matches = exts.some(ext => fileName.endsWith(ext));
+                  if (matches) return null;
+                  return (
+                    <p style={{ fontSize: 11, color: 'var(--warning, #eab308)', marginTop: 4, marginBottom: 0 }}>
+                      File type may not match the selected kind. Expected: {accept}
+                    </p>
+                  );
+                })()}
+
                 <SlotAssignmentPicker
                   slots={slots}
                   selectedIds={entry.slotIds}
                   onChange={ids => updateEntry(entry.id, { slotIds: ids })}
                 />
-                {/* Migration source picker — only when annotated previous parts exist */}
-                {annotationSources.length > 0 && (() => {
+
+                {/* Migration source picker — only for annotatable kinds */}
+                {showMigration(entry.kind) && annotationSources.length > 0 && (() => {
                   const options: { partId: string; label: string; sameSlot: boolean }[] = [];
                   for (const v of annotationSources) {
                     for (const p of v.parts) {
@@ -307,8 +430,8 @@ export function UploadVersion() {
 
         <Button type="submit" disabled={entries.length === 0} loading={uploading}>
           {uploading ? 'Uploading...' : entries.length === 0
-            ? 'Add files above'
-            : `Upload ${entries.length} file${entries.length !== 1 ? 's' : ''}`}
+            ? 'Add files or links above'
+            : `Upload ${entries.length} item${entries.length !== 1 ? 's' : ''}`}
         </Button>
       </form>
     </Layout>
