@@ -1,7 +1,7 @@
 import dotenv from 'dotenv';
 dotenv.config();
 
-import { eq, and, isNull } from 'drizzle-orm';
+import { eq, and, isNull, sql, desc, ne } from 'drizzle-orm';
 import { claimNextJob, completeJob, failJob } from '../lib/queue';
 import { notifyNewVersion, notifyNewVersionNoDiff } from '../lib/notifications';
 import { computeMeasureMapping, visionResultToPartDiff, ConcurrencyPool } from '../lib/vision-diff';
@@ -9,7 +9,7 @@ import { migrateAnnotationsForVersion } from '../lib/annotation-migration';
 import type { VersionDiffJson } from '../lib/diff';
 import { downloadFile } from '../lib/s3';
 import { db, dz } from '../db';
-import { parts, versions, charts, versionDiffs } from '../schema';
+import { parts, versions, charts, versionDiffs, partSlotAssignments, instrumentSlots } from '../schema';
 
 const POLL_INTERVAL_MS = parseInt(process.env.DIFF_POLL_INTERVAL_MS ?? '5000');
 const MAX_ATTEMPTS     = parseInt(process.env.DIFF_MAX_ATTEMPTS     ?? '3');
@@ -22,85 +22,257 @@ interface DiffJobPayload {
   directorHint?: string;
 }
 
-interface PartRow {
-  id:       string;
-  name:     string;
-  pdfS3Key: string | null;
+/**
+ * For a given instrument slot, find the most recent part assigned to it
+ * in any version prior to the current one.
+ */
+async function findPreviousVersionPartForSlot(opts: {
+  chartId: string;
+  currentVersionId: string;
+  slotId: string;
+}): Promise<{ id: string; name: string; pdfS3Key: string; versionId: string } | null> {
+  const { chartId, currentVersionId, slotId } = opts;
+
+  // Get all previous versions ordered newest-first
+  const [currentVersion] = await dz.select({ sortOrder: versions.sortOrder })
+    .from(versions)
+    .where(eq(versions.id, currentVersionId));
+  if (!currentVersion) return null;
+
+  const previousVersions = await dz.select({ id: versions.id })
+    .from(versions)
+    .where(and(
+      eq(versions.chartId, chartId),
+      ne(versions.id, currentVersionId),
+      sql`${versions.sortOrder} < ${currentVersion.sortOrder}`,
+      isNull(versions.deletedAt),
+    ))
+    .orderBy(desc(versions.sortOrder));
+
+  // Walk back through versions to find a part assigned to this slot
+  for (const prevVersion of previousVersions) {
+    const rows = await dz.select({
+      id: parts.id,
+      name: parts.name,
+      pdfS3Key: parts.pdfS3Key,
+      versionId: parts.versionId,
+    })
+      .from(parts)
+      .innerJoin(partSlotAssignments, eq(parts.id, partSlotAssignments.partId))
+      .where(and(
+        eq(parts.versionId, prevVersion.id),
+        eq(partSlotAssignments.instrumentSlotId, slotId),
+        isNull(parts.deletedAt),
+        sql`${parts.pdfS3Key} IS NOT NULL`,
+      ))
+      .orderBy(desc(parts.updatedAt))
+      .limit(1);
+
+    if (rows[0]) {
+      return {
+        id: rows[0].id,
+        name: rows[0].name,
+        pdfS3Key: rows[0].pdfS3Key!,
+        versionId: rows[0].versionId,
+      };
+    }
+  }
+
+  return null;
+}
+
+/**
+ * For a score part, find the most recent score in any previous version.
+ */
+async function findPreviousVersionScore(opts: {
+  chartId: string;
+  currentVersionId: string;
+}): Promise<{ id: string; name: string; pdfS3Key: string; versionId: string } | null> {
+  const { chartId, currentVersionId } = opts;
+
+  const [currentVersion] = await dz.select({ sortOrder: versions.sortOrder })
+    .from(versions)
+    .where(eq(versions.id, currentVersionId));
+  if (!currentVersion) return null;
+
+  const previousVersions = await dz.select({ id: versions.id })
+    .from(versions)
+    .where(and(
+      eq(versions.chartId, chartId),
+      ne(versions.id, currentVersionId),
+      sql`${versions.sortOrder} < ${currentVersion.sortOrder}`,
+      isNull(versions.deletedAt),
+    ))
+    .orderBy(desc(versions.sortOrder));
+
+  for (const prevVersion of previousVersions) {
+    const rows = await dz.select({
+      id: parts.id,
+      name: parts.name,
+      pdfS3Key: parts.pdfS3Key,
+      versionId: parts.versionId,
+    })
+      .from(parts)
+      .where(and(
+        eq(parts.versionId, prevVersion.id),
+        eq(parts.kind, 'score'),
+        isNull(parts.deletedAt),
+        sql`${parts.pdfS3Key} IS NOT NULL`,
+      ))
+      .orderBy(desc(parts.updatedAt))
+      .limit(1);
+
+    if (rows[0]) {
+      return {
+        id: rows[0].id,
+        name: rows[0].name,
+        pdfS3Key: rows[0].pdfS3Key!,
+        versionId: rows[0].versionId,
+      };
+    }
+  }
+
+  return null;
+}
+
+interface DiffPair {
+  fromPartId: string;
+  fromPartName: string;
+  fromPdfS3Key: string;
+  toPartId: string;
+  toPartName: string;
+  toPdfS3Key: string;
+  slotId: string | null;  // null for score diffs
+  slotName: string;       // "Score" for score diffs
 }
 
 async function processDiffJob(jobId: string, payload: DiffJobPayload): Promise<void> {
   const { ensembleId, fromVersionId, toVersionId, directorHint } = payload;
 
-  // Fetch parts for both versions
-  const fromParts = await dz.select({
-    id: parts.id,
-    name: parts.name,
-    pdfS3Key: parts.pdfS3Key,
-  }).from(parts).where(and(eq(parts.versionId, fromVersionId), isNull(parts.deletedAt)));
+  // Get chart ID for this version
+  const [toVersion] = await dz.select({ chartId: versions.chartId })
+    .from(versions)
+    .where(eq(versions.id, toVersionId));
+  if (!toVersion) {
+    await completeJob(jobId);
+    console.log(`[diff.worker] Version ${toVersionId} not found — skipping`);
+    return;
+  }
+  const chartId = toVersion.chartId;
 
+  // Fetch all parts for the new version that have PDFs
   const toParts = await dz.select({
     id: parts.id,
     name: parts.name,
+    kind: parts.kind,
     pdfS3Key: parts.pdfS3Key,
   }).from(parts).where(and(eq(parts.versionId, toVersionId), isNull(parts.deletedAt)));
 
-  if (fromParts.length === 0 || toParts.length === 0) {
+  const diffableParts = toParts.filter(p => p.pdfS3Key && ['part', 'score', 'chart'].includes(p.kind));
+
+  if (diffableParts.length === 0) {
     await completeJob(jobId);
-    console.log(`[diff.worker] Skipping diff for ${toVersionId} — no parts in one or both versions`);
+    console.log(`[diff.worker] Skipping diff for ${toVersionId} — no diffable parts`);
     await notifyNewVersionNoDiff(ensembleId, toVersionId).catch(err =>
       console.error('[diff.worker] Notification failed:', err)
     );
     return;
   }
 
-  // Match parts by name — only file-based parts with a pdfS3Key can be diffed
-  const toPartMap = new Map(toParts.filter(p => p.pdfS3Key).map(p => [p.name, p]));
-  const pairs = fromParts.filter(p => p.pdfS3Key && toPartMap.has(p.name));
+  // Build diff pairs using slot-based matching
+  const diffPairs: DiffPair[] = [];
 
-  if (pairs.length === 0) {
+  for (const toPart of diffableParts) {
+    if (toPart.kind === 'score') {
+      // Score diffs: compare against previous version's score (no slot)
+      const prevScore = await findPreviousVersionScore({ chartId, currentVersionId: toVersionId });
+      if (prevScore) {
+        diffPairs.push({
+          fromPartId: prevScore.id,
+          fromPartName: prevScore.name,
+          fromPdfS3Key: prevScore.pdfS3Key,
+          toPartId: toPart.id,
+          toPartName: toPart.name,
+          toPdfS3Key: toPart.pdfS3Key!,
+          slotId: null,
+          slotName: 'Score',
+        });
+      }
+      continue;
+    }
+
+    // For non-score parts: find slot assignments and diff per slot
+    const assignments = await dz.select({
+      slotId: partSlotAssignments.instrumentSlotId,
+      slotName: instrumentSlots.name,
+    })
+      .from(partSlotAssignments)
+      .innerJoin(instrumentSlots, eq(instrumentSlots.id, partSlotAssignments.instrumentSlotId))
+      .where(eq(partSlotAssignments.partId, toPart.id));
+
+    for (const assignment of assignments) {
+      const prevPart = await findPreviousVersionPartForSlot({
+        chartId,
+        currentVersionId: toVersionId,
+        slotId: assignment.slotId,
+      });
+
+      if (prevPart) {
+        diffPairs.push({
+          fromPartId: prevPart.id,
+          fromPartName: prevPart.name,
+          fromPdfS3Key: prevPart.pdfS3Key,
+          toPartId: toPart.id,
+          toPartName: toPart.name,
+          toPdfS3Key: toPart.pdfS3Key!,
+          slotId: assignment.slotId,
+          slotName: assignment.slotName,
+        });
+      }
+    }
+  }
+
+  if (diffPairs.length === 0) {
     await completeJob(jobId);
-    console.log(`[diff.worker] No matching instruments between versions — skipping diff`);
+    console.log(`[diff.worker] No slot-based matches between versions — skipping diff`);
     await notifyNewVersionNoDiff(ensembleId, toVersionId).catch(err =>
       console.error('[diff.worker] Notification failed:', err)
     );
     return;
   }
 
-  // Run Vision diff for all instruments in parallel, capped by pool
+  // Run Vision diff for all pairs in parallel, capped by pool
   const pool = new ConcurrencyPool(MAX_CONCURRENCY);
   const partDiffResults = await Promise.all(
-    pairs.map(fromPart => pool.run(async () => {
-      const toPart = toPartMap.get(fromPart.name)!;
+    diffPairs.map(pair => pool.run(async () => {
       try {
         const [oldPdf, newPdf] = await Promise.all([
-          downloadFile(fromPart.pdfS3Key!),
-          downloadFile(toPart.pdfS3Key!),
+          downloadFile(pair.fromPdfS3Key),
+          downloadFile(pair.toPdfS3Key),
         ]);
 
-        const result = await computeMeasureMapping(oldPdf, newPdf, fromPart.name, {
+        const result = await computeMeasureMapping(oldPdf, newPdf, pair.slotName, {
           directorHint,
-          partId:        toPart.id,
+          partId:        pair.toPartId,
           fromVersionId,
           toVersionId,
         });
 
         console.log(
-          `[diff.worker] ${fromPart.name}: confidence=${result.overallConfidence.toFixed(2)}, ` +
+          `[diff.worker] ${pair.slotName} (${pair.toPartName}): confidence=${result.overallConfidence.toFixed(2)}, ` +
           `changed=${result.changedMeasures.length}, inserted=${result.insertedMeasures.length}, ` +
           `deleted=${result.deletedMeasures.length}, latency=${result.processingMs}ms`
         );
 
         return {
-          instrument:  fromPart.name,
-          fromPartId:  fromPart.id,
-          toPartId:    toPart.id,
+          ...pair,
           partDiff:    visionResultToPartDiff(result),
           ok:          true,
         };
       } catch (err) {
         const msg = err instanceof Error ? err.message : String(err);
-        console.error(`[diff.worker] Vision diff failed for ${fromPart.name}:`, msg);
-        return { instrument: fromPart.name, fromPartId: fromPart.id, toPartId: null, partDiff: null, ok: false };
+        console.error(`[diff.worker] Vision diff failed for ${pair.slotName} (${pair.toPartName}):`, msg);
+        return { ...pair, partDiff: null, ok: false };
       }
     }))
   );
@@ -108,7 +280,7 @@ async function processDiffJob(jobId: string, payload: DiffJobPayload): Promise<v
   // Build version diff JSON — include all successful instrument diffs
   const diffParts: VersionDiffJson['parts'] = {};
   for (const r of partDiffResults) {
-    if (r.ok && r.partDiff) diffParts[r.instrument] = r.partDiff;
+    if (r.ok && r.partDiff) diffParts[r.slotName] = r.partDiff;
   }
 
   if (Object.keys(diffParts).length === 0) {
@@ -122,12 +294,13 @@ async function processDiffJob(jobId: string, payload: DiffJobPayload): Promise<v
 
   const diffJson: VersionDiffJson = { parts: diffParts };
 
-  // Store one version_diffs row per part pair
+  // Store one version_diffs row per (part, slot) pair
   for (const r of partDiffResults) {
-    if (!r.ok || !r.partDiff || !r.toPartId) continue;
+    if (!r.ok || !r.partDiff) continue;
     await dz.insert(versionDiffs).values({
       fromPartId: r.fromPartId,
       toPartId: r.toPartId,
+      slotId: r.slotId,
       diffJson: r.partDiff,
     });
   }

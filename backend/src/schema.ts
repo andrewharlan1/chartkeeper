@@ -276,12 +276,14 @@ export const versionDiffs = pgTable(
     id: uuid('id').primaryKey().defaultRandom(),
     fromPartId: uuid('from_part_id').notNull().references(() => parts.id, { onDelete: 'cascade' }),
     toPartId: uuid('to_part_id').notNull().references(() => parts.id, { onDelete: 'cascade' }),
+    slotId: uuid('slot_id').references(() => instrumentSlots.id, { onDelete: 'cascade' }),
     diffJson: jsonb('diff_json').notNull(),
     ...timestamps,
   },
   (t) => ({
     fromToIdx: index('version_diffs_from_to_idx').on(t.fromPartId, t.toPartId),
-    uniq: unique('version_diffs_uniq').on(t.fromPartId, t.toPartId),
+    targetSlotUniq: unique('version_diffs_target_slot_uniq').on(t.toPartId, t.slotId),
+    slotIdx: index('version_diffs_slot_idx').on(t.slotId),
   }),
 );
 
