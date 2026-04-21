@@ -8,6 +8,7 @@ import { HighlightRenderer } from './HighlightRenderer';
 import { TextRenderer } from './TextRenderer';
 import { SelectionOverlay, getAnnotationBounds } from './SelectionOverlay';
 import { useAnnotationHistory } from '../../hooks/useAnnotationHistory';
+import { useToast } from '../Toast';
 
 interface Props {
   partId: string;
@@ -94,6 +95,7 @@ export function AnnotationLayer({
   onTextColorChange,
   onHighlightColorChange,
 }: Props) {
+  const { showToast } = useToast();
   const [annotations, setAnnotations] = useState<Annotation[]>([]);
   const [livePoints, setLivePoints] = useState<StrokePoint[]>([]);
   const isDrawing = useRef(false);
@@ -222,9 +224,10 @@ export function AnnotationLayer({
       onSaveStatusChange('saved');
     } catch {
       onSaveStatusChange('error');
+      showToast("Couldn't save annotation. Try again.");
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [partId, findMeasure, onSaveStatusChange]);
+  }, [partId, findMeasure, onSaveStatusChange, showToast]);
 
   // Commit a highlight rectangle
   const commitHighlight = useCallback(async (start: StrokePoint, end: StrokePoint) => {
@@ -254,9 +257,10 @@ export function AnnotationLayer({
       onSaveStatusChange('saved');
     } catch {
       onSaveStatusChange('error');
+      showToast("Couldn't save annotation. Try again.");
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [partId, highlightColor, findMeasure, onSaveStatusChange]);
+  }, [partId, highlightColor, findMeasure, onSaveStatusChange, showToast]);
 
   // Commit a text annotation
   const commitText = useCallback(async (data: { x: number; y: number; text: string }) => {
@@ -296,9 +300,10 @@ export function AnnotationLayer({
       onSaveStatusChange('saved');
     } catch {
       onSaveStatusChange('error');
+      showToast("Couldn't save annotation. Try again.");
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [textColor, fontSize, fontFamily, partId, findMeasure, onSaveStatusChange]);
+  }, [textColor, fontSize, fontFamily, partId, findMeasure, onSaveStatusChange, showToast]);
 
   // Find annotations hit by a point (for eraser)
   const eraseHitTest = useCallback((pt: StrokePoint, candidates: Annotation[]): Annotation[] => {
@@ -327,7 +332,10 @@ export function AnnotationLayer({
       setAnnotations(prev => prev.filter(a => !idSet.has(a.id)));
       onSaveStatusChange('saved');
     } catch {
+      // Restore faded annotations on failure
+      setAnnotations(prev => [...prev]); // trigger re-render to show them
       onSaveStatusChange('error');
+      showToast("Couldn't delete. Try again.");
     }
     setFadingIds(prev => {
       const next = new Set(prev);
@@ -335,7 +343,7 @@ export function AnnotationLayer({
       return next;
     });
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [annotations, onSaveStatusChange]);
+  }, [annotations, onSaveStatusChange, showToast]);
 
   // Undo — reverse the last operation
   const handleUndo = useCallback(async () => {
@@ -471,9 +479,10 @@ export function AnnotationLayer({
       // Revert on failure
       setAnnotations(prev => prev.map(a => a.id === annotationId ? ann : a));
       onSaveStatusChange('error');
+      showToast("Couldn't save change. Reverted.");
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [annotations, onSaveStatusChange]);
+  }, [annotations, onSaveStatusChange, showToast]);
 
   // Start a body drag from SelectionOverlay
   const handleSelectionBodyDown = useCallback((e: React.PointerEvent) => {
@@ -543,9 +552,10 @@ export function AnnotationLayer({
     } catch {
       setAnnotations(prev => prev.map(a => a.id === annotationId ? ann : a));
       onSaveStatusChange('error');
+      showToast("Couldn't save change. Reverted.");
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [annotations, onSaveStatusChange]);
+  }, [annotations, onSaveStatusChange, showToast]);
 
   // Reassign an annotation to a different measure
   const commitReassignMeasure = useCallback(async (annotationId: string, newMeasureNumber: number) => {
@@ -567,9 +577,10 @@ export function AnnotationLayer({
     } catch {
       setAnnotations(prev => prev.map(a => a.id === annotationId ? ann : a));
       onSaveStatusChange('error');
+      showToast("Couldn't save change. Reverted.");
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [annotations, onSaveStatusChange]);
+  }, [annotations, onSaveStatusChange, showToast]);
 
   // Start a handle drag from SelectionOverlay
   const handleSelectionHandleDown = useCallback((e: React.PointerEvent, handle: string) => {
@@ -621,6 +632,7 @@ export function AnnotationLayer({
   useEffect(() => {
     function handleKeyDown(e: KeyboardEvent) {
       if (activeText) return; // don't capture when editing text
+      if (dragRef.current) return; // ignore during active drag/resize
       // Cmd+Z undo
       if ((e.metaKey || e.ctrlKey) && e.key === 'z' && !e.shiftKey) {
         if (history.canUndo) {
@@ -710,9 +722,10 @@ export function AnnotationLayer({
     } catch {
       setAnnotations(prev => prev.map(a => a.id === annotationId ? ann : a));
       onSaveStatusChange('error');
+      showToast("Couldn't save change. Reverted.");
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [annotations, onSaveStatusChange]);
+  }, [annotations, onSaveStatusChange, showToast]);
 
   // Detect color prop changes and apply to selected annotation
   useEffect(() => {
@@ -970,7 +983,7 @@ export function AnnotationLayer({
     if (mode === 'ink') {
       const pts = [...livePoints];
       setLivePoints([]);
-      if (pts.length >= 2) {
+      if (pts.length >= 3) {
         pendingStrokes.current.push({
           points: pts,
           color: inkColor,

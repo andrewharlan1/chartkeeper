@@ -5,6 +5,10 @@ import { SaveStatusIndicator, SaveStatus } from './SaveStatusIndicator';
 const INK_COLORS = [
   '#000000', '#DC2626', '#2563EB', '#16A34A', '#EA580C', '#9333EA', '#DB2777',
 ];
+const INK_COLOR_LABELS: Record<string, string> = {
+  '#000000': 'Black', '#DC2626': 'Red', '#2563EB': 'Blue', '#16A34A': 'Green',
+  '#EA580C': 'Orange', '#9333EA': 'Purple', '#DB2777': 'Pink',
+};
 
 const HIGHLIGHT_COLORS = [
   'rgba(253, 224, 71, 0.3)',
@@ -15,6 +19,15 @@ const HIGHLIGHT_COLORS = [
   'rgba(254, 215, 170, 0.4)',
   'rgba(229, 231, 235, 0.5)',
 ];
+const HIGHLIGHT_COLOR_LABELS: Record<string, string> = {
+  'rgba(253, 224, 71, 0.3)': 'Yellow highlight',
+  'rgba(251, 207, 232, 0.5)': 'Pink highlight',
+  'rgba(187, 247, 208, 0.4)': 'Green highlight',
+  'rgba(191, 219, 254, 0.4)': 'Blue highlight',
+  'rgba(233, 213, 255, 0.4)': 'Purple highlight',
+  'rgba(254, 215, 170, 0.4)': 'Orange highlight',
+  'rgba(229, 231, 235, 0.5)': 'Gray highlight',
+};
 
 const FONT_SIZES = [0.012, 0.015, 0.018, 0.022, 0.028, 0.036, 0.048];
 const FONT_SIZE_LABELS = ['10', '12', '14', '18', '22', '28', '36'];
@@ -144,6 +157,8 @@ export function AnnotationToolbar({
           <button
             key={m.value}
             onClick={() => onModeChange(m.value)}
+            aria-label={`${m.label} mode${m.shortcut ? ` (${m.shortcut})` : ''}`}
+            aria-pressed={mode === m.value}
             style={{
               height: 34,
               padding: '0 14px',
@@ -178,12 +193,14 @@ export function AnnotationToolbar({
           onClick={onUndo}
           disabled={!canUndo}
           title="Undo (Cmd+Z)"
+          aria-label="Undo"
           style={{
             width: 30, height: 30, padding: 0, borderRadius: 7,
             border: 'none', cursor: canUndo ? 'pointer' : 'default',
             background: 'transparent', color: canUndo ? '#999' : '#333',
+            opacity: canUndo ? 1 : 0.4,
             display: 'flex', alignItems: 'center', justifyContent: 'center',
-            transition: 'color 0.12s',
+            transition: 'color 0.12s, opacity 0.12s',
           }}
         >
           <svg width={16} height={16} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round">
@@ -195,12 +212,14 @@ export function AnnotationToolbar({
           onClick={onRedo}
           disabled={!canRedo}
           title="Redo (Cmd+Shift+Z)"
+          aria-label="Redo"
           style={{
             width: 30, height: 30, padding: 0, borderRadius: 7,
             border: 'none', cursor: canRedo ? 'pointer' : 'default',
             background: 'transparent', color: canRedo ? '#999' : '#333',
+            opacity: canRedo ? 1 : 0.4,
             display: 'flex', alignItems: 'center', justifyContent: 'center',
-            transition: 'color 0.12s',
+            transition: 'color 0.12s, opacity 0.12s',
           }}
         >
           <svg width={16} height={16} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round">
@@ -218,10 +237,15 @@ export function AnnotationToolbar({
         <div style={subRowStyle}>
           {activeColors.map(c => {
             const isActive = c === activeColor;
+            const label = effectiveKind === 'highlight'
+              ? (HIGHLIGHT_COLOR_LABELS[c] ?? 'Color')
+              : (INK_COLOR_LABELS[c] ?? 'Color');
             return (
               <button
                 key={c}
                 onClick={() => onColorChange(c)}
+                aria-label={label}
+                aria-pressed={isActive}
                 style={{
                   width: 22,
                   height: 22,

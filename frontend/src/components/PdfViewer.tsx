@@ -9,6 +9,7 @@ import { AnnotationToolbar } from './annotations/AnnotationToolbar';
 import { AnnotationLayer } from './annotations/AnnotationLayer';
 import { useAnnotationMode } from '../hooks/useAnnotationMode';
 import { SaveStatus } from './annotations/SaveStatusIndicator';
+import { useToast } from './Toast';
 
 // @ts-expect-error vite url import
 import workerUrl from 'pdfjs-dist/build/pdf.worker.min.mjs?url';
@@ -322,6 +323,7 @@ function FullscreenViewer({
   onClose: () => void;
 }) {
   const isDark = useIsDark();
+  const { showToast } = useToast();
   const annotationMode = useAnnotationMode();
   const [annSaveStatus, setAnnSaveStatus] = useState<SaveStatus>('idle');
   const [canUndo, setCanUndo] = useState(false);
@@ -362,7 +364,19 @@ function FullscreenViewer({
   const [canvasDims, setCanvasDims] = useState<{ w: number; h: number }>({ w: 0, h: 0 });
   const [showToolbar, setShowToolbar] = useState(true);
   const [showAnnotations, setShowAnnotations] = useState(true);
+  const showAnnotationsRef = useRef(true);
+
+  // Guard: prevent switching to drawing modes when annotations are hidden
+  const guardedSetMode = useCallback((newMode: typeof annotationMode.mode) => {
+    if (!showAnnotationsRef.current && newMode !== 'read') {
+      showToast('Annotations are hidden. Tap the eye icon to show them.');
+      return;
+    }
+    annotationMode.setMode(newMode);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [showToast]);
   const measureAnnotationIdsRef = useRef<Map<number, string>>(new Map());
+  const [isOffline, setIsOffline] = useState(!navigator.onLine);
 
   const pageOverlays           = useRef<Map<number, PageOverlay>>(new Map());
   const pageAnnotationIds      = useRef<Map<number, string>>(new Map());
@@ -371,6 +385,18 @@ function FullscreenViewer({
   const isDrawing         = useRef(false);
   const liveStroke        = useRef<Point[]>([]);
   const dragStart         = useRef<Point | null>(null);
+
+  // Keep ref in sync
+  useEffect(() => { showAnnotationsRef.current = showAnnotations; }, [showAnnotations]);
+
+  // Offline detection
+  useEffect(() => {
+    const goOffline = () => setIsOffline(true);
+    const goOnline = () => setIsOffline(false);
+    window.addEventListener('offline', goOffline);
+    window.addEventListener('online', goOnline);
+    return () => { window.removeEventListener('offline', goOffline); window.removeEventListener('online', goOnline); };
+  }, []);
 
   // Sync score invert when dark mode changes
   useEffect(() => { setScoreInverted(isDark); }, [isDark]);
@@ -989,17 +1015,17 @@ function FullscreenViewer({
       if (isTyping() || ev.metaKey || ev.ctrlKey || ev.altKey) return;
 
       switch (ev.key.toLowerCase()) {
-        case 'v': annotationMode.setMode('select'); break;
-        case 'p': annotationMode.setMode('ink'); break;
-        case 'h': annotationMode.setMode('highlight'); break;
-        case 't': annotationMode.setMode('text'); break;
-        case 'e': annotationMode.setMode('erase'); break;
+        case 'v': guardedSetMode('select'); break;
+        case 'p': guardedSetMode('ink'); break;
+        case 'h': guardedSetMode('highlight'); break;
+        case 't': guardedSetMode('text'); break;
+        case 'e': guardedSetMode('erase'); break;
       }
     }
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [currentPage, numPages, hasUnsaved, tool, mode, annotationMode.mode, annotationMode.selectedAnnotationId]);
+  }, [currentPage, numPages, hasUnsaved, tool, mode, annotationMode.mode, annotationMode.selectedAnnotationId, guardedSetMode]);
 
   return (
     <div style={{ position: 'fixed', inset: 0, zIndex: 1000, background: '#080812', display: 'flex', flexDirection: 'column' }}>
@@ -1111,6 +1137,22 @@ function FullscreenViewer({
         }}>×</button>
       </div>
 
+      {/* Offline banner */}
+      {isOffline && (
+        <div style={{
+          padding: '6px 14px',
+          background: 'rgba(234, 179, 8, 0.12)',
+          borderBottom: '1px solid rgba(234, 179, 8, 0.3)',
+          color: '#eab308',
+          fontSize: 12,
+          fontWeight: 500,
+          textAlign: 'center',
+          flexShrink: 0,
+        }}>
+          You're offline — changes won't save until you reconnect.
+        </div>
+      )}
+
       {/* ── Canvas + notes panel ── */}
       <div style={{ flex: 1, display: 'flex', overflow: 'hidden' }}>
         <div
@@ -1126,7 +1168,7 @@ function FullscreenViewer({
           {partId && showToolbar && (
             <AnnotationToolbar
               mode={annotationMode.mode}
-              onModeChange={annotationMode.setMode}
+              onModeChange={guardedSetMode}
               inkColor={annotationMode.inkColor}
               onInkColorChange={annotationMode.setInkColor}
               textColor={annotationMode.textColor}
