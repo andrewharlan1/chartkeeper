@@ -9,6 +9,7 @@ import { EnsemblePage } from './pages/Ensemble';
 import { ChartPage } from './pages/Chart';
 import { UploadVersion } from './pages/UploadVersion';
 import { VersionDetail } from './pages/VersionDetail';
+import { MigrationSourcesPage } from './pages/MigrationSources';
 import { PlayerView } from './pages/PlayerView';
 
 function RequireAuth({ children }: { children: JSX.Element }) {
@@ -27,6 +28,7 @@ function AppRoutes() {
       <Route path="/charts/:id" element={<RequireAuth><ChartPage /></RequireAuth>} />
       <Route path="/charts/:id/upload" element={<RequireAuth><UploadVersion /></RequireAuth>} />
       <Route path="/charts/:id/versions/:vId" element={<RequireAuth><VersionDetail /></RequireAuth>} />
+      <Route path="/charts/:id/migration-sources" element={<RequireAuth><MigrationSourcesPage /></RequireAuth>} />
       <Route path="/my-parts" element={<RequireAuth><PlayerView /></RequireAuth>} />
       <Route path="*" element={<Navigate to="/" replace />} />
     </Routes>

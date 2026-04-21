@@ -17,6 +17,7 @@ import { InstrumentIcon } from '../components/InstrumentIcon';
 import { FileDropZone } from '../components/FileDropZone';
 import { SlotAssignmentPicker, InstrumentAssignment } from '../components/SlotAssignmentPicker';
 import { MigrationModal } from '../components/MigrationModal';
+import { PartMigrationRow } from '../components/PartMigrationRow';
 import { ApiError } from '../api/client';
 
 // ── Annotation panel ──────────────────────────────────────────────────────────
@@ -555,9 +556,18 @@ export function VersionDetail() {
                 title={`${p.name} — ${version.name}`}
               />
 
-              {/* Annotations — only for annotatable kinds */}
+              {/* Migration row + Annotations — only for annotatable kinds */}
               {ANNOTATABLE_KINDS.includes(p.kind) && (
-                <AnnotationPanel partId={p.id} currentUserId={user?.id ?? ''} />
+                <>
+                  <PartMigrationRow
+                    partId={p.id}
+                    partName={p.name}
+                    chartId={chartId!}
+                    annotationCount={0}
+                    onMigrated={load}
+                  />
+                  <AnnotationPanel partId={p.id} currentUserId={user?.id ?? ''} />
+                </>
               )}
             </div>
           ))}

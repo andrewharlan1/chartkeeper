@@ -48,3 +48,22 @@ export interface AnnotationSourceVersion {
 export function getChartAnnotationSources(chartId: string): Promise<{ sources: AnnotationSourceVersion[] }> {
   return api.get(`/charts/${chartId}/annotation-sources`);
 }
+
+export interface MigrationSourcePart {
+  partId: string;
+  instrumentName: string;
+  instrumentIcon: string;
+  annotationCount: number;
+  annotationPreview: Array<{ measureNumber: number | null; kind: string; content?: string }>;
+}
+
+export interface MigrationSourceVersion {
+  versionId: string;
+  versionName: string;
+  createdAt: string;
+  parts: MigrationSourcePart[];
+}
+
+export function getChartMigrationSources(chartId: string): Promise<{ versions: MigrationSourceVersion[] }> {
+  return api.get(`/charts/${chartId}/migration-sources`);
+}
