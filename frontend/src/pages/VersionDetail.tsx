@@ -492,6 +492,7 @@ export function VersionDetail() {
               <PdfViewer
                 url={`/parts/${p.id}/pdf`}
                 partId={p.id}
+                versionId={vId}
                 title={`${p.name} — ${version.name}`}
               />
 

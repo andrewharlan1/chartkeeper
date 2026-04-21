@@ -3,7 +3,7 @@ import { z } from 'zod';
 import { eq, and, isNull, sql, inArray } from 'drizzle-orm';
 import multer from 'multer';
 import { dz } from '../db';
-import { parts, versions, charts, ensembles, partSlotAssignments, instrumentSlots } from '../schema';
+import { parts, versions, charts, ensembles, partSlotAssignments, instrumentSlots, versionDiffs } from '../schema';
 import { requireAuth } from '../middleware/auth';
 import { requireEnsembleMember, requireEnsembleAdmin } from '../lib/ensembleAuth';
 import { s3, BUCKET, uploadFile } from '../lib/s3';
@@ -329,6 +329,70 @@ partsRouter.post('/:id/migrate-from', async (req: Request, res: Response): Promi
     console.error('[migrate-from] Migration failed:', err);
     res.status(500).json({ error: 'Migration failed' });
   }
+});
+
+// GET /parts/:id/diff — returns diff data for this part compared to the previous version
+partsRouter.get('/:id/diff', async (req: Request, res: Response): Promise<void> => {
+  const part = await getPartWithEnsemble(req.params.id);
+  if (!part) { res.status(404).json({ error: 'Part not found' }); return; }
+
+  try {
+    await requireEnsembleMember(part.ensembleId, req.user!.id);
+  } catch (err) {
+    handleError(err, res);
+    return;
+  }
+
+  // Look up diff where this part is the target (toPartId)
+  const diffRows = await dz.select({
+    diffJson: versionDiffs.diffJson,
+    fromPartId: versionDiffs.fromPartId,
+  })
+    .from(versionDiffs)
+    .where(eq(versionDiffs.toPartId, req.params.id))
+    .limit(1);
+
+  if (diffRows.length === 0) {
+    // No diff available — normal case for first versions
+    res.json({ changedMeasures: [], changeDescriptions: {}, changelog: '', comparedToVersionId: null, comparedToVersionName: '' });
+    return;
+  }
+
+  const diff = diffRows[0].diffJson as {
+    changedMeasures?: number[];
+    changeDescriptions?: Record<string, string>;
+    changedMeasureBounds?: Record<string, { x: number; y: number; w: number; h: number; page: number }>;
+    structuralChanges?: { insertedMeasures?: number[]; deletedMeasures?: number[] };
+  };
+
+  // Get the source part's version info for the "compared to" label
+  const fromPartRows = await dz.select({
+    versionId: versions.id,
+    versionName: versions.name,
+  })
+    .from(parts)
+    .innerJoin(versions, eq(versions.id, parts.versionId))
+    .where(eq(parts.id, diffRows[0].fromPartId))
+    .limit(1);
+
+  const comparedTo = fromPartRows[0] ?? null;
+
+  // Build changelog string from change descriptions
+  const descriptions = diff.changeDescriptions ?? {};
+  const changelog = Object.values(descriptions).join('\n');
+
+  // Merge inserted measures into changedMeasures for highlighting
+  const changed = new Set(diff.changedMeasures ?? []);
+  for (const m of diff.structuralChanges?.insertedMeasures ?? []) changed.add(m);
+
+  res.json({
+    changedMeasures: [...changed].sort((a, b) => a - b),
+    changeDescriptions: descriptions,
+    changedMeasureBounds: diff.changedMeasureBounds ?? {},
+    changelog,
+    comparedToVersionId: comparedTo?.versionId ?? null,
+    comparedToVersionName: comparedTo?.versionName ?? '',
+  });
 });
 
 // ── Player router (mounted at /player) ───────────────────────────────────────

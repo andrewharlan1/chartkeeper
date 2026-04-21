@@ -9,6 +9,8 @@ import { AnnotationToolbar } from './annotations/AnnotationToolbar';
 import { AnnotationLayer } from './annotations/AnnotationLayer';
 import { useAnnotationMode } from '../hooks/useAnnotationMode';
 import { SaveStatus } from './annotations/SaveStatusIndicator';
+import { DiffHighlightLayer } from './annotations/DiffHighlightLayer';
+import { DiffBadge } from './annotations/DiffBadge';
 import { useToast } from './Toast';
 
 // @ts-expect-error vite url import
@@ -26,6 +28,7 @@ type Tool = 'pointer' | 'pen' | 'highlight';
 interface ViewerProps {
   url: string;
   partId?: string;
+  versionId?: string;
   title?: string;
   changedMeasureBounds?: Record<number, MeasureBounds>;
   changeDescriptions?: Record<number, string>;
@@ -316,9 +319,9 @@ function navBtn(disabled: boolean): React.CSSProperties {
 }
 
 function FullscreenViewer({
-  url, partId, title, currentUserId, changedMeasureBounds, onClose,
+  url, partId, versionId, title, currentUserId, changedMeasureBounds, onClose,
 }: {
-  url: string; partId?: string; title?: string; currentUserId?: string;
+  url: string; partId?: string; versionId?: string; title?: string; currentUserId?: string;
   changedMeasureBounds?: Record<number, MeasureBounds>;
   onClose: () => void;
 }) {
@@ -377,6 +380,8 @@ function FullscreenViewer({
   }, [showToast]);
   const measureAnnotationIdsRef = useRef<Map<number, string>>(new Map());
   const [isOffline, setIsOffline] = useState(!navigator.onLine);
+  const [diffInfo, setDiffInfo] = useState<{ count: number; comparedToVersionName: string; changelog: string } | null>(null);
+  const [diffHighlightsEnabled, setDiffHighlightsEnabled] = useState(true);
 
   const pageOverlays           = useRef<Map<number, PageOverlay>>(new Map());
   const pageAnnotationIds      = useRef<Map<number, string>>(new Map());
@@ -1164,6 +1169,14 @@ function FullscreenViewer({
             position: 'relative',
           }}
         >
+          {/* Diff badge — shows changed measure count */}
+          {diffInfo && diffInfo.count > 0 && (
+            <DiffBadge
+              info={diffInfo}
+              highlightsEnabled={diffHighlightsEnabled}
+              onToggleHighlights={() => setDiffHighlightsEnabled(v => !v)}
+            />
+          )}
           {/* Annotation toolbar — floating over the score */}
           {partId && showToolbar && (
             <AnnotationToolbar
@@ -1213,6 +1226,19 @@ function FullscreenViewer({
                   touchAction: 'none',
                 }}
               />
+              {/* Diff highlight layer — yellow overlays on changed measures */}
+              {partId && (
+                <DiffHighlightLayer
+                  partId={partId}
+                  versionId={versionId ?? ''}
+                  currentPage={currentPage}
+                  measureLayout={measureLayout}
+                  canvasWidth={canvasDims.w}
+                  canvasHeight={canvasDims.h}
+                  enabled={showAnnotations && diffHighlightsEnabled}
+                  onDiffInfo={setDiffInfo}
+                />
+              )}
               {/* Annotation layer — SVG overlay for Part B annotation system */}
               {partId && showAnnotations && (
                 <AnnotationLayer
@@ -1376,7 +1402,7 @@ function FullscreenViewer({
 
 // ── Public component ──────────────────────────────────────────────────────────
 
-export function PdfViewer({ url, partId, title, changedMeasureBounds }: ViewerProps) {
+export function PdfViewer({ url, partId, versionId, title, changedMeasureBounds }: ViewerProps) {
   const [open, setOpen] = useState(false);
 
   const currentUserId = (() => {
@@ -1391,6 +1417,7 @@ export function PdfViewer({ url, partId, title, changedMeasureBounds }: ViewerPr
         <FullscreenViewer
           url={url}
           partId={partId}
+          versionId={versionId}
           title={title}
           currentUserId={currentUserId}
           changedMeasureBounds={changedMeasureBounds}

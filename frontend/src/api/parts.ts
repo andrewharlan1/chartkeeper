@@ -37,6 +37,19 @@ export function getMyParts(): Promise<{ parts: PlayerPart[] }> {
   return api.get('/player/my-parts');
 }
 
+export interface PartDiffData {
+  changedMeasures: number[];
+  changeDescriptions: Record<string, string>;
+  changedMeasureBounds: Record<string, { x: number; y: number; w: number; h: number; page: number }>;
+  changelog: string;
+  comparedToVersionId: string | null;
+  comparedToVersionName: string;
+}
+
+export function getPartDiff(partId: string): Promise<PartDiffData> {
+  return api.get(`/parts/${partId}/diff`);
+}
+
 export interface MigrateFromResult {
   migratedCount: number;
   flaggedCount: number;
