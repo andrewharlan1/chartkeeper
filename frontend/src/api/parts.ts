@@ -12,16 +12,20 @@ export function getPart(id: string): Promise<{ part: Part }> {
 export function uploadPart(data: {
   versionId: string;
   name: string;
-  file: File;
+  file: File | null;
   kind?: PartKind;
   slotIds?: string[];
+  linkUrl?: string;
+  audioDurationSeconds?: number;
 }): Promise<{ part: Part }> {
   const form = new FormData();
   form.append('versionId', data.versionId);
   form.append('name', data.name);
-  form.append('file', data.file);
+  if (data.file) form.append('file', data.file);
   if (data.kind) form.append('kind', data.kind);
   if (data.slotIds?.length) form.append('slotIds', JSON.stringify(data.slotIds));
+  if (data.linkUrl) form.append('linkUrl', data.linkUrl);
+  if (data.audioDurationSeconds) form.append('audioDurationSeconds', String(data.audioDurationSeconds));
   return multipartRequest('/parts', form);
 }
 

@@ -21,10 +21,17 @@ const upload = multer({
   storage: multer.memoryStorage(),
   limits: { fileSize: MAX_SIZE_BYTES },
   fileFilter: (_req, file, cb) => {
-    if (file.mimetype === 'application/pdf' || file.mimetype.startsWith('audio/')) {
+    if (
+      file.mimetype === 'application/pdf' ||
+      file.mimetype.startsWith('audio/') ||
+      file.mimetype === 'application/vnd.recordare.musicxml+xml' ||
+      file.mimetype === 'application/xml' ||
+      file.mimetype === 'text/xml'
+    ) {
       cb(null, true);
     } else {
-      cb(new Error('Only PDF and audio files are accepted'));
+      // Allow any file for 'other' kind — mime check is advisory, kind validation is authoritative
+      cb(null, true);
     }
   },
 });
@@ -55,6 +62,9 @@ async function getPartWithEnsemble(partId: string) {
     omrEngine: parts.omrEngine,
     createdAt: parts.createdAt,
     ensembleId: charts.ensembleId,
+    linkUrl: parts.linkUrl,
+    audioDurationSeconds: parts.audioDurationSeconds,
+    audioMimeType: parts.audioMimeType,
   })
     .from(parts)
     .innerJoin(versions, eq(versions.id, parts.versionId))
@@ -103,6 +113,13 @@ partsRouter.get('/', async (req: Request, res: Response): Promise<void> => {
   res.json({ parts: rows });
 });
 
+// Valid part kinds
+const VALID_KINDS = ['part', 'score', 'chart', 'link', 'audio', 'other'] as const;
+type ValidKind = typeof VALID_KINDS[number];
+
+// Kinds that go through OMR
+const OMR_KINDS: ValidKind[] = ['part', 'score', 'chart'];
+
 // POST /parts  (multipart upload)
 partsRouter.post('/', upload.single('file'), async (req: Request, res: Response): Promise<void> => {
   const versionId = typeof req.body.versionId === 'string' ? req.body.versionId : undefined;
@@ -123,10 +140,8 @@ partsRouter.post('/', upload.single('file'), async (req: Request, res: Response)
     return;
   }
 
-  const file = req.file;
-  if (!file) { res.status(400).json({ error: 'file is required' }); return; }
-
-  const kind = req.body.kind === 'score' ? 'score' as const : 'part' as const;
+  const rawKind = typeof req.body.kind === 'string' ? req.body.kind : 'part';
+  const kind: ValidKind = VALID_KINDS.includes(rawKind as ValidKind) ? rawKind as ValidKind : 'part';
 
   // Parse optional slot_ids for assignment
   let slotIds: string[] = [];
@@ -134,18 +149,71 @@ partsRouter.post('/', upload.single('file'), async (req: Request, res: Response)
     try { slotIds = JSON.parse(req.body.slotIds); } catch { /* ignore */ }
   }
 
+  // Handle 'link' kind — no file required
+  if (kind === 'link') {
+    const linkUrl = typeof req.body.linkUrl === 'string' ? req.body.linkUrl.trim() : '';
+    if (!linkUrl) {
+      res.status(400).json({ error: 'linkUrl is required for link kind' });
+      return;
+    }
+
+    const [part] = await dz.insert(parts).values({
+      versionId,
+      kind,
+      name,
+      pdfS3Key: null,
+      linkUrl,
+      omrStatus: 'complete', // no OMR for links
+      uploadedByUserId: req.user!.id,
+    }).returning();
+
+    if (slotIds.length > 0) {
+      await dz.insert(partSlotAssignments).values(
+        slotIds.map(slotId => ({ partId: part.id, instrumentSlotId: slotId }))
+      );
+    }
+
+    res.status(201).json({ part });
+    return;
+  }
+
+  // All other kinds require a file
+  const file = req.file;
+  if (!file) { res.status(400).json({ error: 'file is required' }); return; }
+
   const s3SafeName = name.replace(/[^a-zA-Z0-9._-]/g, '_');
-  const ext = file.mimetype.startsWith('audio/') ? '.audio' : '.pdf';
+  const extMap: Record<string, string> = {
+    'application/pdf': '.pdf',
+    'audio/mpeg': '.mp3',
+    'audio/wav': '.wav',
+    'audio/x-wav': '.wav',
+    'audio/mp4': '.m4a',
+    'audio/x-m4a': '.m4a',
+    'audio/ogg': '.ogg',
+    'audio/flac': '.flac',
+  };
+  const ext = extMap[file.mimetype] ?? (file.mimetype.startsWith('audio/') ? '.audio' : '.bin');
   const s3Key = `ensembles/${ver.ensembleId}/versions/${versionId}/parts/${s3SafeName}${ext}`;
   await uploadFile(s3Key, file.buffer, file.mimetype);
+
+  // Parse optional audio metadata
+  const audioDurationSeconds = kind === 'audio' && req.body.audioDurationSeconds
+    ? parseInt(req.body.audioDurationSeconds) || null
+    : null;
+  const audioMimeType = kind === 'audio' ? file.mimetype : null;
+
+  // Determine OMR status: notation kinds start pending, others are immediately complete
+  const omrStatus = OMR_KINDS.includes(kind) ? 'pending' : 'complete';
 
   const [part] = await dz.insert(parts).values({
     versionId,
     kind,
     name,
     pdfS3Key: s3Key,
-    omrStatus: 'pending',
+    omrStatus,
     uploadedByUserId: req.user!.id,
+    audioDurationSeconds,
+    audioMimeType,
   }).returning();
 
   // Create slot assignments if provided
@@ -155,8 +223,8 @@ partsRouter.post('/', upload.single('file'), async (req: Request, res: Response)
     );
   }
 
-  // Enqueue OMR if it's a PDF
-  if (!file.mimetype.startsWith('audio/')) {
+  // Enqueue OMR only for notation kinds with PDF files
+  if (OMR_KINDS.includes(kind) && file.mimetype === 'application/pdf') {
     await enqueueJob('omr', {
       partId: part.id,
       pdfS3Key: s3Key,
@@ -182,7 +250,7 @@ partsRouter.get('/:id', async (req: Request, res: Response): Promise<void> => {
   }
 
   const { omrJson: _, ensembleId: __, ...safePart } = part;
-  res.json({ part: { ...safePart, pdfUrl: `/parts/${part.id}/pdf` } });
+  res.json({ part: { ...safePart, pdfUrl: part.pdfS3Key ? `/parts/${part.id}/pdf` : undefined } });
 });
 
 // GET /parts/:id/measure-layout — returns per-measure bounding boxes from omr_json
@@ -215,8 +283,12 @@ partsRouter.get('/:id/measure-layout', async (req: Request, res: Response): Prom
   res.json({ measureLayout });
 });
 
-// GET /parts/:id/pdf — proxies PDF from S3 through the backend
-partsRouter.get('/:id/pdf', async (req: Request, res: Response): Promise<void> => {
+// GET /parts/:id/file — proxies file (PDF or audio) from S3 through the backend
+// Also mounted at /parts/:id/pdf for backwards compatibility
+partsRouter.get('/:id/pdf', servePart);
+partsRouter.get('/:id/file', servePart);
+
+async function servePart(req: Request, res: Response): Promise<void> {
   const part = await getPartWithEnsemble(req.params.id);
   if (!part) { res.status(404).end(); return; }
 
@@ -227,18 +299,23 @@ partsRouter.get('/:id/pdf', async (req: Request, res: Response): Promise<void> =
     throw err;
   }
 
+  if (!part.pdfS3Key) { res.status(404).json({ error: 'No file for this part' }); return; }
+
   try {
     const command = new GetObjectCommand({ Bucket: BUCKET, Key: part.pdfS3Key });
     const s3Res = await s3.send(command);
-    res.setHeader('Content-Type', 'application/pdf');
-    res.setHeader('Content-Disposition', `inline; filename="${part.name}.pdf"`);
+    const contentType = part.kind === 'audio' && (part as any).audioMimeType
+      ? (part as any).audioMimeType
+      : 'application/pdf';
+    res.setHeader('Content-Type', contentType);
+    res.setHeader('Content-Disposition', `inline; filename="${part.name}"`);
     if (s3Res.ContentLength) res.setHeader('Content-Length', s3Res.ContentLength);
     (s3Res.Body as Readable).pipe(res);
   } catch (err) {
-    console.error(`[pdf] S3 error:`, err);
+    console.error(`[file] S3 error:`, err);
     res.status(500).end();
   }
-});
+}
 
 // GET /parts/:id/debug-pdf — serves the annotated PDF with measure bounding boxes
 partsRouter.get('/:id/debug-pdf', async (req: Request, res: Response): Promise<void> => {

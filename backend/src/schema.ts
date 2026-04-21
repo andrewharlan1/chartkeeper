@@ -4,6 +4,7 @@ import {
   text,
   timestamp,
   integer,
+  boolean,
   jsonb,
   pgEnum,
   unique,
@@ -18,7 +19,7 @@ const timestamps = {
 
 // ── Enums ──────────────────────────────────────────────────────────────────
 
-export const partKindEnum = pgEnum('part_kind', ['part', 'score']);
+export const partKindEnum = pgEnum('part_kind', ['part', 'score', 'chart', 'link', 'audio', 'other']);
 export const annotationScopeEnum = pgEnum('annotation_scope', [
   'self',
   'ensemble',
@@ -156,12 +157,18 @@ export const parts = pgTable(
     versionId: uuid('version_id').notNull().references(() => versions.id, { onDelete: 'cascade' }),
     kind: partKindEnum('kind').notNull().default('part'),
     name: text('name').notNull(),
-    pdfS3Key: text('pdf_s3_key').notNull(),
+    pdfS3Key: text('pdf_s3_key'),
     audiverisMxlS3Key: text('audiveris_mxl_s3_key'),
     omrJson: jsonb('omr_json'),
     omrStatus: text('omr_status').notNull().default('pending'),
     omrEngine: text('omr_engine'),
     uploadedByUserId: uuid('uploaded_by_user_id').references(() => users.id),
+
+    // Kind-specific fields
+    linkUrl: text('link_url'),                            // 'link' kind
+    audioDurationSeconds: integer('audio_duration_seconds'), // 'audio' kind
+    audioMimeType: text('audio_mime_type'),                // 'audio' kind
+
     ...timestamps,
   },
   (t) => ({

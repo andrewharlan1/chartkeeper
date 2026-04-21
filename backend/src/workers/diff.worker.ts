@@ -25,7 +25,7 @@ interface DiffJobPayload {
 interface PartRow {
   id:       string;
   name:     string;
-  pdfS3Key: string;
+  pdfS3Key: string | null;
 }
 
 async function processDiffJob(jobId: string, payload: DiffJobPayload): Promise<void> {
@@ -53,9 +53,9 @@ async function processDiffJob(jobId: string, payload: DiffJobPayload): Promise<v
     return;
   }
 
-  // Match parts by name
-  const toPartMap = new Map(toParts.map(p => [p.name, p]));
-  const pairs = fromParts.filter(p => toPartMap.has(p.name));
+  // Match parts by name — only file-based parts with a pdfS3Key can be diffed
+  const toPartMap = new Map(toParts.filter(p => p.pdfS3Key).map(p => [p.name, p]));
+  const pairs = fromParts.filter(p => p.pdfS3Key && toPartMap.has(p.name));
 
   if (pairs.length === 0) {
     await completeJob(jobId);
@@ -73,8 +73,8 @@ async function processDiffJob(jobId: string, payload: DiffJobPayload): Promise<v
       const toPart = toPartMap.get(fromPart.name)!;
       try {
         const [oldPdf, newPdf] = await Promise.all([
-          downloadFile(fromPart.pdfS3Key),
-          downloadFile(toPart.pdfS3Key),
+          downloadFile(fromPart.pdfS3Key!),
+          downloadFile(toPart.pdfS3Key!),
         ]);
 
         const result = await computeMeasureMapping(oldPdf, newPdf, fromPart.name, {

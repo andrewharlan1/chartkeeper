@@ -47,19 +47,29 @@ export interface Version {
   partCount?: number;
 }
 
-export type PartKind = 'part' | 'score';
+export type PartKind = 'part' | 'score' | 'chart' | 'link' | 'audio' | 'other';
 export type OmrStatus = 'pending' | 'processing' | 'complete' | 'failed';
+
+/** Kinds that hold notation files and support OMR / annotations */
+export const FILE_NOTATION_KINDS: PartKind[] = ['part', 'score', 'chart'];
+/** Kinds that support annotation migration */
+export const ANNOTATABLE_KINDS: PartKind[] = ['part', 'score', 'chart'];
 
 export interface Part {
   id: string;
   versionId: string;
   kind: PartKind;
   name: string;
-  pdfS3Key: string;
+  pdfS3Key: string | null;
   omrStatus: OmrStatus;
   omrEngine: string | null;
   createdAt: string;
   pdfUrl?: string;
+
+  // Kind-specific fields
+  linkUrl?: string | null;
+  audioDurationSeconds?: number | null;
+  audioMimeType?: string | null;
 }
 
 export interface InstrumentSlot {
@@ -208,8 +218,9 @@ export interface PlayerPart {
 
 export interface UploadEntry {
   id: string;
-  file: File;
+  file: File | null;  // null for 'link' kind
   name: string;
   kind: PartKind;
   slotIds: string[];
+  linkUrl?: string;   // for 'link' kind
 }
