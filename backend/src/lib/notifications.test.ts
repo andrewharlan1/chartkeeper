@@ -1,77 +1,59 @@
+import supertest from 'supertest';
+import { app } from '../index';
 import { db } from '../db';
 import { notifyNewVersion, notifyNewVersionNoDiff, notifyRestore } from './notifications';
 
-jest.mock('./push', () => ({
-  sendPush: jest.fn().mockResolvedValue(undefined),
-}));
+const request = supertest(app);
 
-import { sendPush } from './push';
-const mockSendPush = sendPush as jest.Mock;
+let token: string;
+let ensembleId: string;
+let versionId: string;
 
 async function clearDb() {
-  await db.query(`DELETE FROM notifications`);
-  await db.query(`DELETE FROM device_tokens`);
   await db.query(`DELETE FROM version_diffs`);
   await db.query(`DELETE FROM parts`);
-  await db.query(`DELETE FROM chart_versions`);
+  await db.query(`DELETE FROM versions`);
   await db.query(`DELETE FROM charts`);
-  await db.query(`DELETE FROM ensemble_members`);
   await db.query(`DELETE FROM ensembles`);
+  await db.query(`DELETE FROM workspace_members`);
+  await db.query(`DELETE FROM workspaces`);
   await db.query(`DELETE FROM users`);
 }
 
-async function seedScenario() {
-  const userRes = await db.query(
-    `INSERT INTO users (email, name, password_hash) VALUES ('notiftest@example.com', 'Owner', 'x') RETURNING id`
-  );
-  const playerRes = await db.query(
-    `INSERT INTO users (email, name, password_hash) VALUES ('player@example.com', 'Player', 'x') RETURNING id`
-  );
-  const ownerId = userRes.rows[0].id;
-  const playerId = playerRes.rows[0].id;
-
-  const ensRes = await db.query(
-    `INSERT INTO ensembles (name, owner_id) VALUES ('Notify Band', $1) RETURNING id`, [ownerId]
-  );
-  const ensembleId = ensRes.rows[0].id;
-  await db.query(
-    `INSERT INTO ensemble_members (ensemble_id, user_id, role) VALUES ($1, $2, 'owner'), ($1, $3, 'player')`,
-    [ensembleId, ownerId, playerId]
-  );
-
-  const chartRes = await db.query(
-    `INSERT INTO charts (ensemble_id, title) VALUES ($1, 'Blue Rondo') RETURNING id`, [ensembleId]
-  );
-  const chartId = chartRes.rows[0].id;
-
-  const v1Res = await db.query(
-    `INSERT INTO chart_versions (chart_id, version_number, version_name, is_active, created_by)
-     VALUES ($1, 1, 'Version 1', false, $2) RETURNING id`, [chartId, ownerId]
-  );
-  const v2Res = await db.query(
-    `INSERT INTO chart_versions (chart_id, version_number, version_name, is_active, created_by)
-     VALUES ($1, 2, 'Version 2', true, $2) RETURNING id`, [chartId, ownerId]
-  );
-
-  // Register a device token for the player
-  await db.query(
-    `INSERT INTO device_tokens (user_id, token, platform) VALUES ($1, 'player-ios-token', 'ios')`,
-    [playerId]
-  );
-
-  return { chartId, v1Id: v1Res.rows[0].id, v2Id: v2Res.rows[0].id, ownerId, playerId, ensembleId };
-}
-
-beforeAll(clearDb);
-afterEach(async () => {
+beforeAll(async () => {
   await clearDb();
-  mockSendPush.mockClear();
+
+  const signup = await request.post('/auth/signup').send({
+    email: 'notiftest@example.com',
+    name: 'Owner',
+    password: 'password123',
+  });
+  token = signup.body.token;
+  const workspaceId = signup.body.workspaceId;
+
+  const ens = await request.post('/ensembles')
+    .set('Authorization', `Bearer ${token}`)
+    .send({ workspaceId, name: 'Notify Band' });
+  ensembleId = ens.body.ensemble.id;
+
+  const chart = await request.post('/charts')
+    .set('Authorization', `Bearer ${token}`)
+    .send({ ensembleId, name: 'Blue Rondo' });
+  const chartId = chart.body.chart.id;
+
+  const version = await request.post('/versions')
+    .set('Authorization', `Bearer ${token}`)
+    .send({ chartId, name: 'Version 2' });
+  versionId = version.body.version.id;
 });
-afterAll(async () => { await db.end(); });
+
+afterAll(async () => {
+  await db.end();
+});
 
 describe('notifyNewVersion', () => {
-  it('writes notification rows for all members and calls sendPush for device tokens', async () => {
-    const { chartId, v2Id, playerId } = await seedScenario();
+  it('logs notification summary with changed-measure count', async () => {
+    const spy = jest.spyOn(console, 'log').mockImplementation();
 
     const diffJson = {
       parts: {
@@ -84,38 +66,72 @@ describe('notifyNewVersion', () => {
       },
     };
 
-    await notifyNewVersion(chartId, v2Id, diffJson);
+    await notifyNewVersion(ensembleId, versionId, diffJson);
 
-    const rows = await db.query(`SELECT * FROM notifications WHERE chart_version_id = $1`, [v2Id]);
-    expect(rows.rows.length).toBeGreaterThanOrEqual(2); // owner + player
-    expect(rows.rows[0].message).toContain('Blue Rondo');
-    expect(rows.rows[0].message).toContain('2 measures changed');
+    expect(spy).toHaveBeenCalledWith(
+      expect.stringContaining('2 measures changed')
+    );
+    expect(spy).toHaveBeenCalledWith(
+      expect.stringContaining('Version 2')
+    );
 
-    // sendPush called once for the player's iOS token
-    expect(mockSendPush).toHaveBeenCalledTimes(1);
-    expect(mockSendPush.mock.calls[0][0].token).toBe('player-ios-token');
+    spy.mockRestore();
+  });
+
+  it('logs "new version available" when no measures changed', async () => {
+    const spy = jest.spyOn(console, 'log').mockImplementation();
+
+    const diffJson = {
+      parts: {
+        trumpet: {
+          changedMeasures: [],
+          changeDescriptions: {},
+          structuralChanges: { insertedMeasures: [], deletedMeasures: [], sectionLabelChanges: [] },
+          measureMapping: {},
+        },
+      },
+    };
+
+    await notifyNewVersion(ensembleId, versionId, diffJson);
+
+    expect(spy).toHaveBeenCalledWith(
+      expect.stringContaining('new version available')
+    );
+
+    spy.mockRestore();
   });
 });
 
 describe('notifyNewVersionNoDiff', () => {
-  it('sends a fallback "new version available" notification', async () => {
-    const { chartId, v2Id } = await seedScenario();
-    await notifyNewVersionNoDiff(chartId, v2Id);
+  it('logs fallback "new version available" message', async () => {
+    const spy = jest.spyOn(console, 'log').mockImplementation();
 
-    const rows = await db.query(`SELECT message FROM notifications WHERE chart_version_id = $1`, [v2Id]);
-    expect(rows.rows.length).toBeGreaterThanOrEqual(1);
-    expect(rows.rows[0].message).toContain('new version available');
+    await notifyNewVersionNoDiff(ensembleId, versionId);
+
+    expect(spy).toHaveBeenCalledWith(
+      expect.stringContaining('new version available')
+    );
+    expect(spy).toHaveBeenCalledWith(
+      expect.stringContaining('Version 2')
+    );
+
+    spy.mockRestore();
   });
 });
 
 describe('notifyRestore', () => {
-  it('sends a restore notification to all members', async () => {
-    const { chartId, v1Id } = await seedScenario();
-    await notifyRestore(chartId, v1Id);
+  it('logs restore notification', async () => {
+    const spy = jest.spyOn(console, 'log').mockImplementation();
 
-    const rows = await db.query(`SELECT message FROM notifications WHERE chart_version_id = $1`, [v1Id]);
-    expect(rows.rows.length).toBeGreaterThanOrEqual(1);
-    expect(rows.rows[0].message).toContain('restored');
-    expect(rows.rows[0].message).toContain('Version 1');
+    await notifyRestore(ensembleId, versionId);
+
+    expect(spy).toHaveBeenCalledWith(
+      expect.stringContaining('restored')
+    );
+    expect(spy).toHaveBeenCalledWith(
+      expect.stringContaining('Version 2')
+    );
+
+    spy.mockRestore();
   });
 });

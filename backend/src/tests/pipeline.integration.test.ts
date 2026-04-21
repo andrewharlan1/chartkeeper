@@ -31,7 +31,6 @@ const request = supertest(app);
 
 async function clearDb() {
   await db.query(`DELETE FROM notifications`);
-  await db.query(`DELETE FROM device_tokens`);
   await db.query(`DELETE FROM jobs`);
   await db.query(`DELETE FROM version_diffs`);
   await db.query(`DELETE FROM parts`);
