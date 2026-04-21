@@ -1264,7 +1264,7 @@ export function AnnotationLayer({
                   padding: '0 8px',
                   borderRadius: 6,
                   border: '1px solid rgba(124, 111, 247, 0.4)',
-                  background: 'rgba(124, 111, 247, 0.22)',
+                  background: '#1c1b32',
                   color: '#c4bcff',
                   cursor: 'pointer',
                   fontSize: 11,
