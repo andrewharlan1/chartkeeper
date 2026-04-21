@@ -34,8 +34,8 @@ interface Props {
 const INK_STROKE_WIDTH = 0.002; // normalized to page width
 const ERASE_HIT_PAD = 0.008; // ~8px hit tolerance at 1000px canvas
 
-// Pixel padding for measure clamp boundaries (converted to normalized coords at runtime)
-const MEASURE_CLAMP_PAD = { top: 120, bottom: 80, left: 12, right: 12 };
+// Page-level bounds for move/resize — generous padding allows annotations near page edges
+const PAGE_BOUNDS = { minX: 0, minY: -0.15, maxX: 1, maxY: 1.15 };
 
 function rgbToHex(r: string, g: string, b: string): string {
   return '#' + [r, g, b].map(x => parseInt(x).toString(16).padStart(2, '0')).join('');
@@ -413,31 +413,12 @@ export function AnnotationLayer({
     setTimeout(() => commitErases([id]), 150);
   }, [selectedAnnotationId, onSelectionChange, commitErases]);
 
-  // Get measure layout bounds for clamping during move/resize (with padding)
-  const getMeasureBounds = useCallback((annotation: Annotation) => {
-    const anchor = annotation.anchorJson as { measureNumber?: number };
-    if (anchor.measureNumber == null) return null;
-    const ml = measureLayout.find(m => m.measureNumber === anchor.measureNumber && m.page === currentPage);
-    if (!ml) return null;
-    // Expand bounds by pixel padding converted to normalized coords
-    const padTop = MEASURE_CLAMP_PAD.top / canvasHeight;
-    const padBottom = MEASURE_CLAMP_PAD.bottom / canvasHeight;
-    const padLeft = MEASURE_CLAMP_PAD.left / canvasWidth;
-    const padRight = MEASURE_CLAMP_PAD.right / canvasWidth;
-    return {
-      x: ml.x - padLeft,
-      y: ml.y - padTop,
-      w: ml.w + padLeft + padRight,
-      h: ml.h + padTop + padBottom,
-    };
-  }, [measureLayout, currentPage, canvasWidth, canvasHeight]);
-
-  // Clamp a drag offset so the annotation stays within its measure
-  const clampOffset = useCallback((dx: number, dy: number, bounds: { x: number; y: number; w: number; h: number }, measure: { x: number; y: number; w: number; h: number }) => {
+  // Clamp a drag offset so the annotation stays within page bounds
+  const clampOffset = useCallback((dx: number, dy: number, bounds: { x: number; y: number; w: number; h: number }) => {
     const newX = bounds.x + dx;
     const newY = bounds.y + dy;
-    const clampedX = Math.max(measure.x, Math.min(newX, measure.x + measure.w - bounds.w));
-    const clampedY = Math.max(measure.y, Math.min(newY, measure.y + measure.h - bounds.h));
+    const clampedX = Math.max(PAGE_BOUNDS.minX, Math.min(newX, PAGE_BOUNDS.maxX - bounds.w));
+    const clampedY = Math.max(PAGE_BOUNDS.minY, Math.min(newY, PAGE_BOUNDS.maxY - bounds.h));
     return { dx: clampedX - bounds.x, dy: clampedY - bounds.y };
   }, []);
 
@@ -891,17 +872,11 @@ export function AnnotationLayer({
         else { nh = nw / aspect; }
       }
 
-      // Clamp to measure bounds (already includes padding from getMeasureBounds)
-      const ann = annotations.find(a => a.id === dragRef.current!.annotationId);
-      if (ann) {
-        const measure = getMeasureBounds(ann);
-        if (measure) {
-          nx = Math.max(measure.x, nx);
-          ny = Math.max(measure.y, ny);
-          nw = Math.min(nw, measure.x + measure.w - nx);
-          nh = Math.min(nh, measure.y + measure.h - ny);
-        }
-      }
+      // Clamp to page-level bounds
+      nx = Math.max(PAGE_BOUNDS.minX, nx);
+      ny = Math.max(PAGE_BOUNDS.minY, ny);
+      nw = Math.min(nw, PAGE_BOUNDS.maxX - nx);
+      nh = Math.min(nh, PAGE_BOUNDS.maxY - ny);
 
       setResizeBounds({ x: nx, y: ny, w: nw, h: nh });
       return;
@@ -912,14 +887,8 @@ export function AnnotationLayer({
       const pt = toNormalized(e);
       let dx = pt.x - dragRef.current.startPt.x;
       let dy = pt.y - dragRef.current.startPt.y;
-      // Clamp to measure bounds
-      const ann = annotations.find(a => a.id === dragRef.current!.annotationId);
-      if (ann) {
-        const measure = getMeasureBounds(ann);
-        if (measure) {
-          ({ dx, dy } = clampOffset(dx, dy, dragRef.current.originalBounds, measure));
-        }
-      }
+      // Clamp to page-level bounds
+      ({ dx, dy } = clampOffset(dx, dy, dragRef.current.originalBounds));
       setDragOffset({ dx, dy });
       return;
     }
