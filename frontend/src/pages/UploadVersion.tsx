@@ -1,7 +1,7 @@
 import { useState, useEffect, FormEvent } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { createVersion } from '../api/versions';
-import { uploadPart, migrateFrom } from '../api/parts';
+import { uploadPart, migrateFrom, InstrumentAssignment } from '../api/parts';
 import { getChart, getChartAnnotationSources, AnnotationSourceVersion } from '../api/charts';
 import { getEnsemble } from '../api/ensembles';
 import { getInstrumentSlots } from '../api/instrumentSlots';
@@ -16,6 +16,7 @@ import { ApiError } from '../api/client';
 type MigrationEntry = UploadEntry & {
   migrationSourcePartId: string | null;
   showAllInstruments: boolean;
+  instrumentAssignments: InstrumentAssignment[];
 };
 
 const ALL_KINDS: PartKind[] = ['part', 'score', 'chart', 'link', 'audio', 'other'];
@@ -110,7 +111,7 @@ export function UploadVersion() {
     const added: MigrationEntry[] = files.map(file => {
       const name = humanizeName(file.name);
       const kind = guessKindFromFile(file);
-      return { id: crypto.randomUUID(), file, name, kind, slotIds: [], migrationSourcePartId: null, showAllInstruments: false };
+      return { id: crypto.randomUUID(), file, name, kind, slotIds: [], migrationSourcePartId: null, showAllInstruments: false, instrumentAssignments: [] };
     });
     setEntries(prev => [...prev, ...added]);
   }
@@ -118,11 +119,11 @@ export function UploadVersion() {
   function addLinkEntry() {
     setEntries(prev => [...prev, {
       id: crypto.randomUUID(), file: null, name: '', kind: 'link' as PartKind,
-      slotIds: [], linkUrl: '', migrationSourcePartId: null, showAllInstruments: false,
+      slotIds: [], linkUrl: '', migrationSourcePartId: null, showAllInstruments: false, instrumentAssignments: [],
     }]);
   }
 
-  function updateEntry(id: string, patch: Partial<Pick<MigrationEntry, 'name' | 'kind' | 'slotIds' | 'migrationSourcePartId' | 'showAllInstruments' | 'linkUrl'>>) {
+  function updateEntry(id: string, patch: Partial<Pick<MigrationEntry, 'name' | 'kind' | 'slotIds' | 'migrationSourcePartId' | 'showAllInstruments' | 'linkUrl' | 'instrumentAssignments'>>) {
     setEntries(prev => prev.map(e => {
       if (e.id !== id) return e;
       const updated = { ...e, ...patch };
@@ -178,12 +179,14 @@ export function UploadVersion() {
           audioDurationSeconds = await getAudioDuration(entry.file);
         }
 
+        const hasNewInstruments = entry.instrumentAssignments.some(a => 'newInstrumentName' in a);
         const { part } = await uploadPart({
           versionId: version.id,
           name: entry.name.trim(),
           file: entry.file,
           kind: entry.kind,
-          slotIds: entry.slotIds,
+          slotIds: hasNewInstruments ? undefined : entry.slotIds,
+          instrumentAssignments: hasNewInstruments ? entry.instrumentAssignments : undefined,
           linkUrl: entry.kind === 'link' ? entry.linkUrl : undefined,
           audioDurationSeconds,
         });
@@ -356,6 +359,7 @@ export function UploadVersion() {
                   slots={slots}
                   selectedIds={entry.slotIds}
                   onChange={ids => updateEntry(entry.id, { slotIds: ids })}
+                  onAssignmentsChange={assignments => updateEntry(entry.id, { instrumentAssignments: assignments })}
                 />
 
                 {/* Migration source picker — only for annotatable kinds */}

@@ -2,7 +2,7 @@ import { Router, Request, Response } from 'express';
 import { z } from 'zod';
 import { eq, and, isNull, sql, inArray } from 'drizzle-orm';
 import multer from 'multer';
-import { dz } from '../db';
+import { dz, db } from '../db';
 import { parts, versions, charts, ensembles, partSlotAssignments, instrumentSlots, versionDiffs } from '../schema';
 import { requireAuth } from '../middleware/auth';
 import { requireEnsembleMember, requireEnsembleAdmin } from '../lib/ensembleAuth';
@@ -113,6 +113,67 @@ partsRouter.get('/', async (req: Request, res: Response): Promise<void> => {
   res.json({ parts: rows });
 });
 
+/**
+ * Title-case a string: "french horn" → "French Horn"
+ */
+function titleCase(s: string): string {
+  return s.replace(/\w\S*/g, w => w.charAt(0).toUpperCase() + w.slice(1).toLowerCase());
+}
+
+/**
+ * Resolve instrument assignments: existing slot IDs are used directly,
+ * new instrument names get matched case-insensitively to existing slots
+ * or auto-created in the ensemble roster.
+ */
+async function resolveInstrumentAssignments(
+  ensembleId: string,
+  raw: Array<{ existingSlotId?: string; newInstrumentName?: string }>,
+): Promise<string[]> {
+  const resolvedIds: string[] = [];
+
+  // Pre-fetch existing slots for case-insensitive matching
+  const existingSlots = await dz.select({ id: instrumentSlots.id, name: instrumentSlots.name })
+    .from(instrumentSlots)
+    .where(and(eq(instrumentSlots.ensembleId, ensembleId), isNull(instrumentSlots.deletedAt)));
+
+  const slotNameMap = new Map(existingSlots.map(s => [s.name.toLowerCase().trim(), s.id]));
+
+  for (const assignment of raw) {
+    if (assignment.existingSlotId) {
+      resolvedIds.push(assignment.existingSlotId);
+    } else if (assignment.newInstrumentName) {
+      const normalized = assignment.newInstrumentName.trim();
+      if (!normalized) continue;
+      const lowerName = normalized.toLowerCase();
+
+      // Check for case-insensitive match to existing slot
+      const existingId = slotNameMap.get(lowerName);
+      if (existingId) {
+        resolvedIds.push(existingId);
+        continue;
+      }
+
+      // Create new instrument slot
+      const displayName = titleCase(normalized);
+      const [{ next }] = await dz.select({
+        next: sql<number>`coalesce(max(${instrumentSlots.sortOrder}), -1) + 1`,
+      }).from(instrumentSlots).where(eq(instrumentSlots.ensembleId, ensembleId));
+
+      const [slot] = await dz.insert(instrumentSlots).values({
+        ensembleId,
+        name: displayName,
+        sortOrder: Number(next),
+      }).returning();
+
+      resolvedIds.push(slot.id);
+      // Update the map so duplicate names in the same upload don't create duplicates
+      slotNameMap.set(lowerName, slot.id);
+    }
+  }
+
+  return [...new Set(resolvedIds)]; // deduplicate
+}
+
 // Valid part kinds
 const VALID_KINDS = ['part', 'score', 'chart', 'link', 'audio', 'other'] as const;
 type ValidKind = typeof VALID_KINDS[number];
@@ -143,9 +204,18 @@ partsRouter.post('/', upload.single('file'), async (req: Request, res: Response)
   const rawKind = typeof req.body.kind === 'string' ? req.body.kind : 'part';
   const kind: ValidKind = VALID_KINDS.includes(rawKind as ValidKind) ? rawKind as ValidKind : 'part';
 
-  // Parse optional slot_ids for assignment
+  // Parse instrument assignments — supports both old slotIds and new instrumentAssignments
   let slotIds: string[] = [];
-  if (typeof req.body.slotIds === 'string') {
+  if (typeof req.body.instrumentAssignments === 'string') {
+    try {
+      const raw = JSON.parse(req.body.instrumentAssignments);
+      if (Array.isArray(raw) && raw.length > 0) {
+        slotIds = await resolveInstrumentAssignments(ver.ensembleId, raw);
+      }
+    } catch { /* ignore */ }
+  }
+  // Backward-compatible: plain slotIds array
+  if (slotIds.length === 0 && typeof req.body.slotIds === 'string') {
     try { slotIds = JSON.parse(req.body.slotIds); } catch { /* ignore */ }
   }
 

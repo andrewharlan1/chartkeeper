@@ -15,7 +15,7 @@ import { PartRenderer } from '../components/PartRenderer';
 import { ContentKindIcon, KIND_LABELS } from '../components/ContentKindIcon';
 import { InstrumentIcon } from '../components/InstrumentIcon';
 import { FileDropZone } from '../components/FileDropZone';
-import { SlotAssignmentPicker } from '../components/SlotAssignmentPicker';
+import { SlotAssignmentPicker, InstrumentAssignment } from '../components/SlotAssignmentPicker';
 import { MigrationModal } from '../components/MigrationModal';
 import { ApiError } from '../api/client';
 
@@ -202,6 +202,7 @@ function InlineAddPart({ versionId, ensembleId, hasParts, onAdded }: {
   const [kind, setKind] = useState<PartKind>('part');
   const [linkUrl, setLinkUrl] = useState('');
   const [slotIds, setSlotIds] = useState<string[]>([]);
+  const [assignments, setAssignments] = useState<InstrumentAssignment[]>([]);
   const [slots, setSlots] = useState<InstrumentSlot[]>([]);
   const [uploading, setUploading] = useState(false);
   const [err, setErr] = useState('');
@@ -217,6 +218,7 @@ function InlineAddPart({ versionId, ensembleId, hasParts, onAdded }: {
     setKind('part');
     setLinkUrl('');
     setSlotIds([]);
+    setAssignments([]);
     setErr('');
     setOpen(false);
   }
@@ -236,12 +238,14 @@ function InlineAddPart({ versionId, ensembleId, hasParts, onAdded }: {
     setUploading(true);
     setErr('');
     try {
+      const hasNewInstruments = assignments.some(a => 'newInstrumentName' in a);
       const { part } = await uploadPart({
         versionId,
         name: name.trim(),
         file: file,
         kind,
-        slotIds: slotIds.length > 0 ? slotIds : undefined,
+        slotIds: hasNewInstruments ? undefined : (slotIds.length > 0 ? slotIds : undefined),
+        instrumentAssignments: hasNewInstruments ? assignments : undefined,
         linkUrl: kind === 'link' ? linkUrl : undefined,
       });
       onAdded(part);
@@ -353,7 +357,7 @@ function InlineAddPart({ versionId, ensembleId, hasParts, onAdded }: {
             <label style={{ fontSize: 12, fontWeight: 600, color: 'var(--text-muted)', display: 'block', marginBottom: 2 }}>
               Assign to instruments
             </label>
-            <SlotAssignmentPicker slots={slots} selectedIds={slotIds} onChange={setSlotIds} />
+            <SlotAssignmentPicker slots={slots} selectedIds={slotIds} onChange={setSlotIds} onAssignmentsChange={setAssignments} />
           </div>
         )}
 

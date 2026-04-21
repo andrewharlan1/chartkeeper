@@ -9,12 +9,17 @@ export function getPart(id: string): Promise<{ part: Part }> {
   return api.get(`/parts/${id}`);
 }
 
+export type InstrumentAssignment =
+  | { existingSlotId: string }
+  | { newInstrumentName: string };
+
 export function uploadPart(data: {
   versionId: string;
   name: string;
   file: File | null;
   kind?: PartKind;
   slotIds?: string[];
+  instrumentAssignments?: InstrumentAssignment[];
   linkUrl?: string;
   audioDurationSeconds?: number;
 }): Promise<{ part: Part }> {
@@ -23,7 +28,12 @@ export function uploadPart(data: {
   form.append('name', data.name);
   if (data.file) form.append('file', data.file);
   if (data.kind) form.append('kind', data.kind);
-  if (data.slotIds?.length) form.append('slotIds', JSON.stringify(data.slotIds));
+  // Prefer instrumentAssignments if available, fall back to slotIds
+  if (data.instrumentAssignments?.length) {
+    form.append('instrumentAssignments', JSON.stringify(data.instrumentAssignments));
+  } else if (data.slotIds?.length) {
+    form.append('slotIds', JSON.stringify(data.slotIds));
+  }
   if (data.linkUrl) form.append('linkUrl', data.linkUrl);
   if (data.audioDurationSeconds) form.append('audioDurationSeconds', String(data.audioDurationSeconds));
   return multipartRequest('/parts', form);
