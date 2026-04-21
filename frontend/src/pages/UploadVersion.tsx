@@ -1,8 +1,8 @@
 import { useState, useEffect, FormEvent } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
-import { createVersion, getAnnotationSources } from '../api/versions';
+import { createVersion } from '../api/versions';
 import { uploadPart } from '../api/parts';
-import { getChart } from '../api/charts';
+import { getChart, getChartAnnotationSources, AnnotationSourceVersion } from '../api/charts';
 import { getEnsemble } from '../api/ensembles';
 import { getInstrumentSlots } from '../api/instrumentSlots';
 import { UploadEntry, PartKind, InstrumentSlot } from '../types';
@@ -10,8 +10,12 @@ import { Layout } from '../components/Layout';
 import { Button } from '../components/Button';
 import { FileDropZone } from '../components/FileDropZone';
 import { SlotAssignmentPicker } from '../components/SlotAssignmentPicker';
-import { MigrationModal } from '../components/MigrationModal';
 import { ApiError } from '../api/client';
+
+type MigrationEntry = UploadEntry & {
+  migrationSourcePartId: string | null;
+  showAllInstruments: boolean;
+};
 
 function humanizeName(filename: string): string {
   return filename.replace(/\.pdf$/i, '').replace(/[-_]/g, ' ').trim();
@@ -25,44 +29,60 @@ export function UploadVersion() {
   const [ensembleName, setEnsembleName] = useState('');
   const [ensembleId, setEnsembleId] = useState('');
   const [slots, setSlots] = useState<InstrumentSlot[]>([]);
+  const [annotationSources, setAnnotationSources] = useState<AnnotationSourceVersion[]>([]);
 
   useEffect(() => {
     if (!chartId) return;
     getChart(chartId).then(async ({ chart }) => {
       setChartName(chart.name);
       try {
-        const [{ ensemble }, { instrumentSlots }] = await Promise.all([
+        const [{ ensemble }, { instrumentSlots }, { sources }] = await Promise.all([
           getEnsemble(chart.ensembleId),
           getInstrumentSlots(chart.ensembleId),
+          getChartAnnotationSources(chartId),
         ]);
         setEnsembleName(ensemble.name);
         setEnsembleId(chart.ensembleId);
         setSlots(instrumentSlots);
+        setAnnotationSources(sources);
       } catch { /* breadcrumb / slots will be partial */ }
     }).catch(() => {});
   }, [chartId]);
 
-  const [entries, setEntries] = useState<UploadEntry[]>([]);
+  const [entries, setEntries] = useState<MigrationEntry[]>([]);
   const [versionName, setVersionName] = useState('');
   const [uploading, setUploading] = useState(false);
   const [error, setError] = useState('');
   const [progress, setProgress] = useState('');
-  // Migration modal state
-  const [newVersionId, setNewVersionId] = useState<string | null>(null);
-  const [newVersionName, setNewVersionName] = useState('');
-  const [showMigration, setShowMigration] = useState(false);
+
+  function getDefaultSource(entrySlotIds: string[]): string | null {
+    for (const v of annotationSources) {
+      for (const p of v.parts) {
+        if (entrySlotIds.some(s => p.slotIds.includes(s))) return p.partId;
+      }
+    }
+    return null;
+  }
 
   function addFiles(files: File[]) {
-    const added: UploadEntry[] = files.map(file => {
+    const added: MigrationEntry[] = files.map(file => {
       const name = humanizeName(file.name);
       const kind: PartKind = name.toLowerCase().includes('score') ? 'score' : 'part';
-      return { id: crypto.randomUUID(), file, name, kind, slotIds: [] };
+      return { id: crypto.randomUUID(), file, name, kind, slotIds: [], migrationSourcePartId: null, showAllInstruments: false };
     });
     setEntries(prev => [...prev, ...added]);
   }
 
-  function updateEntry(id: string, patch: Partial<Pick<UploadEntry, 'name' | 'kind' | 'slotIds'>>) {
-    setEntries(prev => prev.map(e => e.id === id ? { ...e, ...patch } : e));
+  function updateEntry(id: string, patch: Partial<Pick<MigrationEntry, 'name' | 'kind' | 'slotIds' | 'migrationSourcePartId' | 'showAllInstruments'>>) {
+    setEntries(prev => prev.map(e => {
+      if (e.id !== id) return e;
+      const updated = { ...e, ...patch };
+      // Auto-update migration default when slot assignment changes
+      if ('slotIds' in patch && !('migrationSourcePartId' in patch)) {
+        updated.migrationSourcePartId = getDefaultSource(updated.slotIds);
+      }
+      return updated;
+    }));
   }
 
   function removeEntry(id: string) {
@@ -86,32 +106,23 @@ export function UploadVersion() {
         name: versionName.trim() || `Version ${new Date().toLocaleDateString()}`,
       });
 
+      const uploadedParts: { entryId: string; partId: string }[] = [];
       for (let i = 0; i < entries.length; i++) {
         const entry = entries[i];
         setProgress(`Uploading ${entry.name} (${i + 1}/${entries.length})...`);
-        await uploadPart({
+        const { part } = await uploadPart({
           versionId: version.id,
           name: entry.name.trim(),
           file: entry.file,
           kind: entry.kind,
           slotIds: entry.slotIds,
         });
+        uploadedParts.push({ entryId: entry.id, partId: part.id });
       }
 
-      // Check if there are annotation sources worth migrating
-      setProgress('Checking for annotations to migrate...');
-      try {
-        const { sources } = await getAnnotationSources(version.id);
-        const hasAnnotations = Object.values(sources).some(s => s.length > 0);
-        if (hasAnnotations) {
-          setNewVersionId(version.id);
-          setNewVersionName(version.name);
-          setShowMigration(true);
-          return; // Don't navigate yet — modal handles it
-        }
-      } catch {
-        // If annotation source check fails, skip migration silently
-      }
+      // Migration will be wired in a follow-up commit
+      // For now, store uploadedParts for future use
+      void uploadedParts;
 
       navigate(`/charts/${chartId}/versions/${version.id}`);
     } catch (err) {
@@ -199,6 +210,68 @@ export function UploadVersion() {
                   selectedIds={entry.slotIds}
                   onChange={ids => updateEntry(entry.id, { slotIds: ids })}
                 />
+                {/* Migration source picker — only when annotated previous parts exist */}
+                {annotationSources.length > 0 && (() => {
+                  const options: { partId: string; label: string; sameSlot: boolean }[] = [];
+                  for (const v of annotationSources) {
+                    for (const p of v.parts) {
+                      const sameSlot = entry.slotIds.length > 0 && entry.slotIds.some(s => p.slotIds.includes(s));
+                      if (entry.showAllInstruments || sameSlot || entry.slotIds.length === 0) {
+                        options.push({
+                          partId: p.partId,
+                          label: `${p.partName} — ${v.versionName} (${p.annotationCount} ann.)`,
+                          sameSlot,
+                        });
+                      }
+                    }
+                  }
+                  if (options.length === 0 && !entry.showAllInstruments) return null;
+                  const crossInstrument = entry.migrationSourcePartId != null && !options.find(o => o.partId === entry.migrationSourcePartId)?.sameSlot;
+
+                  return (
+                    <div style={{ marginTop: 8 }}>
+                      <label style={{
+                        display: 'block', fontSize: 10, fontWeight: 700,
+                        color: 'var(--text-muted)', textTransform: 'uppercase',
+                        letterSpacing: '0.05em', marginBottom: 4,
+                      }}>
+                        Migrate annotations from
+                      </label>
+                      <select
+                        value={entry.migrationSourcePartId ?? '__none__'}
+                        onChange={e => updateEntry(entry.id, { migrationSourcePartId: e.target.value === '__none__' ? null : e.target.value })}
+                        style={{
+                          width: '100%', background: 'var(--bg)',
+                          border: '1px solid var(--border)', borderRadius: 4,
+                          padding: '5px 8px', color: 'var(--text)', fontSize: 12,
+                          boxSizing: 'border-box',
+                        }}
+                      >
+                        {options.map(o => (
+                          <option key={o.partId} value={o.partId}>{o.label}</option>
+                        ))}
+                        <option value="__none__">None — start fresh</option>
+                      </select>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginTop: 4 }}>
+                        <input
+                          type="checkbox"
+                          id={`cross-${entry.id}`}
+                          checked={entry.showAllInstruments}
+                          onChange={e => updateEntry(entry.id, { showAllInstruments: e.target.checked })}
+                          style={{ margin: 0 }}
+                        />
+                        <label htmlFor={`cross-${entry.id}`} style={{ fontSize: 11, color: 'var(--text-muted)', cursor: 'pointer' }}>
+                          Also migrate from other instruments
+                        </label>
+                      </div>
+                      {crossInstrument && entry.migrationSourcePartId && (
+                        <p style={{ fontSize: 10, color: 'var(--accent)', marginTop: 4, marginBottom: 0 }}>
+                          Migrating from a different instrument — positions will be remapped by measure
+                        </p>
+                      )}
+                    </div>
+                  );
+                })()}
               </div>
             ))}
           </div>
@@ -213,21 +286,6 @@ export function UploadVersion() {
             : `Upload ${entries.length} file${entries.length !== 1 ? 's' : ''}`}
         </Button>
       </form>
-
-      {showMigration && newVersionId && (
-        <MigrationModal
-          versionId={newVersionId}
-          versionName={newVersionName}
-          onClose={() => {
-            setShowMigration(false);
-            navigate(`/charts/${chartId}/versions/${newVersionId}`);
-          }}
-          onComplete={() => {
-            setShowMigration(false);
-            navigate(`/charts/${chartId}/versions/${newVersionId}`);
-          }}
-        />
-      )}
     </Layout>
   );
 }
