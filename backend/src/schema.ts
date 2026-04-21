@@ -39,6 +39,11 @@ export const workspaceRoleEnum = pgEnum('workspace_role', [
   'member',
   'viewer',
 ]);
+export const notificationKindEnum = pgEnum('notification_kind', [
+  'new_part_version',
+  'assignment_added',
+  'migration_complete',
+]);
 
 // ── Users ──────────────────────────────────────────────────────────────────
 
@@ -277,5 +282,22 @@ export const versionDiffs = pgTable(
   (t) => ({
     fromToIdx: index('version_diffs_from_to_idx').on(t.fromPartId, t.toPartId),
     uniq: unique('version_diffs_uniq').on(t.fromPartId, t.toPartId),
+  }),
+);
+
+// ── Notifications ─────────────────────────────────────────────────────────
+
+export const notifications = pgTable(
+  'notifications',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    userId: uuid('user_id').notNull().references(() => users.id, { onDelete: 'cascade' }),
+    kind: notificationKindEnum('kind').notNull(),
+    payload: jsonb('payload').notNull().$type<Record<string, unknown>>(),
+    readAt: timestamp('read_at'),
+    createdAt: timestamp('created_at').notNull().defaultNow(),
+  },
+  (t) => ({
+    userIdx: index('notifications_user_idx').on(t.userId),
   }),
 );

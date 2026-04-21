@@ -4,9 +4,22 @@ import { useAuth } from '../hooks/useAuth';
 import { useDarkMode } from '../hooks/useDarkMode';
 import { getEnsembles, createEnsemble } from '../api/ensembles';
 import { getWorkspaceMembers } from '../api/workspaces';
+import { getUnreadCount, getNotifications, markNotificationsRead, Notification as NotifType } from '../api/notifications';
 import { Ensemble, WorkspaceMember } from '../types';
 import { Breadcrumbs, BreadcrumbItem } from './Breadcrumbs';
 import { BackButton } from './BackButton';
+
+function formatTimeAgo(dateStr: string): string {
+  const ms = Date.now() - new Date(dateStr).getTime();
+  const mins = Math.floor(ms / 60_000);
+  if (mins < 1) return 'just now';
+  if (mins < 60) return `${mins}m ago`;
+  const hours = Math.floor(mins / 60);
+  if (hours < 24) return `${hours}h ago`;
+  const days = Math.floor(hours / 24);
+  if (days < 7) return `${days}d ago`;
+  return new Date(dateStr).toLocaleDateString();
+}
 
 // Module-level cache to avoid re-fetching on every Layout mount
 let cachedEnsembles: Ensemble[] | null = null;
@@ -65,6 +78,10 @@ export function Layout({ children, title, back, backTo, breadcrumbs, actions }: 
   const fetchedRef = useRef(false);
   const [viewAsMembers, setViewAsMembers] = useState<WorkspaceMember[]>([]);
   const [showViewAs, setShowViewAs] = useState(false);
+  const [unreadCount, setUnreadCount] = useState(0);
+  const [showNotifPanel, setShowNotifPanel] = useState(false);
+  const [notifs, setNotifs] = useState<NotifType[]>([]);
+  const [notifsLoaded, setNotifsLoaded] = useState(false);
 
   useEffect(() => {
     if (!user || !workspaceId) return;
@@ -88,6 +105,48 @@ export function Layout({ children, title, back, backTo, breadcrumbs, actions }: 
     if (!workspaceId) return;
     getWorkspaceMembers(workspaceId).then(r => setViewAsMembers(r.members)).catch(() => {});
   }, [workspaceId]);
+
+  // Poll unread notification count
+  useEffect(() => {
+    if (!user) return;
+    const fetchCount = () => getUnreadCount().then(r => setUnreadCount(r.count)).catch(() => {});
+    fetchCount();
+    const timer = setInterval(fetchCount, 60_000);
+    return () => clearInterval(timer);
+  }, [user]);
+
+  async function handleOpenNotifPanel() {
+    setShowNotifPanel(prev => !prev);
+    if (!notifsLoaded) {
+      try {
+        const r = await getNotifications(20);
+        setNotifs(r.notifications);
+        setNotifsLoaded(true);
+      } catch { /* ignore */ }
+    }
+  }
+
+  async function handleMarkAllRead() {
+    await markNotificationsRead().catch(() => {});
+    setNotifs(prev => prev.map(n => ({ ...n, readAt: n.readAt || new Date().toISOString() })));
+    setUnreadCount(0);
+  }
+
+  async function handleNotifClick(notif: NotifType) {
+    if (!notif.readAt) {
+      markNotificationsRead([notif.id]).catch(() => {});
+      setNotifs(prev => prev.map(n => n.id === notif.id ? { ...n, readAt: new Date().toISOString() } : n));
+      setUnreadCount(prev => Math.max(0, prev - 1));
+    }
+    setShowNotifPanel(false);
+    // Navigate to the relevant chart/version
+    const payload = notif.payload as { chartId?: string; versionId?: string; ensembleId?: string };
+    if (payload.chartId && payload.versionId) {
+      navigate(`/charts/${payload.chartId}/versions/${payload.versionId}`);
+    } else if (payload.ensembleId) {
+      navigate(`/ensembles/${payload.ensembleId}`);
+    }
+  }
 
   function handleLogout() {
     logout();
@@ -438,7 +497,104 @@ export function Layout({ children, title, back, backTo, breadcrumbs, actions }: 
               {title && <h1 style={{ margin: 0 }}>{title}</h1>}
             </div>
             </div>
-            {actions && <div style={{ display: 'flex', gap: 8 }}>{actions}</div>}
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+              {/* Notification bell */}
+              <div style={{ position: 'relative' }}>
+                <button
+                  onClick={handleOpenNotifPanel}
+                  style={{
+                    background: 'none', border: 'none', cursor: 'pointer', padding: '4px 8px',
+                    fontSize: 18, color: 'var(--text-muted)', position: 'relative',
+                  }}
+                  title="Notifications"
+                >
+                  {'\uD83D\uDD14'}
+                  {unreadCount > 0 && (
+                    <span style={{
+                      position: 'absolute', top: 0, right: 2,
+                      background: 'var(--danger, #e53e3e)', color: '#fff',
+                      fontSize: 10, fontWeight: 700, borderRadius: 10,
+                      padding: '1px 5px', minWidth: 16, textAlign: 'center',
+                      lineHeight: '14px',
+                    }}>
+                      {unreadCount > 99 ? '99+' : unreadCount}
+                    </span>
+                  )}
+                </button>
+                {showNotifPanel && (
+                  <div style={{
+                    position: 'absolute', top: '100%', right: 0, marginTop: 8,
+                    width: 360, maxHeight: 420, overflowY: 'auto',
+                    background: 'var(--surface-raised)', border: '1px solid var(--border)',
+                    borderRadius: 12, boxShadow: 'var(--shadow-lg, 0 4px 20px rgba(0,0,0,0.15))',
+                    zIndex: 50, padding: 0,
+                  }}>
+                    <div style={{
+                      display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+                      padding: '12px 16px', borderBottom: '1px solid var(--border)',
+                    }}>
+                      <span style={{ fontWeight: 700, fontSize: 14 }}>Notifications</span>
+                      {unreadCount > 0 && (
+                        <button
+                          onClick={handleMarkAllRead}
+                          style={{
+                            background: 'none', border: 'none', cursor: 'pointer',
+                            fontSize: 12, color: 'var(--accent)', fontFamily: 'inherit',
+                          }}
+                        >
+                          Clear all
+                        </button>
+                      )}
+                    </div>
+                    {notifs.length === 0 ? (
+                      <div style={{ padding: '24px 16px', textAlign: 'center', color: 'var(--text-muted)', fontSize: 13 }}>
+                        No notifications
+                      </div>
+                    ) : (
+                      notifs.map(n => {
+                        const payload = n.payload as Record<string, string>;
+                        const isUnread = !n.readAt;
+                        let message = '';
+                        if (n.kind === 'new_part_version') {
+                          message = `${payload.chartName} updated — ${payload.partName}`;
+                        } else if (n.kind === 'assignment_added') {
+                          message = `You were assigned to ${payload.instrumentName}`;
+                        } else {
+                          message = 'Notification';
+                        }
+                        return (
+                          <button
+                            key={n.id}
+                            onClick={() => handleNotifClick(n)}
+                            style={{
+                              display: 'block', width: '100%', textAlign: 'left',
+                              background: isUnread ? 'var(--accent-subtle, rgba(59,130,246,0.05))' : 'none',
+                              border: 'none', borderBottom: '1px solid var(--border)',
+                              padding: '10px 16px', cursor: 'pointer', fontFamily: 'inherit',
+                            }}
+                          >
+                            <div style={{ display: 'flex', gap: 6, alignItems: 'flex-start' }}>
+                              <span style={{ fontSize: 10, marginTop: 3, flexShrink: 0 }}>
+                                {isUnread ? '\u25CF' : '\u25CB'}
+                              </span>
+                              <div>
+                                <div style={{ fontSize: 13, fontWeight: isUnread ? 600 : 400 }}>
+                                  {message}
+                                </div>
+                                <div style={{ fontSize: 11, color: 'var(--text-faint)', marginTop: 2 }}>
+                                  {formatTimeAgo(n.createdAt)}
+                                </div>
+                              </div>
+                            </div>
+                          </button>
+                        );
+                      })
+                    )}
+                  </div>
+                )}
+              </div>
+              {actions}
+            </div>
           </div>
         )}
 

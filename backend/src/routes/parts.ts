@@ -11,6 +11,7 @@ import { GetObjectCommand } from '@aws-sdk/client-s3';
 import { Readable } from 'stream';
 import { enqueueJob } from '../lib/queue';
 import { migratePartAnnotations } from '../lib/annotation-migration';
+import { notifyPartUploaded } from '../lib/notify';
 
 export const partsRouter = Router();
 partsRouter.use(requireAuth);
@@ -78,7 +79,9 @@ async function getPartWithEnsemble(partId: string) {
 async function getVersionWithEnsemble(versionId: string) {
   const rows = await dz.select({
     id: versions.id,
+    name: versions.name,
     chartId: versions.chartId,
+    chartName: charts.name,
     ensembleId: charts.ensembleId,
   })
     .from(versions)
@@ -244,6 +247,12 @@ partsRouter.post('/', upload.single('file'), async (req: Request, res: Response)
     }
 
     res.status(201).json({ part });
+    notifyPartUploaded({
+      partId: part.id, partName: name,
+      chartId: ver.chartId, chartName: ver.chartName,
+      versionId, versionName: ver.name,
+      uploadedByUserId: req.user!.id,
+    });
     return;
   }
 
@@ -305,6 +314,17 @@ partsRouter.post('/', upload.single('file'), async (req: Request, res: Response)
   }
 
   res.status(201).json({ part });
+
+  // Fire-and-forget notification (after response sent)
+  notifyPartUploaded({
+    partId: part.id,
+    partName: name,
+    chartId: ver.chartId,
+    chartName: ver.chartName,
+    versionId,
+    versionName: ver.name,
+    uploadedByUserId: req.user!.id,
+  });
 });
 
 // GET /parts/:id
