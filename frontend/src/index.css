@@ -136,3 +136,5 @@ h3 { font-size: 13px; font-weight: 600; }
 ::-webkit-scrollbar-track { background: transparent; }
 ::-webkit-scrollbar-thumb { background: var(--border); border-radius: 4px; }
 ::-webkit-scrollbar-thumb:hover { background: var(--text-faint); }
+
+@keyframes spin { to { transform: rotate(360deg); } }

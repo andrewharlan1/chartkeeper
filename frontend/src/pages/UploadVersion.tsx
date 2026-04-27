@@ -1,7 +1,7 @@
 import { useState, useEffect, FormEvent } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { createVersion } from '../api/versions';
-import { uploadPart, migrateFrom, InstrumentAssignment } from '../api/parts';
+import { uploadPart, migrateFrom, InstrumentAssignment, MigrateFromResult } from '../api/parts';
 import { getChart, getChartAnnotationSources, AnnotationSourceVersion } from '../api/charts';
 import { getEnsemble } from '../api/ensembles';
 import { getInstrumentSlots } from '../api/instrumentSlots';
@@ -11,6 +11,7 @@ import { Button } from '../components/Button';
 import { FileDropZone } from '../components/FileDropZone';
 import { SlotAssignmentPicker } from '../components/SlotAssignmentPicker';
 import { ContentKindIcon, KIND_LABELS } from '../components/ContentKindIcon';
+import { PostUploadModal, UploadedPartInfo } from '../components/PostUploadModal';
 import { ApiError } from '../api/client';
 
 type MigrationEntry = UploadEntry & {
@@ -98,6 +99,13 @@ export function UploadVersion() {
   const [error, setError] = useState('');
   const [progress, setProgress] = useState('');
 
+  // Post-upload modal state
+  const [showPostUpload, setShowPostUpload] = useState(false);
+  const [uploadedParts, setUploadedParts] = useState<UploadedPartInfo[]>([]);
+  const [uploadMigrationResults, setUploadMigrationResults] = useState<MigrateFromResult[]>([]);
+  const [uploadedVersionId, setUploadedVersionId] = useState('');
+  const [uploadedVersionName, setUploadedVersionName] = useState('');
+
   function getDefaultSource(entrySlotIds: string[]): string | null {
     for (const v of annotationSources) {
       for (const p of v.parts) {
@@ -168,7 +176,7 @@ export function UploadVersion() {
         name: versionName.trim() || `Version ${new Date().toLocaleDateString()}`,
       });
 
-      const uploadedParts: { entryId: string; partId: string }[] = [];
+      const partsUploaded: { entryId: string; partId: string; name: string; kind: PartKind }[] = [];
       for (let i = 0; i < entries.length; i++) {
         const entry = entries[i];
         setProgress(`Uploading ${entry.name} (${i + 1}/${entries.length})...`);
@@ -190,38 +198,37 @@ export function UploadVersion() {
           linkUrl: entry.kind === 'link' ? entry.linkUrl : undefined,
           audioDurationSeconds,
         });
-        uploadedParts.push({ entryId: entry.id, partId: part.id });
+        partsUploaded.push({ entryId: entry.id, partId: part.id, name: entry.name.trim(), kind: entry.kind });
       }
 
       // Run migrations for entries that have a source selected
       const migrationsToRun = entries
         .filter(entry => entry.migrationSourcePartId != null)
         .map(entry => ({
-          targetPartId: uploadedParts.find(u => u.entryId === entry.id)?.partId,
+          targetPartId: partsUploaded.find(u => u.entryId === entry.id)?.partId,
           sourcePartId: entry.migrationSourcePartId!,
         }))
         .filter((m): m is { targetPartId: string; sourcePartId: string } => m.targetPartId != null);
 
-      let totalFlagged = 0;
+      const migrationResultsList: MigrateFromResult[] = [];
       if (migrationsToRun.length > 0) {
         setProgress(`Migrating annotations (${migrationsToRun.length} part${migrationsToRun.length !== 1 ? 's' : ''})...`);
-        const migrationErrors: string[] = [];
         for (const m of migrationsToRun) {
           try {
             const result = await migrateFrom(m.targetPartId, m.sourcePartId);
-            totalFlagged += result.flaggedCount;
+            migrationResultsList.push(result);
           } catch {
-            migrationErrors.push(m.targetPartId);
+            console.warn(`[UploadVersion] Migration failed for part ${m.targetPartId}`);
           }
-        }
-        if (migrationErrors.length > 0) {
-          console.warn(`[UploadVersion] Migration failed for ${migrationErrors.length} part(s)`);
         }
       }
 
-      navigate(`/charts/${chartId}/versions/${version.id}`, {
-        state: totalFlagged > 0 ? { migrationFlagged: totalFlagged } : undefined,
-      });
+      const resolvedName = versionName.trim() || `Version ${new Date().toLocaleDateString()}`;
+      setUploadedParts(partsUploaded.map(p => ({ partId: p.partId, name: p.name, kind: p.kind })));
+      setUploadMigrationResults(migrationResultsList);
+      setUploadedVersionId(version.id);
+      setUploadedVersionName(resolvedName);
+      setShowPostUpload(true);
     } catch (err) {
       setError(err instanceof ApiError ? err.message : 'Upload failed');
     } finally {
@@ -438,6 +445,17 @@ export function UploadVersion() {
             : `Upload ${entries.length} item${entries.length !== 1 ? 's' : ''}`}
         </Button>
       </form>
+
+      {showPostUpload && (
+        <PostUploadModal
+          chartId={chartId!}
+          versionId={uploadedVersionId}
+          versionName={uploadedVersionName}
+          parts={uploadedParts}
+          migrationResults={uploadMigrationResults}
+          onGoToChart={() => navigate(`/charts/${chartId}/versions/${uploadedVersionId}`)}
+        />
+      )}
     </Layout>
   );
 }
