@@ -262,83 +262,44 @@ export function EnsemblePage() {
         </>
       }
     >
-      {/* Team */}
+      {/* Charts */}
       <section style={{ marginBottom: 36 }}>
-        <button
-          onClick={() => setTeamOpen(o => !o)}
-          style={{
-            display: 'flex', alignItems: 'center', gap: 8, marginBottom: teamOpen ? 14 : 0,
-            background: 'none', border: 'none', padding: 0, cursor: 'pointer', width: '100%',
-          }}
-        >
-          <h2 style={{ margin: 0, flex: 1, textAlign: 'left' }}>
-            Team <span style={{ fontSize: 11, color: 'var(--text-faint)', fontWeight: 400 }}>({members.length})</span>
-          </h2>
-          <span style={{ color: 'var(--text-muted)', fontSize: 12 }}>{teamOpen ? '\u25BE' : '\u25B8'}</span>
-        </button>
-
-        {teamOpen && (
-          <>
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 6, marginBottom: 12 }}>
-              {members.map(m => (
-                <div key={m.id} style={{
-                  display: 'flex', alignItems: 'center', gap: 12,
-                  padding: '10px 16px',
-                  background: 'var(--surface-raised)',
-                  border: '1px solid var(--border)',
-                  borderRadius: 12,
-                }}>
-                  <div style={{
-                    width: 32, height: 32, borderRadius: '50%', flexShrink: 0,
-                    background: m.isDummy ? 'var(--surface)' : 'var(--accent-subtle)',
-                    border: `1px solid ${m.isDummy ? 'var(--border)' : 'var(--accent-glow)'}`,
-                    display: 'flex', alignItems: 'center', justifyContent: 'center',
-                    fontSize: 14, fontWeight: 600, color: m.isDummy ? 'var(--text-muted)' : 'var(--accent)',
-                  }}>
-                    {(m.name || '?')[0].toUpperCase()}
-                  </div>
-                  <div style={{ flex: 1 }}>
-                    <span style={{ fontSize: 14, fontWeight: 500 }}>
-                      {m.name || m.email}
-                    </span>
-                    {m.id === user?.id && (
-                      <span style={{ color: 'var(--text-muted)', fontSize: 12, marginLeft: 6 }}>(you)</span>
-                    )}
-                    <span style={{ color: 'var(--text-muted)', fontSize: 11, marginLeft: 8 }}>
-                      {m.role}
-                    </span>
-                    {m.isDummy && (
-                      <span style={{
-                        fontSize: 10, fontWeight: 600, color: 'var(--text-faint)',
-                        background: 'var(--surface)', padding: '1px 6px',
-                        borderRadius: 8, marginLeft: 6, textTransform: 'uppercase', letterSpacing: 0.3,
-                      }}>
-                        dummy
-                      </span>
-                    )}
-                  </div>
-                  {m.id !== user?.id && (
-                    <button
-                      onClick={() => handleRemoveMember(m.id, m.name)}
-                      disabled={removingMember === m.id}
-                      style={{
-                        background: 'none', border: 'none', color: 'var(--text-faint)',
-                        cursor: 'pointer', fontSize: 12, padding: '2px 6px', borderRadius: 5,
-                      }}
-                    >
-                      {removingMember === m.id ? '...' : 'Remove'}
-                    </button>
-                  )}
+        <h2 style={{ marginBottom: 14 }}>Charts</h2>
+        {charts.length === 0 ? (
+          <p style={{ color: 'var(--text-muted)' }}>No charts yet. Create one above.</p>
+        ) : (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+            {charts.map(c => (
+              <div
+                key={c.id}
+                style={{
+                  display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+                  padding: '14px 20px', background: 'var(--surface)',
+                  border: '1px solid var(--border)', borderRadius: 'var(--radius)',
+                }}
+              >
+                <Link
+                  to={`/charts/${c.id}`}
+                  style={{ flex: 1, color: 'var(--text)', textDecoration: 'none' }}
+                >
+                  <span style={{ fontWeight: 500 }}>{c.name}</span>
+                  {c.composer && <span style={{ color: 'var(--text-muted)', marginLeft: 10, fontSize: 13 }}>{c.composer}</span>}
+                </Link>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                  <span style={{ color: 'var(--text-muted)', fontSize: 12 }}>{'\u2192'}</span>
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    loading={deletingChart === c.id}
+                    onClick={() => handleDeleteChart(c.id, c.name)}
+                    style={{ color: 'var(--danger)' }}
+                  >
+                    Delete
+                  </Button>
                 </div>
-              ))}
-            </div>
-            <div style={{ display: 'flex', gap: 8 }}>
-              <Button size="sm" onClick={() => setShowAddMember(true)}>+ Add team member</Button>
-              <Button size="sm" variant="secondary" loading={seeding} onClick={handleSeedDummies}>
-                Seed dummy users
-              </Button>
-            </div>
-          </>
+              </div>
+            ))}
+          </div>
         )}
       </section>
 
@@ -516,44 +477,83 @@ export function EnsemblePage() {
         )}
       </section>
 
-      {/* Charts */}
-      <section>
-        <h2 style={{ marginBottom: 14 }}>Charts</h2>
-        {charts.length === 0 ? (
-          <p style={{ color: 'var(--text-muted)' }}>No charts yet. Create one above.</p>
-        ) : (
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-            {charts.map(c => (
-              <div
-                key={c.id}
-                style={{
-                  display: 'flex', alignItems: 'center', justifyContent: 'space-between',
-                  padding: '14px 20px', background: 'var(--surface)',
-                  border: '1px solid var(--border)', borderRadius: 'var(--radius)',
-                }}
-              >
-                <Link
-                  to={`/charts/${c.id}`}
-                  style={{ flex: 1, color: 'var(--text)', textDecoration: 'none' }}
-                >
-                  <span style={{ fontWeight: 500 }}>{c.name}</span>
-                  {c.composer && <span style={{ color: 'var(--text-muted)', marginLeft: 10, fontSize: 13 }}>{c.composer}</span>}
-                </Link>
-                <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                  <span style={{ color: 'var(--text-muted)', fontSize: 12 }}>{'\u2192'}</span>
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    loading={deletingChart === c.id}
-                    onClick={() => handleDeleteChart(c.id, c.name)}
-                    style={{ color: 'var(--danger)' }}
-                  >
-                    Delete
-                  </Button>
+      {/* Members */}
+      <section style={{ marginBottom: 36 }}>
+        <button
+          onClick={() => setTeamOpen(o => !o)}
+          style={{
+            display: 'flex', alignItems: 'center', gap: 8, marginBottom: teamOpen ? 14 : 0,
+            background: 'none', border: 'none', padding: 0, cursor: 'pointer', width: '100%',
+          }}
+        >
+          <h2 style={{ margin: 0, flex: 1, textAlign: 'left' }}>
+            Members <span style={{ fontSize: 11, color: 'var(--text-faint)', fontWeight: 400 }}>({members.length})</span>
+          </h2>
+          <span style={{ color: 'var(--text-muted)', fontSize: 12 }}>{teamOpen ? '\u25BE' : '\u25B8'}</span>
+        </button>
+
+        {teamOpen && (
+          <>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 6, marginBottom: 12 }}>
+              {members.map(m => (
+                <div key={m.id} style={{
+                  display: 'flex', alignItems: 'center', gap: 12,
+                  padding: '10px 16px',
+                  background: 'var(--surface-raised)',
+                  border: '1px solid var(--border)',
+                  borderRadius: 12,
+                }}>
+                  <div style={{
+                    width: 32, height: 32, borderRadius: '50%', flexShrink: 0,
+                    background: m.isDummy ? 'var(--surface)' : 'var(--accent-subtle)',
+                    border: `1px solid ${m.isDummy ? 'var(--border)' : 'var(--accent-glow)'}`,
+                    display: 'flex', alignItems: 'center', justifyContent: 'center',
+                    fontSize: 14, fontWeight: 600, color: m.isDummy ? 'var(--text-muted)' : 'var(--accent)',
+                  }}>
+                    {(m.name || '?')[0].toUpperCase()}
+                  </div>
+                  <div style={{ flex: 1 }}>
+                    <span style={{ fontSize: 14, fontWeight: 500 }}>
+                      {m.name || m.email}
+                    </span>
+                    {m.id === user?.id && (
+                      <span style={{ color: 'var(--text-muted)', fontSize: 12, marginLeft: 6 }}>(you)</span>
+                    )}
+                    <span style={{ color: 'var(--text-muted)', fontSize: 11, marginLeft: 8 }}>
+                      {m.role}
+                    </span>
+                    {m.isDummy && (
+                      <span style={{
+                        fontSize: 10, fontWeight: 600, color: 'var(--text-faint)',
+                        background: 'var(--surface)', padding: '1px 6px',
+                        borderRadius: 8, marginLeft: 6, textTransform: 'uppercase', letterSpacing: 0.3,
+                      }}>
+                        dummy
+                      </span>
+                    )}
+                  </div>
+                  {m.id !== user?.id && (
+                    <button
+                      onClick={() => handleRemoveMember(m.id, m.name)}
+                      disabled={removingMember === m.id}
+                      style={{
+                        background: 'none', border: 'none', color: 'var(--text-faint)',
+                        cursor: 'pointer', fontSize: 12, padding: '2px 6px', borderRadius: 5,
+                      }}
+                    >
+                      {removingMember === m.id ? '...' : 'Remove'}
+                    </button>
+                  )}
                 </div>
-              </div>
-            ))}
-          </div>
+              ))}
+            </div>
+            <div style={{ display: 'flex', gap: 8 }}>
+              <Button size="sm" onClick={() => setShowAddMember(true)}>+ Add team member</Button>
+              <Button size="sm" variant="secondary" loading={seeding} onClick={handleSeedDummies}>
+                Seed dummy users
+              </Button>
+            </div>
+          </>
         )}
       </section>
 
