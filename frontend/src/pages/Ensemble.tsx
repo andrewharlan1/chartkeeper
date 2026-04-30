@@ -1,19 +1,76 @@
-import { useEffect, useState, FormEvent } from 'react';
+import { useEffect, useState, FormEvent, useMemo } from 'react';
 import { useParams, Link, useNavigate } from 'react-router-dom';
 import { useAuth } from '../hooks/useAuth';
 import { getEnsemble, deleteEnsemble } from '../api/ensembles';
-import { getCharts, createChart, deleteChart } from '../api/charts';
+import { getCharts, createChart } from '../api/charts';
 import {
   getInstrumentSlots, createInstrumentSlot, deleteInstrumentSlot,
   getSlotAssignmentsByEnsemble, assignUserToSlot, unassignUserFromSlot, SlotAssignmentUser,
 } from '../api/instrumentSlots';
 import { getWorkspaceMembers, addWorkspaceMember, removeWorkspaceMember, seedDummyMembers } from '../api/workspaces';
+import { getEnsembleEvents, Event as EventType } from '../api/events';
 import { Ensemble as EnsembleType, Chart, InstrumentSlot, WorkspaceMember } from '../types';
 import { Layout } from '../components/Layout';
 import { Button } from '../components/Button';
 import { Modal } from '../components/Modal';
 import { ApiError } from '../api/client';
 import { InstrumentIcon } from '../components/InstrumentIcon';
+import { PermissionGate } from '../components/PermissionGate';
+import { SidePanel, PanelSection } from '../components/SidePanel';
+import './Ensemble.css';
+
+type ChartTab = 'all' | 'active' | 'draft' | 'archived';
+
+function getInitials(name: string | null): string {
+  if (!name) return '?';
+  return name.split(' ').map(w => w[0]).join('').toUpperCase().slice(0, 2);
+}
+
+const AVATAR_COLORS = ['#7a8ba8', '#c8531c', '#5e7548', '#8b6e9e', '#b5894e', '#5a8a9e', '#a85a5a'];
+
+function avatarColor(index: number): string {
+  return AVATAR_COLORS[index % AVATAR_COLORS.length];
+}
+
+function formatEventDate(dateStr: string): string {
+  const d = new Date(dateStr);
+  const now = new Date();
+  const diffMs = d.getTime() - now.getTime();
+  const diffHours = diffMs / (1000 * 60 * 60);
+
+  const dateOptions: Intl.DateTimeFormatOptions = { month: 'short', day: 'numeric' };
+  const timeOptions: Intl.DateTimeFormatOptions = { hour: 'numeric', minute: '2-digit' };
+  const dateFormatted = d.toLocaleDateString('en-US', dateOptions);
+  const timeFormatted = d.toLocaleTimeString('en-US', timeOptions);
+
+  if (diffHours > 0 && diffHours < 24) {
+    const hrs = Math.floor(diffHours);
+    return `today \u00B7 ${timeFormatted} \u00B7 in ${hrs}h`;
+  }
+  if (diffMs < 0) {
+    return `${dateFormatted} \u00B7 past`;
+  }
+  return `${dateFormatted} \u00B7 ${timeFormatted}`;
+}
+
+function isImminent(dateStr: string): boolean {
+  const d = new Date(dateStr);
+  const diffMs = d.getTime() - Date.now();
+  return diffMs > 0 && diffMs < 24 * 60 * 60 * 1000;
+}
+
+function isPast(dateStr: string): boolean {
+  return new Date(dateStr).getTime() < Date.now();
+}
+
+function timeAgo(dateStr: string): string {
+  const ms = Date.now() - new Date(dateStr).getTime();
+  const days = Math.floor(ms / 86_400_000);
+  if (days < 1) return 'today';
+  if (days === 1) return 'yesterday';
+  if (days < 7) return `${days}d ago`;
+  return new Date(dateStr).toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+}
 
 export function EnsemblePage() {
   const { id } = useParams<{ id: string }>();
@@ -24,6 +81,7 @@ export function EnsemblePage() {
   const [charts, setCharts] = useState<Chart[]>([]);
   const [slots, setSlots] = useState<InstrumentSlot[]>([]);
   const [members, setMembers] = useState<WorkspaceMember[]>([]);
+  const [events, setEvents] = useState<EventType[]>([]);
   const [loading, setLoading] = useState(true);
 
   const [showCreateChart, setShowCreateChart] = useState(false);
@@ -31,17 +89,14 @@ export function EnsemblePage() {
   const [chartComposer, setChartComposer] = useState('');
   const [creatingChart, setCreatingChart] = useState(false);
   const [chartError, setChartError] = useState('');
-  const [deletingChart, setDeletingChart] = useState<string | null>(null);
 
   const [newSlotName, setNewSlotName] = useState('');
   const [addingSlot, setAddingSlot] = useState(false);
   const [slotError, setSlotError] = useState('');
   const [removingSlot, setRemovingSlot] = useState<string | null>(null);
-  const [slotsOpen, setSlotsOpen] = useState(true);
 
   const [deletingEnsemble, setDeletingEnsemble] = useState(false);
 
-  // Slot assignments: slotId → assigned users
   const [slotAssignments, setSlotAssignments] = useState<Record<string, SlotAssignmentUser[]>>({});
   const [assignDropdownSlot, setAssignDropdownSlot] = useState<string | null>(null);
 
@@ -54,7 +109,9 @@ export function EnsemblePage() {
   const [memberError, setMemberError] = useState('');
   const [removingMember, setRemovingMember] = useState<string | null>(null);
   const [seeding, setSeeding] = useState(false);
-  const [teamOpen, setTeamOpen] = useState(true);
+
+  const [chartTab, setChartTab] = useState<ChartTab>('all');
+  const [panelOpen, setPanelOpen] = useState(false);
 
   useEffect(() => {
     if (!id) return;
@@ -66,18 +123,39 @@ export function EnsemblePage() {
       setEnsemble(ensRes.ensemble);
       setCharts(chartsRes.charts);
       setSlots(slotsRes.instrumentSlots);
-      // Load workspace members and slot assignments
       try {
-        const [membersRes, assignRes] = await Promise.all([
+        const [membersRes, assignRes, eventsRes] = await Promise.all([
           getWorkspaceMembers(ensRes.ensemble.workspaceId),
           getSlotAssignmentsByEnsemble(id!),
+          getEnsembleEvents(id!),
         ]);
         setMembers(membersRes.members);
         setSlotAssignments(assignRes.assignments);
+        setEvents(eventsRes.events);
       } catch { /* non-critical */ }
     }).catch(() => navigate('/'))
       .finally(() => setLoading(false));
   }, [id, navigate]);
+
+  // Chart tab filtering
+  const filteredCharts = useMemo(() => {
+    if (chartTab === 'all') return charts;
+    // TODO: charts don't have a status field yet — for now "all" shows everything
+    return charts;
+  }, [charts, chartTab]);
+
+  const hasImminentEvent = events.some(e => isImminent(e.startsAt));
+
+  // Slot → member mapping for roster
+  const slotMemberMap = useMemo(() => {
+    const map: Record<string, SlotAssignmentUser[]> = {};
+    for (const slot of slots) {
+      map[slot.id] = slotAssignments[slot.id] || [];
+    }
+    return map;
+  }, [slots, slotAssignments]);
+
+  // ── Handlers (unchanged from before) ──────────────────────────────────
 
   async function handleCreateChart(e: FormEvent) {
     e.preventDefault();
@@ -98,19 +176,6 @@ export function EnsemblePage() {
       setChartError(err instanceof ApiError ? err.message : 'Something went wrong');
     } finally {
       setCreatingChart(false);
-    }
-  }
-
-  async function handleDeleteChart(chartId: string, name: string) {
-    if (!confirm(`Delete "${name || 'Untitled'}"? This cannot be undone.`)) return;
-    setDeletingChart(chartId);
-    try {
-      await deleteChart(chartId);
-      setCharts(prev => prev.filter(c => c.id !== chartId));
-    } catch {
-      alert('Failed to delete chart');
-    } finally {
-      setDeletingChart(null);
     }
   }
 
@@ -247,162 +312,222 @@ export function EnsemblePage() {
 
   return (
     <Layout
-      title={ensemble.name}
       backTo="/"
       breadcrumbs={[
-        { label: 'Home', to: '/' },
+        { label: 'Ensembles', to: '/' },
         { label: ensemble.name },
       ]}
       actions={
-        <>
-          <Button size="sm" onClick={() => setShowCreateChart(true)}>+ New chart</Button>
-          <Button variant="danger" size="sm" loading={deletingEnsemble} onClick={handleDeleteEnsemble}>
-            Delete ensemble
-          </Button>
-        </>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+          <button
+            className={`panel-trigger-btn${panelOpen ? ' active' : ''}`}
+            onClick={() => setPanelOpen(o => !o)}
+          >
+            {hasImminentEvent && <span className="panel-trigger-dot" />}
+            Members & events
+          </button>
+          <PermissionGate action="chart.create" ensembleId={id}>
+            <Button size="sm" onClick={() => setShowCreateChart(true)}>New chart</Button>
+          </PermissionGate>
+          <PermissionGate action="ensemble.edit" ensembleId={id}>
+            <Button variant="ghost" size="sm" onClick={() => {/* settings placeholder */}}>Settings</Button>
+          </PermissionGate>
+        </div>
       }
     >
-      {/* Charts */}
-      <section style={{ marginBottom: 36 }}>
-        <h2 style={{ marginBottom: 14 }}>Charts</h2>
-        {charts.length === 0 ? (
-          <p style={{ color: 'var(--text-muted)' }}>No charts yet. Create one above.</p>
-        ) : (
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-            {charts.map(c => (
-              <div
-                key={c.id}
-                style={{
-                  display: 'flex', alignItems: 'center', justifyContent: 'space-between',
-                  padding: '14px 20px', background: 'var(--surface)',
-                  border: '1px solid var(--border)', borderRadius: 'var(--radius)',
-                }}
+      {/* ── Hero ───────────────────────────────────────────────────────── */}
+      <div className="ensemble-hero">
+        <div>
+          <div className="eh-eyebrow">Ensemble</div>
+          <h1 className="eh-title">{ensemble.name}</h1>
+          <div className="eh-sub">
+            {members.length} members
+            <span className="dot">{'\u00B7'}</span>
+            {slots.length} instruments
+          </div>
+        </div>
+        <div className="eh-stats">
+          <div className="eh-stat">
+            <div className="num">{charts.length}</div>
+            <div className="lbl">charts</div>
+          </div>
+          <div className="eh-stat">
+            <div className="num">{members.length}</div>
+            <div className="lbl">members</div>
+          </div>
+          <div className="eh-stat">
+            <div className="num">{slots.length}</div>
+            <div className="lbl">instruments</div>
+          </div>
+        </div>
+      </div>
+
+      {/* ── Charts section ─────────────────────────────────────────────── */}
+      <div className="ensemble-section">
+        <div className="es-head">
+          <h2 className="es-title">Charts</h2>
+          <div className="es-tabs">
+            {(['all', 'active', 'draft', 'archived'] as ChartTab[]).map(tab => (
+              <button
+                key={tab}
+                className={`es-tab${chartTab === tab ? ' active' : ''}`}
+                onClick={() => setChartTab(tab)}
               >
-                <Link
-                  to={`/charts/${c.id}`}
-                  style={{ flex: 1, color: 'var(--text)', textDecoration: 'none' }}
-                >
-                  <span style={{ fontWeight: 500 }}>{c.name}</span>
-                  {c.composer && <span style={{ color: 'var(--text-muted)', marginLeft: 10, fontSize: 13 }}>{c.composer}</span>}
-                </Link>
-                <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                  <span style={{ color: 'var(--text-muted)', fontSize: 12 }}>{'\u2192'}</span>
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    loading={deletingChart === c.id}
-                    onClick={() => handleDeleteChart(c.id, c.name)}
-                    style={{ color: 'var(--danger)' }}
-                  >
-                    Delete
-                  </Button>
-                </div>
-              </div>
+                {tab.charAt(0).toUpperCase() + tab.slice(1)}
+                <span className="ct">
+                  {tab === 'all' ? charts.length : 0}
+                </span>
+              </button>
             ))}
           </div>
-        )}
-      </section>
+        </div>
 
-      {/* Instrument Slots */}
-      <section style={{ marginBottom: 36 }}>
-        <button
-          onClick={() => setSlotsOpen(o => !o)}
-          style={{
-            display: 'flex', alignItems: 'center', gap: 8, marginBottom: slotsOpen ? 14 : 0,
-            background: 'none', border: 'none', padding: 0, cursor: 'pointer', width: '100%',
-          }}
-        >
-          <h2 style={{ margin: 0, flex: 1, textAlign: 'left' }}>
-            Instruments <span style={{ fontSize: 11, color: 'var(--text-faint)', fontWeight: 400 }}>({slots.length})</span>
-          </h2>
-          <span style={{ color: 'var(--text-muted)', fontSize: 12 }}>{slotsOpen ? '\u25BE' : '\u25B8'}</span>
-        </button>
-
-        {slotsOpen && slots.length === 0 && (
-          <p style={{ color: 'var(--text-muted)', marginBottom: 12, fontSize: 14 }}>
-            No instruments yet. Add your lineup below.
-          </p>
-        )}
-
-        {slotsOpen && slots.length > 0 && (
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 8, marginBottom: 16 }}>
-            {slots.map(slot => {
-              const assigned = slotAssignments[slot.id] || [];
-              const assignedIds = new Set(assigned.map(a => a.userId));
-              const availableToAssign = members.filter(m => !assignedIds.has(m.id));
-
-              return (
-                <div key={slot.id} style={{
-                  padding: '14px 18px',
-                  background: 'var(--surface-raised)',
-                  border: '1px solid var(--border)',
-                  borderRadius: 14,
-                  boxShadow: 'var(--shadow-sm)',
-                }}>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-                    <div style={{
-                      width: 40, height: 40, borderRadius: 12, flexShrink: 0,
-                      background: 'var(--accent-subtle)',
-                      border: '1px solid var(--accent-glow)',
-                      display: 'flex', alignItems: 'center', justifyContent: 'center',
-                      color: 'var(--accent)',
-                    }}>
-                      <InstrumentIcon name={slot.name} size={24} />
+        <div className="charts-grid">
+          {filteredCharts.map(c => (
+            <Link
+              key={c.id}
+              to={`/charts/${c.id}`}
+              className="chart-card"
+            >
+              <div className="cc-thumb">
+                <div className="cc-thumb-page">
+                  {[0, 1, 2].map(s => (
+                    <div className="cc-system" key={s}>
+                      {[0, 1, 2, 3, 4].map(l => <div className="cc-line" key={l} />)}
                     </div>
-                    <div style={{ flex: 1 }}>
-                      <span style={{ fontSize: 15, fontWeight: 600 }}>{slot.name}</span>
-                      {slot.section && (
-                        <span style={{ color: 'var(--text-muted)', marginLeft: 8, fontSize: 12 }}>{slot.section}</span>
-                      )}
-                    </div>
-                    <button
-                      onClick={() => handleRemoveSlot(slot.id, slot.name)}
-                      disabled={removingSlot === slot.id}
-                      style={{
-                        background: 'none', border: 'none', color: 'var(--text-faint)',
-                        cursor: 'pointer', fontSize: 13, padding: '3px 6px', borderRadius: 5,
-                      }}
+                  ))}
+                </div>
+              </div>
+              <div className="cc-body">
+                <div className="cc-row1">
+                  <h3 className="cc-title">{c.name}</h3>
+                </div>
+                <div className="cc-meta">
+                  {c.composer && <span>{c.composer}</span>}
+                </div>
+                <div className="cc-foot">
+                  <span className="cc-when">{timeAgo(c.updatedAt)}</span>
+                </div>
+              </div>
+            </Link>
+          ))}
+
+          {/* New chart card */}
+          <PermissionGate action="chart.create" ensembleId={id}>
+            <button
+              className="chart-card new-card"
+              onClick={() => setShowCreateChart(true)}
+            >
+              <div className="cc-newinner">
+                <div className="cc-newicon">
+                  <svg width="20" height="20" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5">
+                    <path d="M8 3 L8 13 M3 8 L13 8" strokeLinecap="round" />
+                  </svg>
+                </div>
+                <div className="cc-newlabel">New chart</div>
+              </div>
+            </button>
+          </PermissionGate>
+        </div>
+      </div>
+
+      {/* ── Roster & Instruments ────────────────────────────────────────── */}
+      <div className="ensemble-section">
+        <div className="es-head">
+          <h2 className="es-title">Roster & instruments</h2>
+          <div className="es-tools">
+            <PermissionGate action="ensemble.member.invite" ensembleId={id}>
+              <Button variant="ghost" size="sm" onClick={() => setShowAddMember(true)}>Add member</Button>
+            </PermissionGate>
+            <PermissionGate action="instrument.add" ensembleId={id}>
+              <Button variant="ghost" size="sm" onClick={() => {
+                const name = prompt('Instrument name (e.g. Violin 1, Alto Sax):');
+                if (name?.trim()) {
+                  setNewSlotName(name.trim());
+                  handleAddSlot({ preventDefault: () => {} } as FormEvent);
+                }
+              }}>Add instrument</Button>
+            </PermissionGate>
+          </div>
+        </div>
+
+        <div className="roster-card">
+          {/* Score row — conductor/owner */}
+          <div className="roster-row score-row">
+            <div className="rr-instrument">
+              <span className="icn"><InstrumentIcon name="score" size={20} /></span>
+              <span className="lbl">
+                Conductor's Score
+                <span className="rr-tag">SCORE LANE</span>
+              </span>
+            </div>
+            <div className="rr-member">
+              <span className="rr-avatar conductor">
+                {getInitials(user?.name ?? null)}
+              </span>
+              <div className="rr-name-block">
+                <div className="rr-name">{user?.name || user?.email}</div>
+                <div className="rr-role">conductor {'\u00B7'} ensemble owner</div>
+              </div>
+            </div>
+            <div className="rr-actions">
+              <Button variant="ghost" size="sm">Open</Button>
+            </div>
+          </div>
+
+          {/* Instrument rows */}
+          {slots.map(slot => {
+            const assigned = slotMemberMap[slot.id] || [];
+            const assignedIds = new Set(assigned.map(a => a.userId));
+            const availableToAssign = members.filter(m => !assignedIds.has(m.id));
+
+            return (
+              <div className="roster-row" key={slot.id}>
+                <div className="rr-instrument">
+                  <span className="icn"><InstrumentIcon name={slot.name} size={20} /></span>
+                  <span className="lbl">{slot.name}</span>
+                </div>
+                <div className="rr-member">
+                  {assigned.length > 0 ? (
+                    <div
+                      style={{ display: 'flex', alignItems: 'center', gap: 10, cursor: 'pointer' }}
+                      onClick={() => handleUnassignUser(slot.id, assigned[0].userId)}
+                      title={`Click to unassign ${assigned[0].name || assigned[0].email}`}
                     >
-                      {removingSlot === slot.id ? '...' : 'Remove'}
-                    </button>
-                  </div>
-
-                  {/* Assigned users */}
-                  <div style={{ marginTop: 8, marginLeft: 52, display: 'flex', flexWrap: 'wrap', gap: 6, alignItems: 'center' }}>
-                    {assigned.length === 0 && (
-                      <span style={{ fontSize: 12, color: 'var(--text-faint)', fontStyle: 'italic' }}>(unassigned)</span>
-                    )}
-                    {assigned.map(a => (
-                      <span
-                        key={a.userId}
-                        onClick={() => handleUnassignUser(slot.id, a.userId)}
-                        title={`Click to remove ${a.name || a.email} from ${slot.name}`}
-                        style={{
-                          fontSize: 12, padding: '2px 8px', borderRadius: 10,
-                          background: a.isDummy ? 'var(--surface)' : 'var(--accent-subtle)',
-                          border: `1px solid ${a.isDummy ? 'var(--border)' : 'var(--accent-glow)'}`,
-                          cursor: 'pointer',
-                        }}
-                      >
-                        {a.name || a.email}
-                        {a.userId === user?.id && ' (you)'}
+                      <span className="rr-avatar" style={{ background: avatarColor(slots.indexOf(slot)) }}>
+                        {getInitials(assigned[0].name)}
                       </span>
-                    ))}
+                      <div className="rr-name-block">
+                        <div className="rr-name">
+                          {assigned[0].name || assigned[0].email}
+                          {assigned[0].userId === user?.id && (
+                            <span style={{ color: 'var(--text-faint)', fontWeight: 400, fontSize: 11, marginLeft: 6 }}>(you)</span>
+                          )}
+                        </div>
+                        <div className="rr-role">
+                          {assigned.length > 1 ? `+${assigned.length - 1} more` : 'assigned'}
+                        </div>
+                      </div>
+                    </div>
+                  ) : (
+                    <span style={{ fontSize: 12, color: 'var(--text-faint)', fontStyle: 'italic' }}>(unassigned)</span>
+                  )}
+                </div>
+                <div className="rr-actions">
+                  <PermissionGate action="instrument.reassign" ensembleId={id}>
                     <div style={{ position: 'relative' }}>
-                      <button
+                      <Button
+                        variant="ghost"
+                        size="sm"
                         onClick={() => setAssignDropdownSlot(assignDropdownSlot === slot.id ? null : slot.id)}
-                        style={{
-                          background: 'none', border: '1px dashed var(--border)', borderRadius: 10,
-                          padding: '2px 8px', fontSize: 12, cursor: 'pointer', color: 'var(--text-muted)',
-                        }}
                       >
-                        + Assign
-                      </button>
+                        Re-assign
+                      </Button>
                       {assignDropdownSlot === slot.id && availableToAssign.length > 0 && (
                         <div style={{
-                          position: 'absolute', top: '100%', left: 0, marginTop: 4, zIndex: 20,
+                          position: 'absolute', top: '100%', right: 0, marginTop: 4, zIndex: 20,
                           background: 'var(--surface-raised)', border: '1px solid var(--border)',
-                          borderRadius: 8, boxShadow: 'var(--shadow-md)', minWidth: 200, padding: 4,
+                          borderRadius: 8, boxShadow: '0 4px 16px rgba(0,0,0,0.1)', minWidth: 200, padding: 4,
                         }}>
                           {availableToAssign.map(m => (
                             <button
@@ -411,171 +536,157 @@ export function EnsemblePage() {
                               style={{
                                 display: 'block', width: '100%', textAlign: 'left',
                                 background: 'none', border: 'none', padding: '6px 10px',
-                                fontSize: 13, cursor: 'pointer', borderRadius: 6,
+                                fontSize: 13, cursor: 'pointer', borderRadius: 6, fontFamily: 'inherit',
                               }}
                             >
                               {m.name || m.email}
                               {m.isDummy && <span style={{ color: 'var(--text-faint)', marginLeft: 6, fontSize: 11 }}>dummy</span>}
-                              <span style={{ color: 'var(--text-faint)', marginLeft: 6, fontSize: 11 }}>{m.role}</span>
                             </button>
                           ))}
                         </div>
                       )}
                     </div>
-                  </div>
-                </div>
-              );
-            })}
-          </div>
-        )}
-
-        {slotsOpen && (
-          <>
-            <form onSubmit={handleAddSlot} style={{ display: 'flex', gap: 8, alignItems: 'flex-start' }}>
-              <div style={{ flex: 1, display: 'flex', gap: 6 }}>
-                <select
-                  value={newSlotName}
-                  onChange={e => setNewSlotName(e.target.value)}
-                  style={{ width: 220, fontSize: 13, borderRadius: 8, padding: '7px 10px', flexShrink: 0 }}
-                >
-                  <option value="">Pick from list...</option>
-                  <optgroup label="Strings">
-                    {['Violin', 'Violin 1', 'Violin 2', 'Viola', 'Cello', 'Double Bass', 'Harp'].map(n => <option key={n}>{n}</option>)}
-                  </optgroup>
-                  <optgroup label="Guitar & Bass">
-                    {['Electric Guitar', 'Acoustic Guitar', 'Bass Guitar', 'Upright Bass', 'Banjo', 'Ukulele'].map(n => <option key={n}>{n}</option>)}
-                  </optgroup>
-                  <optgroup label="Keys">
-                    {['Piano', 'Keyboard', 'Organ', 'Rhodes', 'Synthesizer', 'Accordion'].map(n => <option key={n}>{n}</option>)}
-                  </optgroup>
-                  <optgroup label="Brass">
-                    {['Trumpet', 'Trumpet 1', 'Trumpet 2', 'Flugelhorn', 'Trombone', 'Bass Trombone', 'French Horn', 'Tuba', 'Euphonium'].map(n => <option key={n}>{n}</option>)}
-                  </optgroup>
-                  <optgroup label="Woodwinds">
-                    {['Alto Saxophone', 'Tenor Saxophone', 'Baritone Saxophone', 'Soprano Saxophone', 'Flute', 'Piccolo', 'Oboe', 'Clarinet', 'Bass Clarinet', 'Bassoon'].map(n => <option key={n}>{n}</option>)}
-                  </optgroup>
-                  <optgroup label="Percussion">
-                    {['Drums', 'Drum Kit', 'Snare Drum', 'Timpani', 'Marimba', 'Vibraphone', 'Xylophone', 'Congas'].map(n => <option key={n}>{n}</option>)}
-                  </optgroup>
-                  <optgroup label="Vocals">
-                    {['Vocals', 'Lead Vocals', 'Backup Vocals', 'Soprano', 'Alto', 'Tenor', 'Baritone', 'Bass', 'Choir'].map(n => <option key={n}>{n}</option>)}
-                  </optgroup>
-                </select>
-                <input
-                  value={newSlotName}
-                  onChange={e => setNewSlotName(e.target.value)}
-                  placeholder="or type custom name..."
-                  style={{ flex: 1, fontSize: 13, borderRadius: 8 }}
-                />
-              </div>
-              <Button type="submit" loading={addingSlot} disabled={!newSlotName.trim()}>
-                Add
-              </Button>
-            </form>
-            {slotError && <p className="form-error" style={{ marginTop: 4 }}>{slotError}</p>}
-          </>
-        )}
-      </section>
-
-      {/* Members */}
-      <section style={{ marginBottom: 36 }}>
-        <button
-          onClick={() => setTeamOpen(o => !o)}
-          style={{
-            display: 'flex', alignItems: 'center', gap: 8, marginBottom: teamOpen ? 14 : 0,
-            background: 'none', border: 'none', padding: 0, cursor: 'pointer', width: '100%',
-          }}
-        >
-          <h2 style={{ margin: 0, flex: 1, textAlign: 'left' }}>
-            Members <span style={{ fontSize: 11, color: 'var(--text-faint)', fontWeight: 400 }}>({members.length})</span>
-          </h2>
-          <span style={{ color: 'var(--text-muted)', fontSize: 12 }}>{teamOpen ? '\u25BE' : '\u25B8'}</span>
-        </button>
-
-        {teamOpen && (
-          <>
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 6, marginBottom: 12 }}>
-              {members.map(m => (
-                <div key={m.id} style={{
-                  display: 'flex', alignItems: 'center', gap: 12,
-                  padding: '10px 16px',
-                  background: 'var(--surface-raised)',
-                  border: '1px solid var(--border)',
-                  borderRadius: 12,
-                }}>
-                  <div style={{
-                    width: 32, height: 32, borderRadius: '50%', flexShrink: 0,
-                    background: m.isDummy ? 'var(--surface)' : 'var(--accent-subtle)',
-                    border: `1px solid ${m.isDummy ? 'var(--border)' : 'var(--accent-glow)'}`,
-                    display: 'flex', alignItems: 'center', justifyContent: 'center',
-                    fontSize: 14, fontWeight: 600, color: m.isDummy ? 'var(--text-muted)' : 'var(--accent)',
-                  }}>
-                    {(m.name || '?')[0].toUpperCase()}
-                  </div>
-                  <div style={{ flex: 1 }}>
-                    <span style={{ fontSize: 14, fontWeight: 500 }}>
-                      {m.name || m.email}
-                    </span>
-                    {m.id === user?.id && (
-                      <span style={{ color: 'var(--text-muted)', fontSize: 12, marginLeft: 6 }}>(you)</span>
-                    )}
-                    <span style={{ color: 'var(--text-muted)', fontSize: 11, marginLeft: 8 }}>
-                      {m.role}
-                    </span>
-                    {m.isDummy && (
-                      <span style={{
-                        fontSize: 10, fontWeight: 600, color: 'var(--text-faint)',
-                        background: 'var(--surface)', padding: '1px 6px',
-                        borderRadius: 8, marginLeft: 6, textTransform: 'uppercase', letterSpacing: 0.3,
-                      }}>
-                        dummy
-                      </span>
-                    )}
-                  </div>
-                  {m.id !== user?.id && (
-                    <button
-                      onClick={() => handleRemoveMember(m.id, m.name)}
-                      disabled={removingMember === m.id}
-                      style={{
-                        background: 'none', border: 'none', color: 'var(--text-faint)',
-                        cursor: 'pointer', fontSize: 12, padding: '2px 6px', borderRadius: 5,
-                      }}
+                  </PermissionGate>
+                  <PermissionGate action="instrument.reassign" ensembleId={id}>
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      loading={removingSlot === slot.id}
+                      onClick={() => handleRemoveSlot(slot.id, slot.name)}
                     >
-                      {removingMember === m.id ? '...' : 'Remove'}
-                    </button>
+                      Remove
+                    </Button>
+                  </PermissionGate>
+                </div>
+              </div>
+            );
+          })}
+
+          {/* Add instrument row */}
+          <PermissionGate action="instrument.add" ensembleId={id}>
+            <form onSubmit={handleAddSlot} style={{ display: 'contents' }}>
+              <button className="roster-add" type="button" onClick={() => {
+                const name = prompt('Instrument name (e.g. Violin 1, Alto Sax):');
+                if (name?.trim()) {
+                  setNewSlotName(name.trim());
+                  // Trigger the add after state update
+                  setTimeout(async () => {
+                    setSlotError('');
+                    setAddingSlot(true);
+                    try {
+                      const { instrumentSlot } = await createInstrumentSlot({
+                        ensembleId: id!,
+                        name: name.trim(),
+                      });
+                      setSlots(prev => [...prev, instrumentSlot]);
+                      setNewSlotName('');
+                    } catch (err) {
+                      setSlotError(err instanceof ApiError ? err.message : 'Something went wrong');
+                    } finally {
+                      setAddingSlot(false);
+                    }
+                  }, 0);
+                }
+              }}>
+                <svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.6">
+                  <path d="M8 3 L8 13 M3 8 L13 8" strokeLinecap="round" />
+                </svg>
+                <span>{addingSlot ? 'Adding...' : 'Add an instrument \u00B7 invite a member'}</span>
+              </button>
+            </form>
+          </PermissionGate>
+          {slotError && <div style={{ padding: '8px 22px', color: 'var(--danger)', fontSize: 12 }}>{slotError}</div>}
+        </div>
+
+        {/* Seed dummy users button for dev */}
+        <div style={{ marginTop: 12, display: 'flex', gap: 8 }}>
+          <Button size="sm" variant="secondary" loading={seeding} onClick={handleSeedDummies}>
+            Seed dummy users
+          </Button>
+          <PermissionGate action="ensemble.edit" ensembleId={id}>
+            <Button variant="danger" size="sm" loading={deletingEnsemble} onClick={handleDeleteEnsemble}>
+              Delete ensemble
+            </Button>
+          </PermissionGate>
+        </div>
+      </div>
+
+      {/* ── Side Panel: Members & Events ────────────────────────────────── */}
+      <SidePanel open={panelOpen} onClose={() => setPanelOpen(false)} title="Members & Events">
+        <PanelSection
+          title="Members"
+          count={members.length}
+          actionLabel="+ invite"
+          onAction={() => { setPanelOpen(false); setShowAddMember(true); }}
+        >
+          {members.map((m, i) => (
+            <div className="panel-member-row" key={m.id}>
+              <div className="panel-avatar" style={{ background: avatarColor(i) }}>
+                {getInitials(m.name)}
+              </div>
+              <div className="panel-member-info">
+                <div className="panel-member-name">
+                  {m.name || m.email}
+                  {m.id === user?.id && (
+                    <span style={{ color: 'var(--text-faint)', fontWeight: 400, fontSize: 11, marginLeft: 4 }}>(you)</span>
                   )}
                 </div>
-              ))}
+                <div className="panel-member-role">{m.role}</div>
+              </div>
+              <span className="panel-member-stat">{m.role}</span>
+              {m.id !== user?.id && (
+                <button
+                  onClick={() => handleRemoveMember(m.id, m.name)}
+                  disabled={removingMember === m.id}
+                  style={{
+                    background: 'none', border: 'none', color: 'var(--text-faint)',
+                    cursor: 'pointer', fontSize: 11, padding: '2px 4px', marginLeft: 4,
+                  }}
+                >
+                  {removingMember === m.id ? '...' : '\u00D7'}
+                </button>
+              )}
             </div>
-            <div style={{ display: 'flex', gap: 8 }}>
-              <Button size="sm" onClick={() => setShowAddMember(true)}>+ Add team member</Button>
-              <Button size="sm" variant="secondary" loading={seeding} onClick={handleSeedDummies}>
-                Seed dummy users
-              </Button>
-            </div>
-          </>
-        )}
-      </section>
+          ))}
+        </PanelSection>
 
-      {/* Add team member modal */}
+        <PanelSection
+          title="Events"
+          count={`${events.filter(e => !isPast(e.startsAt)).length} upcoming`}
+          actionLabel="+ new"
+          onAction={() => { /* Phase 5 will wire this to create-event modal */ }}
+        >
+          {events.length === 0 ? (
+            <p style={{ fontSize: 12, color: 'var(--text-muted)' }}>No events yet</p>
+          ) : (
+            events.map(evt => (
+              <div
+                key={evt.id}
+                className={`event-mini${isImminent(evt.startsAt) ? ' imminent' : ''}${isPast(evt.startsAt) ? ' past' : ''}`}
+              >
+                <div className="em-date">{formatEventDate(evt.startsAt)}</div>
+                <div className="em-name">
+                  {evt.name}
+                  {evt.location && ` \u2014 ${evt.location}`}
+                </div>
+                <div className="em-meta">{evt.eventType}</div>
+              </div>
+            ))
+          )}
+        </PanelSection>
+      </SidePanel>
+
+      {/* ── Modals ──────────────────────────────────────────────────────── */}
       {showAddMember && (
         <Modal title="Add Team Member" onClose={() => setShowAddMember(false)}>
           <form onSubmit={handleAddMember}>
             <div className="form-group" style={{ marginBottom: 12 }}>
               <label style={{ display: 'flex', alignItems: 'center', gap: 10, cursor: 'pointer', fontSize: 14 }}>
-                <input
-                  type="radio"
-                  checked={memberIsDummy}
-                  onChange={() => setMemberIsDummy(true)}
-                />
+                <input type="radio" checked={memberIsDummy} onChange={() => setMemberIsDummy(true)} />
                 Create dummy user (for testing)
               </label>
               <label style={{ display: 'flex', alignItems: 'center', gap: 10, cursor: 'pointer', fontSize: 14, marginTop: 4 }}>
-                <input
-                  type="radio"
-                  checked={!memberIsDummy}
-                  onChange={() => setMemberIsDummy(false)}
-                />
+                <input type="radio" checked={!memberIsDummy} onChange={() => setMemberIsDummy(false)} />
                 Invite real user
               </label>
             </div>
@@ -604,7 +715,6 @@ export function EnsemblePage() {
         </Modal>
       )}
 
-      {/* Create chart modal */}
       {showCreateChart && (
         <Modal title="New Chart" onClose={() => setShowCreateChart(false)}>
           <form onSubmit={handleCreateChart}>
