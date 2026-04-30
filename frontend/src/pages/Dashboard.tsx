@@ -97,7 +97,7 @@ export function Dashboard() {
         borderRadius: 16, padding: '28px 32px', marginBottom: 32,
         background: 'var(--banner-gradient)', position: 'relative', overflow: 'hidden',
       }}>
-        <div style={{ position: 'absolute', right: -20, top: -20, width: 160, height: 160, borderRadius: '50%', background: 'rgba(91,76,245,0.07)', pointerEvents: 'none' }} />
+        <div style={{ position: 'absolute', right: -20, top: -20, width: 160, height: 160, borderRadius: '50%', background: 'var(--accent-soft)', opacity: 0.5, pointerEvents: 'none' }} />
         <p style={{ fontSize: 13, fontWeight: 600, color: 'var(--banner-label)', letterSpacing: '0.04em', textTransform: 'uppercase', marginBottom: 6 }}>Scorva</p>
         <h1 style={{ fontSize: 28, fontWeight: 800, color: 'var(--banner-text)', letterSpacing: '-0.04em', lineHeight: 1.2, marginBottom: 6 }}>
           {greeting(user?.name || user?.email)}

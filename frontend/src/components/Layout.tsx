@@ -231,22 +231,12 @@ export function Layout({ children, title, back, backTo, breadcrumbs, actions }: 
           flexShrink: 0,
         }}>
           <Link to="/" style={{ textDecoration: 'none', display: 'flex', alignItems: 'center', gap: 9 }}>
-            <div style={{
-              width: 28, height: 28, borderRadius: 8, flexShrink: 0,
-              background: 'linear-gradient(145deg, #5b4cf5 0%, #38b2f5 100%)',
-              display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center',
-              gap: 3.5, padding: '7px 6px',
-              boxShadow: '0 2px 8px rgba(91,76,245,0.35)',
-            }}>
-              {[1, 0.6, 1].map((w, i) => (
-                <div key={i} style={{ width: `${w * 14}px`, height: 1.5, background: '#fff', borderRadius: 1, opacity: 0.9 }} />
-              ))}
-            </div>
+            <img src="/logo.svg" alt="Scorva" style={{ width: 28, height: 28, borderRadius: 6, flexShrink: 0 }} />
             <div>
-              <div style={{ fontWeight: 700, fontSize: 14, color: 'var(--text)', letterSpacing: '-0.03em', lineHeight: 1.2 }}>
+              <div style={{ fontFamily: 'var(--serif)', fontWeight: 500, fontSize: 16, color: 'var(--text)', letterSpacing: '-0.02em', lineHeight: 1.2 }}>
                 Scorva
               </div>
-              <div style={{ fontSize: 10, color: 'var(--text-muted)', letterSpacing: '0.04em' }}>
+              <div style={{ fontFamily: 'var(--mono)', fontSize: 9, color: 'var(--text-muted)', letterSpacing: '0.06em', textTransform: 'uppercase' }}>
                 music management
               </div>
             </div>
@@ -288,9 +278,9 @@ export function Layout({ children, title, back, backTo, breadcrumbs, actions }: 
               <Link key={item.to} to={item.to} style={{
                 flex: 1, padding: '5px 0', textAlign: 'center',
                 borderRadius: 7, fontSize: 12, fontWeight: 600, textDecoration: 'none',
-                background: item.active ? 'linear-gradient(135deg, #5b4cf5 0%, #1a9fd4 100%)' : 'transparent',
-                color: item.active ? '#fff' : 'var(--text-muted)',
-                boxShadow: item.active ? '0 2px 8px rgba(91,76,245,0.3)' : 'none',
+                background: item.active ? 'var(--ink)' : 'transparent',
+                color: item.active ? 'var(--paper)' : 'var(--text-muted)',
+                boxShadow: item.active ? 'var(--shadow-sm)' : 'none',
                 transition: 'all 0.15s',
                 display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 5,
               }}>

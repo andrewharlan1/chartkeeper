@@ -1,90 +1,158 @@
 *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 
-/* ── Light theme ──────────────────────────────────────────────────────────── */
+/* ── Scorva Design System (ported from hifi-styles.css) ──────────────────
+   Fonts: Google Fonts CDN — Fraunces (serif headings), Inter (body),
+   JetBrains Mono (labels/metadata). Loaded in index.html.
+   ──────────────────────────────────────────────────────────────────────── */
+
 :root {
-  --bg: #ffffff;
-  --surface: #f9f9f8;
-  --surface-raised: #ffffff;
-  --surface-hover: #f2f2f0;
-  --border: #e8e8e6;
-  --border-subtle: #f0f0ee;
-  --text: #191919;
-  --text-muted: #7a7874;
-  --text-faint: #c8c5c0;
+  /* Surfaces */
+  --paper:        #f5f2ec;
+  --paper-2:      #ebe7df;
+  --card:         #ffffff;
+  --card-2:       #fbfaf6;
+  --highlight:    #fff3da;
+  --highlight-2:  #ffe9be;
 
-  --accent: #5b4cf5;
-  --accent-hover: #4a3de0;
-  --accent-subtle: rgba(91,76,245,0.07);
-  --accent-glow: rgba(91,76,245,0.14);
-  --danger: #e5484d;
-  --success: #30a46c;
-  --warning: #c47d10;
-  --info: #0870c8;
+  /* Ink */
+  --ink:          #0e1a2b;
+  --ink-2:        #324155;
+  --ink-3:        #6a778a;
+  --ink-4:        #9aa4b3;
 
-  --sidebar-bg: #f9f9f8;
-  --sidebar-border: #ebebea;
-  --banner-gradient: linear-gradient(135deg, #ede9ff 0%, #dff0fb 55%, #f3e8ff 100%);
-  --banner-text: #1a1a2e;
-  --banner-subtext: #5a5a7a;
-  --banner-label: #7c6ff7;
+  /* Lines */
+  --line:         #d8d2c5;
+  --line-2:       #e7e2d6;
+  --line-3:       #f0ece4;
+  --line-ink:     #0e1a2b;
 
-  --shadow-sm: 0 1px 2px rgba(0,0,0,0.05);
-  --shadow: 0 1px 4px rgba(0,0,0,0.06), 0 2px 8px rgba(0,0,0,0.04);
-  --shadow-lg: 0 4px 20px rgba(0,0,0,0.08), 0 2px 8px rgba(0,0,0,0.04);
+  /* Accents */
+  --accent:       #c8531c;
+  --accent-2:     #e0763f;
+  --accent-soft:  #fbe7d7;
+  --accent-glow:  rgba(200, 83, 28, 0.14);
 
-  --radius: 10px;
-  --radius-sm: 7px;
-  --radius-xs: 5px;
+  /* Diff palette */
+  --add:          #2f8d57;
+  --add-bg:       #e6f3eb;
+  --rem:          #b94545;
+  --rem-bg:       #fbe7e7;
+  --mod:          #b58200;
+  --mod-bg:       #faedc4;
+
+  /* Status */
+  --ok:           #2f8d57;
+  --ok-soft:      #d9ecdf;
+  --warn:         #b58200;
+  --warn-soft:    #faedc4;
+
+  /* Typography */
+  --serif:        "Fraunces", "Iowan Old Style", Georgia, serif;
+  --sans:         "Inter", "Söhne", "Helvetica Neue", system-ui, sans-serif;
+  --mono:         "JetBrains Mono", "Geist Mono", ui-monospace, monospace;
+
+  /* Radii */
+  --r-sm:  6px;
+  --r-md:  10px;
+  --r-lg:  14px;
+  --r-xl:  18px;
+
+  /* Shadows (subtle — paper-on-paper) */
+  --shadow-sm: 0 1px 2px rgba(14, 26, 43, 0.04);
+  --shadow-md: 0 4px 14px rgba(14, 26, 43, 0.06), 0 1px 2px rgba(14, 26, 43, 0.05);
+  --shadow-lg: 0 18px 48px rgba(14, 26, 43, 0.12), 0 2px 6px rgba(14, 26, 43, 0.06);
+
+  /* Layout */
   --sidebar-width: 220px;
-  --font: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
   --transition: 0.1s ease;
+
+  /* ── Compat shims — remove once components migrated ── */
+  --bg:             var(--paper);
+  --surface:        var(--card);
+  --surface-raised: var(--card);
+  --surface-hover:  var(--paper-2);
+  --border:         var(--line);
+  --border-subtle:  var(--line-2);
+  --text:           var(--ink);
+  --text-muted:     var(--ink-3);
+  --text-faint:     var(--ink-4);
+  --danger:         var(--rem);
+  --success:        var(--add);
+  --warning:        var(--mod);
+  --info:           #0870c8;
+  /* --accent NOT shimmed — must be the new value everywhere */
+
+  --sidebar-bg:     var(--paper-2);
+  --sidebar-border: var(--line-2);
+  --banner-gradient: linear-gradient(135deg, var(--accent-soft) 0%, var(--paper) 55%, #fef0e3 100%);
+  --banner-text:    var(--ink);
+  --banner-subtext: var(--ink-3);
+  --banner-label:   var(--accent);
+  --shadow:         var(--shadow-md);
+  --radius:         var(--r-lg);
+  --radius-sm:      var(--r-md);
+  --radius-xs:      var(--r-sm);
+  --font:           var(--sans);
+  --accent-hover:   var(--accent-2);
+  --accent-subtle:  var(--accent-soft);
 }
 
-/* ── Dark theme ───────────────────────────────────────────────────────────── */
+/* ── Midnight palette (dark mode) ─────────────────────────────────────── */
+body[data-pal="midnight"],
 [data-theme="dark"] {
-  --bg: #0d0d0d;
-  --surface: #161616;
-  --surface-raised: #1e1e1e;
-  --surface-hover: #232323;
-  --border: #2e2e2e;
-  --border-subtle: #1f1f1f;
-  --text: #eeeeee;
-  --text-muted: #888888;
-  --text-faint: #3a3a3a;
+  --paper:        #131a26;
+  --paper-2:      #0d131c;
+  --card:         #1b2433;
+  --card-2:       #182030;
+  --highlight:    #1e2e44;
+  --highlight-2:  #2a4267;
 
-  --accent: #7c6ff7;
-  --accent-hover: #9184f9;
-  --accent-subtle: rgba(124,111,247,0.1);
-  --accent-glow: rgba(124,111,247,0.2);
-  --danger: #f2555a;
-  --success: #3cbb7e;
-  --warning: #f5a623;
-  --info: #38b2f5;
+  --ink:          #e8edf5;
+  --ink-2:        #b8c2d2;
+  --ink-3:        #7d8aa0;
+  --ink-4:        #56627a;
 
-  --sidebar-bg: #111111;
-  --sidebar-border: #252525;
-  --banner-gradient: linear-gradient(135deg, #1a1540 0%, #0d1f35 55%, #1a0d2e 100%);
-  --banner-text: #eeeeee;
-  --banner-subtext: #888888;
-  --banner-label: #9184f9;
+  --line:         #2c364a;
+  --line-2:       #232c3e;
+  --line-3:       #1a2030;
+  --line-ink:     #e8edf5;
 
-  --shadow-sm: 0 1px 2px rgba(0,0,0,0.3);
-  --shadow: 0 1px 4px rgba(0,0,0,0.35), 0 2px 8px rgba(0,0,0,0.25);
-  --shadow-lg: 0 4px 20px rgba(0,0,0,0.5), 0 2px 8px rgba(0,0,0,0.35);
+  --accent:       #4cdce8;
+  --accent-2:     #7ae9f2;
+  --accent-soft:  rgba(76, 220, 232, 0.15);
+  --accent-glow:  rgba(76, 220, 232, 0.2);
+
+  --add:          #6dd99c;
+  --add-bg:       rgba(74, 222, 128, 0.14);
+  --rem:          #f88787;
+  --rem-bg:       rgba(248, 113, 113, 0.14);
+  --mod:          #f0c950;
+  --mod-bg:       rgba(250, 204, 21, 0.14);
+  --ok:           #6dd99c;
+  --ok-soft:      rgba(74, 222, 128, 0.14);
+  --warn:         #f0c950;
+  --warn-soft:    rgba(250, 204, 21, 0.14);
+
+  --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.3);
+  --shadow-md: 0 1px 4px rgba(0, 0, 0, 0.35), 0 2px 8px rgba(0, 0, 0, 0.25);
+  --shadow-lg: 0 4px 20px rgba(0, 0, 0, 0.5), 0 2px 8px rgba(0, 0, 0, 0.35);
+
+  --banner-gradient: linear-gradient(135deg, rgba(76, 220, 232, 0.1) 0%, var(--paper) 55%, rgba(76, 220, 232, 0.05) 100%);
 }
 
 body {
   background: var(--bg);
   color: var(--text);
-  font-family: var(--font);
+  font-family: var(--sans);
   font-size: 14px;
   line-height: 1.6;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
+  letter-spacing: -0.005em;
 }
 
 a { color: var(--accent); text-decoration: none; }
-a:hover { color: var(--accent-hover); }
+a:hover { color: var(--accent-2); }
 
 /* ── Forms ── */
 input, textarea, select {
@@ -101,7 +169,7 @@ input, textarea, select {
 }
 input:focus, textarea:focus, select:focus {
   border-color: var(--accent);
-  box-shadow: 0 0 0 3px var(--accent-subtle);
+  box-shadow: 0 0 0 3px var(--accent-soft);
 }
 input::placeholder, textarea::placeholder { color: var(--text-faint); }
 
@@ -109,6 +177,7 @@ label {
   display: block;
   margin-bottom: 4px;
   color: var(--text-muted);
+  font-family: var(--mono);
   font-size: 11px;
   font-weight: 600;
   text-transform: uppercase;
@@ -119,22 +188,22 @@ label {
 .form-error { color: var(--danger); font-size: 13px; margin-top: 5px; }
 
 /* ── Type scale ── */
-h1 { font-size: 21px; font-weight: 700; letter-spacing: -0.03em; line-height: 1.25; }
-h2 { font-size: 13px; font-weight: 600; letter-spacing: -0.01em; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.05em; }
+h1 { font-family: var(--serif); font-size: 21px; font-weight: 500; letter-spacing: -0.02em; line-height: 1.25; }
+h2 { font-family: var(--mono); font-size: 11px; font-weight: 600; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.05em; }
 h3 { font-size: 13px; font-weight: 600; }
 
 /* ── Cards ── */
 .card {
-  background: var(--surface);
-  border: 1px solid var(--border);
-  border-radius: var(--radius);
+  background: var(--card);
+  border: 1px solid var(--line);
+  border-radius: var(--r-lg);
   box-shadow: var(--shadow-sm);
 }
 
 /* ── Scrollbar ── */
 ::-webkit-scrollbar { width: 4px; height: 4px; }
 ::-webkit-scrollbar-track { background: transparent; }
-::-webkit-scrollbar-thumb { background: var(--border); border-radius: 4px; }
-::-webkit-scrollbar-thumb:hover { background: var(--text-faint); }
+::-webkit-scrollbar-thumb { background: var(--line); border-radius: 4px; }
+::-webkit-scrollbar-thumb:hover { background: var(--ink-4); }
 
 @keyframes spin { to { transform: rotate(360deg); } }

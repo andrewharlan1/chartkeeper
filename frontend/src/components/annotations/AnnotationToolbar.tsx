@@ -69,9 +69,9 @@ const MODES: { value: AnnotationMode; label: string; shortcut?: string }[] = [
   { value: 'erase', label: 'Erase', shortcut: 'E' },
 ];
 
-const ACCENT = '#7c6ff7';
-const ACCENT_BG = 'rgba(124, 111, 247, 0.22)';
-const ACCENT_BORDER = 'rgba(124, 111, 247, 0.4)';
+const ACCENT = '#c8531c';
+const ACCENT_BG = 'rgba(200, 83, 28, 0.22)';
+const ACCENT_BORDER = 'rgba(200, 83, 28, 0.4)';
 const SURFACE = '#16152a';
 const SURFACE_BORDER = 'rgba(255,255,255,0.08)';
 

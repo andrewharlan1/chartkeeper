@@ -4,7 +4,7 @@ import { Annotation, InkContent, HighlightContent, TextContent } from '../../typ
 export type HandlePosition = 'nw' | 'n' | 'ne' | 'e' | 'se' | 's' | 'sw' | 'w';
 
 const HANDLE_SIZE = 6;
-const ACCENT = '#7c6ff7';
+const ACCENT = '#c8531c';
 const PAD = 4;
 
 /** Returns normalized (0-1) bounding box for any annotation type. */

@@ -220,8 +220,8 @@ function NotePanel({
                     {(measureNum || pageNum) && (
                       <span style={{
                         display: 'inline-block', fontSize: 10, fontWeight: 700,
-                        background: 'rgba(124,111,247,0.12)', border: '1px solid rgba(124,111,247,0.2)',
-                        borderRadius: 3, padding: '1px 5px', color: '#9184f9', marginBottom: 4,
+                        background: 'rgba(200,83,28,0.12)', border: '1px solid rgba(200,83,28,0.2)',
+                        borderRadius: 3, padding: '1px 5px', color: '#e0763f', marginBottom: 4,
                       }}>
                         {measureNum ? `m.${measureNum}` : `p.${pageNum}`}
                       </span>
@@ -279,7 +279,7 @@ function NotePanel({
           disabled={saving || !text.trim()}
           style={{
             width: '100%', padding: '6px 0', fontSize: 12, fontWeight: 600,
-            background: text.trim() ? '#5b4cf5' : 'rgba(255,255,255,0.05)',
+            background: text.trim() ? 'var(--accent)' : 'rgba(255,255,255,0.05)',
             border: 'none', borderRadius: 5, color: text.trim() ? '#fff' : '#555',
             cursor: text.trim() ? 'pointer' : 'default', fontFamily: 'inherit',
           }}
@@ -293,17 +293,17 @@ function NotePanel({
 
 // ── Fullscreen Viewer ─────────────────────────────────────────────────────────
 
-const LIGHT_PEN_COLORS  = ['#1c1c28', '#5b4cf5', '#e53535', '#0a9e6e', '#d97706', '#f97316'];
-const DARK_PEN_COLORS   = ['#ffffff', '#a89af7', '#ff6b6b', '#3ee8a0', '#ffb347', '#ff9f43'];
+const LIGHT_PEN_COLORS  = ['#1c1c28', '#c8531c', '#e53535', '#0a9e6e', '#d97706', '#f97316'];
+const DARK_PEN_COLORS   = ['#ffffff', '#e0763f', '#ff6b6b', '#3ee8a0', '#ffb347', '#ff9f43'];
 const LIGHT_HL_COLORS   = ['#ffe066', '#a8f0c6', '#a8d8f0', '#f0a8d8', '#f0cda8'];
 const DARK_HL_COLORS    = ['#ffd700', '#00ff7f', '#00cfff', '#ff69b4', '#ff8c00'];
 const PEN_WIDTHS = [1.5, 3, 5];
 
 function tbBtn(active: boolean): React.CSSProperties {
   return {
-    background: active ? 'rgba(124,111,247,0.2)' : 'rgba(255,255,255,0.04)',
-    border: `1px solid ${active ? 'rgba(124,111,247,0.4)' : 'rgba(255,255,255,0.08)'}`,
-    borderRadius: 6, color: active ? '#c4bcff' : '#777',
+    background: active ? 'rgba(200,83,28,0.2)' : 'rgba(255,255,255,0.04)',
+    border: `1px solid ${active ? 'rgba(200,83,28,0.4)' : 'rgba(255,255,255,0.08)'}`,
+    borderRadius: 6, color: active ? '#e0763f' : '#777',
     cursor: 'pointer', fontSize: 11, fontWeight: 500, padding: '4px 10px',
     transition: 'all 0.1s', whiteSpace: 'nowrap' as const,
   };
@@ -1088,10 +1088,10 @@ function FullscreenViewer({
             onClick={() => setShowToolbar(v => !v)}
             title={showToolbar ? 'Hide annotation tools' : 'Show annotation tools'}
             style={{
-              background: showToolbar ? 'rgba(124,111,247,0.18)' : 'transparent',
-              border: showToolbar ? '1px solid rgba(124,111,247,0.35)' : '1px solid rgba(255,255,255,0.08)',
+              background: showToolbar ? 'rgba(200,83,28,0.18)' : 'transparent',
+              border: showToolbar ? '1px solid rgba(200,83,28,0.35)' : '1px solid rgba(255,255,255,0.08)',
               borderRadius: 6, cursor: 'pointer', padding: 4, flexShrink: 0,
-              color: showToolbar ? '#a89af7' : '#666',
+              color: showToolbar ? '#e0763f' : '#666',
               display: 'flex', alignItems: 'center', justifyContent: 'center',
               transition: 'all 0.12s',
             }}
@@ -1111,10 +1111,10 @@ function FullscreenViewer({
             onClick={() => setShowAnnotations(v => !v)}
             title={showAnnotations ? 'Hide annotations' : 'Show annotations'}
             style={{
-              background: showAnnotations ? 'rgba(124,111,247,0.18)' : 'transparent',
-              border: showAnnotations ? '1px solid rgba(124,111,247,0.35)' : '1px solid rgba(255,255,255,0.08)',
+              background: showAnnotations ? 'rgba(200,83,28,0.18)' : 'transparent',
+              border: showAnnotations ? '1px solid rgba(200,83,28,0.35)' : '1px solid rgba(255,255,255,0.08)',
               borderRadius: 6, cursor: 'pointer', padding: 4, flexShrink: 0,
-              color: showAnnotations ? '#a89af7' : '#666',
+              color: showAnnotations ? '#e0763f' : '#666',
               display: 'flex', alignItems: 'center', justifyContent: 'center',
               transition: 'all 0.12s',
             }}
@@ -1300,8 +1300,8 @@ function FullscreenViewer({
               )}
             </p>
             {anchorChoice === 'measure' && measureHint && (
-              <p style={{ color: '#9184f9', fontSize: 11, marginBottom: 14, display: 'flex', alignItems: 'center', gap: 5 }}>
-                <span style={{ background: 'rgba(124,111,247,0.12)', border: '1px solid rgba(124,111,247,0.25)', borderRadius: 4, padding: '2px 7px', fontWeight: 700 }}>
+              <p style={{ color: '#e0763f', fontSize: 11, marginBottom: 14, display: 'flex', alignItems: 'center', gap: 5 }}>
+                <span style={{ background: 'rgba(200,83,28,0.12)', border: '1px solid rgba(200,83,28,0.25)', borderRadius: 4, padding: '2px 7px', fontWeight: 700 }}>
                   m.{measureHint}
                 </span>
                 auto-detected — correct if needed
@@ -1315,12 +1315,12 @@ function FullscreenViewer({
                 style={{
                   display: 'flex', flexDirection: 'column', alignItems: 'flex-start',
                   gap: 2, padding: '11px 14px', borderRadius: 8, cursor: 'pointer', textAlign: 'left',
-                  background: anchorChoice === 'page' ? 'rgba(124,111,247,0.12)' : 'rgba(255,255,255,0.03)',
-                  border: `1px solid ${anchorChoice === 'page' ? 'rgba(124,111,247,0.35)' : 'rgba(255,255,255,0.07)'}`,
+                  background: anchorChoice === 'page' ? 'rgba(200,83,28,0.12)' : 'rgba(255,255,255,0.03)',
+                  border: `1px solid ${anchorChoice === 'page' ? 'rgba(200,83,28,0.35)' : 'rgba(255,255,255,0.07)'}`,
                   transition: 'all 0.1s',
                 }}
               >
-                <span style={{ color: anchorChoice === 'page' ? '#c4bcff' : '#bbb', fontSize: 13, fontWeight: 600 }}>
+                <span style={{ color: anchorChoice === 'page' ? '#e0763f' : '#bbb', fontSize: 13, fontWeight: 600 }}>
                   Tie to page
                 </span>
                 <span style={{ color: '#555', fontSize: 11, lineHeight: 1.4 }}>
@@ -1334,12 +1334,12 @@ function FullscreenViewer({
                 style={{
                   display: 'flex', flexDirection: 'column', alignItems: 'flex-start',
                   gap: 2, padding: '11px 14px', borderRadius: 8, cursor: 'pointer', textAlign: 'left',
-                  background: anchorChoice === 'measure' ? 'rgba(124,111,247,0.12)' : 'rgba(255,255,255,0.03)',
-                  border: `1px solid ${anchorChoice === 'measure' ? 'rgba(124,111,247,0.35)' : 'rgba(255,255,255,0.07)'}`,
+                  background: anchorChoice === 'measure' ? 'rgba(200,83,28,0.12)' : 'rgba(255,255,255,0.03)',
+                  border: `1px solid ${anchorChoice === 'measure' ? 'rgba(200,83,28,0.35)' : 'rgba(255,255,255,0.07)'}`,
                   transition: 'all 0.1s',
                 }}
               >
-                <span style={{ color: anchorChoice === 'measure' ? '#c4bcff' : '#bbb', fontSize: 13, fontWeight: 600 }}>
+                <span style={{ color: anchorChoice === 'measure' ? '#e0763f' : '#bbb', fontSize: 13, fontWeight: 600 }}>
                   Tie to measure
                 </span>
                 <span style={{ color: '#555', fontSize: 11, lineHeight: 1.4 }}>
@@ -1385,7 +1385,7 @@ function FullscreenViewer({
                 disabled={anchorChoice === 'measure' && (!measureHint || parseInt(measureHint) < 1)}
                 style={{
                   padding: '7px 16px', fontSize: 12, fontWeight: 600, borderRadius: 6,
-                  background: '#5b4cf5', border: '1px solid rgba(124,111,247,0.4)',
+                  background: 'var(--accent)', border: '1px solid var(--accent-2)',
                   color: '#fff', cursor: 'pointer',
                   opacity: (anchorChoice === 'measure' && (!measureHint || parseInt(measureHint) < 1)) ? 0.4 : 1,
                 }}

@@ -70,10 +70,10 @@ export function ToastProvider({ children }: { children: ReactNode }) {
                 <button
                   onClick={() => { t.action!.onClick(); dismiss(t.id); }}
                   style={{
-                    background: 'rgba(124,111,247,0.2)',
-                    border: '1px solid rgba(124,111,247,0.4)',
+                    background: 'rgba(200,83,28,0.2)',
+                    border: '1px solid rgba(200,83,28,0.4)',
                     borderRadius: 4,
-                    color: '#c4bcff',
+                    color: '#e0763f',
                     fontSize: 12,
                     fontWeight: 600,
                     padding: '3px 8px',

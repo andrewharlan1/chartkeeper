@@ -1373,7 +1373,7 @@ export function AnnotationLayer({
                 style={{
                   fontSize: 10, fontWeight: 600, fontFamily: 'inherit',
                   padding: '2px 8px', borderRadius: 4, cursor: 'pointer',
-                  background: 'rgba(124,111,247,0.9)', color: '#fff',
+                  background: 'rgba(200,83,28,0.9)', color: '#fff',
                   border: 'none',
                 }}
               >
