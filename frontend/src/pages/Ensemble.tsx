@@ -17,6 +17,7 @@ import { ApiError } from '../api/client';
 import { InstrumentIcon } from '../components/InstrumentIcon';
 import { PermissionGate } from '../components/PermissionGate';
 import { SidePanel, PanelSection } from '../components/SidePanel';
+import { CreateEventModal } from '../components/CreateEventModal';
 import './Ensemble.css';
 
 type ChartTab = 'all' | 'active' | 'draft' | 'archived';
@@ -112,6 +113,7 @@ export function EnsemblePage() {
 
   const [chartTab, setChartTab] = useState<ChartTab>('all');
   const [panelOpen, setPanelOpen] = useState(false);
+  const [showCreateEvent, setShowCreateEvent] = useState(false);
 
   useEffect(() => {
     if (!id) return;
@@ -654,7 +656,7 @@ export function EnsemblePage() {
           title="Events"
           count={`${events.filter(e => !isPast(e.startsAt)).length} upcoming`}
           actionLabel="+ new"
-          onAction={() => { /* Phase 5 will wire this to create-event modal */ }}
+          onAction={() => { setPanelOpen(false); setShowCreateEvent(true); }}
         >
           {events.length === 0 ? (
             <p style={{ fontSize: 12, color: 'var(--text-muted)' }}>No events yet</p>
@@ -663,6 +665,7 @@ export function EnsemblePage() {
               <div
                 key={evt.id}
                 className={`event-mini${isImminent(evt.startsAt) ? ' imminent' : ''}${isPast(evt.startsAt) ? ' past' : ''}`}
+                onClick={() => navigate(`/ensembles/${id}/events/${evt.id}`)}
               >
                 <div className="em-date">{formatEventDate(evt.startsAt)}</div>
                 <div className="em-name">
@@ -733,6 +736,17 @@ export function EnsemblePage() {
             </div>
           </form>
         </Modal>
+      )}
+
+      {showCreateEvent && id && (
+        <CreateEventModal
+          ensembleId={id}
+          onClose={() => setShowCreateEvent(false)}
+          onCreated={(eventId) => {
+            setShowCreateEvent(false);
+            navigate(`/ensembles/${id}/events/${eventId}`);
+          }}
+        />
       )}
     </Layout>
   );

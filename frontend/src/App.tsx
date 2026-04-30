@@ -11,6 +11,7 @@ import { UploadVersion } from './pages/UploadVersion';
 import { VersionDetail } from './pages/VersionDetail';
 import { MigrationSourcesPage } from './pages/MigrationSources';
 import { PlayerView } from './pages/PlayerView';
+import { EventDetailPage } from './pages/EventDetail';
 
 function RequireAuth({ children }: { children: JSX.Element }) {
   const { token } = useAuth();
@@ -25,6 +26,7 @@ function AppRoutes() {
       <Route path="/signup" element={<Signup />} />
       <Route path="/" element={<RequireAuth><Dashboard /></RequireAuth>} />
       <Route path="/ensembles/:id" element={<RequireAuth><EnsemblePage /></RequireAuth>} />
+      <Route path="/ensembles/:id/events/:eventId" element={<RequireAuth><EventDetailPage /></RequireAuth>} />
       <Route path="/charts/:id" element={<RequireAuth><ChartPage /></RequireAuth>} />
       <Route path="/charts/:id/upload" element={<RequireAuth><UploadVersion /></RequireAuth>} />
       <Route path="/charts/:id/versions/:vId" element={<RequireAuth><VersionDetail /></RequireAuth>} />
