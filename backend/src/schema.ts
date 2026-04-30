@@ -39,6 +39,13 @@ export const workspaceRoleEnum = pgEnum('workspace_role', [
   'member',
   'viewer',
 ]);
+export const eventTypeEnum = pgEnum('event_type', [
+  'gig',
+  'rehearsal',
+  'recording',
+  'workshop',
+  'other',
+]);
 export const notificationKindEnum = pgEnum('notification_kind', [
   'new_part_version',
   'assignment_added',
@@ -301,5 +308,44 @@ export const notifications = pgTable(
   },
   (t) => ({
     userIdx: index('notifications_user_idx').on(t.userId),
+  }),
+);
+
+// ── Events ────────────────────────────────────────────────────────────────
+
+export const events = pgTable(
+  'events',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    ensembleId: uuid('ensemble_id').notNull().references(() => ensembles.id, { onDelete: 'cascade' }),
+    name: text('name').notNull(),
+    eventType: eventTypeEnum('event_type').notNull().default('gig'),
+    startsAt: timestamp('starts_at', { withTimezone: true }).notNull(),
+    location: text('location'),
+    notes: text('notes'),
+    sortOrder: integer('sort_order').notNull().default(0),
+    ...timestamps,
+  },
+  (t) => ({
+    ensembleIdx: index('idx_events_ensemble_id').on(t.ensembleId),
+    startsAtIdx: index('idx_events_starts_at').on(t.startsAt),
+  }),
+);
+
+// ── Event Charts (join table) ─────────────────────────────────────────────
+
+export const eventCharts = pgTable(
+  'event_charts',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    eventId: uuid('event_id').notNull().references(() => events.id, { onDelete: 'cascade' }),
+    chartId: uuid('chart_id').notNull().references(() => charts.id, { onDelete: 'cascade' }),
+    sortOrder: integer('sort_order').notNull().default(0),
+    createdAt: timestamp('created_at').notNull().defaultNow(),
+  },
+  (t) => ({
+    uniq: unique('event_charts_uniq').on(t.eventId, t.chartId),
+    eventIdx: index('idx_event_charts_event_id').on(t.eventId),
+    chartIdx: index('idx_event_charts_chart_id').on(t.chartId),
   }),
 );
