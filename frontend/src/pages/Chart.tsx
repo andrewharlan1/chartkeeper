@@ -1,6 +1,6 @@
 import { useEffect, useState, useCallback } from 'react';
 import { useParams, Link, useNavigate } from 'react-router-dom';
-import { getChart, deleteChart, getChartVersionInstruments, InstrumentRow, InstrumentPart, InstrumentViewResponse } from '../api/charts';
+import { getChart, deleteChart, getChartVersionInstruments, InstrumentPart, InstrumentViewResponse } from '../api/charts';
 import { getVersions, createVersion } from '../api/versions';
 import { getEnsemble } from '../api/ensembles';
 import { Chart as ChartType, Version } from '../types';
@@ -10,6 +10,340 @@ import { Modal } from '../components/Modal';
 import { ContentKindIcon, KIND_LABELS } from '../components/ContentKindIcon';
 import { InstrumentIcon } from '../components/InstrumentIcon';
 import { ApiError } from '../api/client';
+import './ChartDetail.css';
+
+type LayoutMode = 'B' | 'C' | 'D';
+
+function getStoredLayout(): LayoutMode {
+  const v = localStorage.getItem('scorva-chart-layout');
+  if (v === 'B' || v === 'C' || v === 'D') return v;
+  return 'B';
+}
+
+// ── Helpers ──────────────────────────────────────────────────────────────────
+
+interface PartView {
+  instrumentName: string;
+  part: InstrumentPart | null;
+  fileName: string;
+  isScore: boolean;
+  isChanged: boolean;
+  isRemoved: boolean;
+  statusText: string;
+  removedVersionName: string | null;
+}
+
+function buildPartViews(data: InstrumentViewResponse): PartView[] {
+  const views: PartView[] = [];
+
+  // Score parts first
+  for (const sp of data.scoreParts) {
+    const changed = sp.diffStatus ? sp.diffStatus.changedMeasureCount > 0 : false;
+    const statusText = sp.diffStatus
+      ? changed
+        ? `${data.version.name} \u00b7 ${sp.diffStatus.changedMeasureCount} measure${sp.diffStatus.changedMeasureCount !== 1 ? 's' : ''}`
+        : 'carried forward'
+      : data.version.name;
+    views.push({
+      instrumentName: sp.name,
+      part: sp,
+      fileName: sp.name,
+      isScore: true,
+      isChanged: changed,
+      isRemoved: false,
+      statusText,
+      removedVersionName: null,
+    });
+  }
+
+  // Active instruments (have current parts)
+  for (const inst of data.instruments) {
+    if (inst.currentParts.length > 0) {
+      const cp = inst.currentParts[0];
+      const changed = cp.diffStatus ? cp.diffStatus.changedMeasureCount > 0 : false;
+      const statusText = cp.diffStatus
+        ? changed
+          ? `${data.version.name} \u00b7 ${cp.diffStatus.changedMeasureCount} measure${cp.diffStatus.changedMeasureCount !== 1 ? 's' : ''}`
+          : 'carried forward'
+        : data.version.name;
+      views.push({
+        instrumentName: inst.instrumentName,
+        part: cp,
+        fileName: cp.name,
+        isScore: false,
+        isChanged: changed,
+        isRemoved: false,
+        statusText,
+        removedVersionName: null,
+      });
+    }
+  }
+
+  // Removed instruments (no current parts, had previous) — auto-sink to bottom
+  for (const inst of data.instruments) {
+    if (inst.currentParts.length === 0 && inst.previousVersionParts.length > 0) {
+      views.push({
+        instrumentName: inst.instrumentName,
+        part: null,
+        fileName: '\u2014',
+        isScore: false,
+        isChanged: false,
+        isRemoved: true,
+        statusText: `removed in ${data.version.name}`,
+        removedVersionName: data.version.name,
+      });
+    }
+  }
+
+  return views;
+}
+
+// ── Mini score thumbnail ─────────────────────────────────────────────────────
+
+function MiniScoreThumb({ kind = 'part', changed = false }: { kind?: string; changed?: boolean }) {
+  const isScore = kind === 'score';
+  const systems = [0, 1, 2];
+  const lines = isScore ? 4 : 1;
+  return (
+    <div className="mini-thumb">
+      {systems.map((_, si) => (
+        <div className="mt-system" key={si}>
+          {Array.from({ length: lines }).map((__, li) => (
+            <div className="mt-staff" key={li}>
+              {[0, 1, 2, 3, 4].map(k => <div className="mt-line" key={k} />)}
+              {changed && si === 1 && li === (isScore ? 2 : 0) && <div className="mt-mark" />}
+            </div>
+          ))}
+        </div>
+      ))}
+    </div>
+  );
+}
+
+// ── Layout B: Score hero + parts tiles ───────────────────────────────────────
+
+function LayoutB({ parts, chartId, versionId }: {
+  parts: PartView[];
+  chartId: string;
+  versionId: string;
+}) {
+  const score = parts.find(p => p.isScore);
+  const instruments = parts.filter(p => !p.isScore);
+  const activeParts = instruments.filter(p => !p.isRemoved);
+  const removedParts = instruments.filter(p => p.isRemoved);
+  const changedCount = activeParts.filter(p => p.isChanged).length;
+
+  return (
+    <>
+      {/* Hero: score card */}
+      {score && (
+        <article className="score-hero" tabIndex={0}>
+          <div className="sh-thumb">
+            <MiniScoreThumb kind="score" changed={score.isChanged} />
+            {score.isChanged && <span className="sh-flag">{score.statusText}</span>}
+          </div>
+          <div className="sh-body">
+            <div className="sh-eyebrow">Conductor's Score</div>
+            <h2 className="sh-title">{score.fileName}</h2>
+            <div className="sh-meta">
+              {score.part && (
+                <>
+                  <span>{KIND_LABELS[score.part.kind as keyof typeof KIND_LABELS] || score.part.kind}</span>
+                  <span className="dot">&middot;</span>
+                </>
+              )}
+              <span>{score.statusText}</span>
+            </div>
+          </div>
+          <div className="sh-actions">
+            <Link to={`/charts/${chartId}/versions/${versionId}`}>
+              <Button size="sm" variant="secondary">Open score</Button>
+            </Link>
+          </div>
+        </article>
+      )}
+
+      {/* Parts tiles */}
+      <div className="parts-tiles-head">
+        <h3 className="ps-title">Parts</h3>
+        <span className="ps-meta">
+          {activeParts.length} active{changedCount > 0 && ` \u00b7 ${changedCount} changed`}
+        </span>
+      </div>
+
+      <div className="parts-tiles">
+        {activeParts.map(p => (
+          <article className={'part-tile' + (p.isChanged ? ' changed' : '')} key={p.instrumentName} tabIndex={0}>
+            <header className="pt-head">
+              <span className="pt-icn"><InstrumentIcon name={p.instrumentName} size={20} /></span>
+              <span className="pt-name">{p.instrumentName}</span>
+              <span className={'pt-status ' + (p.isChanged ? 'is-changed' : '')}>
+                {p.statusText}
+              </span>
+            </header>
+            <div className="pt-thumb">
+              <MiniScoreThumb kind="part" changed={p.isChanged} />
+            </div>
+            <footer className="pt-foot">
+              <span className="pt-file">{p.fileName}</span>
+              <Link to={`/charts/${chartId}/versions/${versionId}`}>
+                <Button size="sm" variant="secondary">Open</Button>
+              </Link>
+            </footer>
+          </article>
+        ))}
+
+        {/* Removed parts — auto-sunk to bottom */}
+        {removedParts.map(p => (
+          <article className="part-tile removed" key={p.instrumentName}>
+            <header className="pt-head">
+              <span className="pt-icn"><InstrumentIcon name={p.instrumentName} size={20} /></span>
+              <span className="pt-name">{p.instrumentName}</span>
+              <span className="pt-removed-tag">{p.statusText}</span>
+            </header>
+            <div className="pt-thumb">
+              <MiniScoreThumb kind="part" />
+            </div>
+            <footer className="pt-foot">
+              <span className="pt-file">{p.fileName}</span>
+            </footer>
+          </article>
+        ))}
+      </div>
+    </>
+  );
+}
+
+// ── Layout C: Score-led ──────────────────────────────────────────────────────
+
+function LayoutC({ parts, chartId, versionId }: {
+  parts: PartView[];
+  chartId: string;
+  versionId: string;
+}) {
+  return (
+    <div className="score-led">
+      {/* Full page score area */}
+      <div className="score-led-hero">
+        <div className="sl-bar">
+          <span className="l">Score &middot; Conductor's view</span>
+          <Link to={`/charts/${chartId}/versions/${versionId}`} style={{ fontSize: 12, color: 'var(--accent)' }}>
+            Open
+          </Link>
+          <span className="pn">
+            {parts.filter(p => !p.isRemoved).length} parts
+          </span>
+        </div>
+        <div className="sl-page">
+          {[0, 1, 2].map(si => (
+            <div className="sl-system" key={si}>
+              {[0, 1, 2, 3, 4].map(i => <div className="sl-line" key={i} />)}
+            </div>
+          ))}
+        </div>
+      </div>
+
+      {/* Horizontal parts strip */}
+      <div className="parts-strip">
+        {parts.filter(p => !p.isRemoved).map(p => (
+          <div
+            className={'part-strip-item' + (p.isChanged ? ' has-change' : '')}
+            key={p.instrumentName}
+          >
+            <div className="top">
+              <span className="icn">
+                {p.isScore
+                  ? <ContentKindIcon kind="score" size={20} />
+                  : <InstrumentIcon name={p.instrumentName} size={20} />
+                }
+              </span>
+              <span className="name">{p.instrumentName}</span>
+            </div>
+            <div className="meta">
+              <span style={{ color: p.isChanged ? 'var(--accent)' : undefined }}>
+                {p.statusText}
+              </span>
+            </div>
+          </div>
+        ))}
+
+        {/* Removed parts at end of strip */}
+        {parts.filter(p => p.isRemoved).map(p => (
+          <div className="part-strip-item" key={p.instrumentName} style={{ opacity: 0.5 }}>
+            <div className="top">
+              <span className="icn"><InstrumentIcon name={p.instrumentName} size={20} /></span>
+              <span className="name" style={{ textDecoration: 'line-through' }}>{p.instrumentName}</span>
+            </div>
+            <div className="meta">
+              <span>{p.statusText}</span>
+            </div>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+// ── Layout D: Compact list ───────────────────────────────────────────────────
+
+function LayoutD({ parts, chartId, versionId }: {
+  parts: PartView[];
+  chartId: string;
+  versionId: string;
+}) {
+  return (
+    <div className="compact-list">
+      {parts.filter(p => !p.isRemoved).map(p => (
+        <Link
+          className="compact-row"
+          to={`/charts/${chartId}/versions/${versionId}`}
+          key={p.instrumentName}
+          style={{ textDecoration: 'none' }}
+        >
+          <span className="icn">
+            {p.isScore
+              ? <ContentKindIcon kind="score" size={20} />
+              : <InstrumentIcon name={p.instrumentName} size={20} />
+            }
+          </span>
+          <span>
+            <div className="nm">
+              {p.instrumentName}
+              {p.isScore && <span className="score-tag">SCORE</span>}
+            </div>
+            <div className="filename">{p.fileName}</div>
+          </span>
+          <span className="right">
+            <span style={{
+              fontFamily: 'var(--mono)', fontSize: 11,
+              color: p.isChanged ? 'var(--accent)' : 'var(--text-muted)',
+            }}>
+              {p.statusText}
+            </span>
+          </span>
+        </Link>
+      ))}
+
+      {/* Removed parts — auto-sunk to bottom */}
+      {parts.filter(p => p.isRemoved).map(p => (
+        <div className="compact-row" key={p.instrumentName} style={{ opacity: 0.5 }}>
+          <span className="icn">
+            <InstrumentIcon name={p.instrumentName} size={20} />
+          </span>
+          <span>
+            <div className="nm" style={{ textDecoration: 'line-through' }}>{p.instrumentName}</div>
+            <div className="filename">{p.fileName}</div>
+          </span>
+          <span className="right">
+            <span className="pt-removed-tag">{p.statusText}</span>
+          </span>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+// ── ChartPage ────────────────────────────────────────────────────────────────
 
 export function ChartPage() {
   const { id } = useParams<{ id: string }>();
@@ -29,6 +363,13 @@ export function ChartPage() {
   const [versionError, setVersionError] = useState('');
   const [deletingChart, setDeletingChart] = useState(false);
 
+  const [layout, setLayout] = useState<LayoutMode>(getStoredLayout);
+
+  function handleLayoutChange(mode: LayoutMode) {
+    setLayout(mode);
+    localStorage.setItem('scorva-chart-layout', mode);
+  }
+
   // Load chart and versions
   useEffect(() => {
     if (!id) return;
@@ -38,7 +379,6 @@ export function ChartPage() {
     ]).then(async ([chartRes, versRes]) => {
       setChart(chartRes.chart);
       setVersions(versRes.versions);
-      // Default to current version, or most recent
       const current = versRes.versions.find(v => v.isCurrent);
       const sorted = [...versRes.versions].sort((a, b) => b.sortOrder - a.sortOrder);
       setSelectedVersionId(current?.id ?? sorted[0]?.id ?? null);
@@ -99,12 +439,9 @@ export function ChartPage() {
     }
   }
 
-  async function handleVersionChange(versionId: string) {
-    setSelectedVersionId(versionId);
-  }
-
   const sortedVersions = [...versions].sort((a, b) => b.sortOrder - a.sortOrder);
   const selectedVersion = versions.find(v => v.id === selectedVersionId);
+  const partViews = instrumentData ? buildPartViews(instrumentData) : [];
 
   if (loading) return <Layout><p style={{ color: 'var(--text-muted)' }}>Loading...</p></Layout>;
   if (!chart) return null;
@@ -120,6 +457,18 @@ export function ChartPage() {
       ]}
       actions={
         <>
+          {/* Layout toggle */}
+          <div className="layout-toggle">
+            {(['B', 'C', 'D'] as LayoutMode[]).map(m => (
+              <button
+                key={m}
+                className={layout === m ? 'active' : ''}
+                onClick={() => handleLayoutChange(m)}
+              >
+                {m}
+              </button>
+            ))}
+          </div>
           <Button size="sm" variant="secondary" onClick={() => setShowCreateVersion(true)}>+ New version</Button>
           <Link to={`/charts/${id}/upload`}>
             <Button variant="secondary" size="sm">Upload parts</Button>
@@ -146,12 +495,12 @@ export function ChartPage() {
         </div>
       ) : (
         <>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 24 }}>
-            <label style={{ fontSize: 14, fontWeight: 600, color: 'var(--text-muted)' }}>Version:</label>
+          {/* Chart head: version selector row */}
+          <div className="chart-head">
             <select
+              className="ch-version"
               value={selectedVersionId || ''}
-              onChange={e => handleVersionChange(e.target.value)}
-              style={{ fontSize: 14, padding: '6px 12px', borderRadius: 8, minWidth: 200 }}
+              onChange={e => setSelectedVersionId(e.target.value)}
             >
               {sortedVersions.map(v => (
                 <option key={v.id} value={v.id}>
@@ -159,6 +508,10 @@ export function ChartPage() {
                 </option>
               ))}
             </select>
+            <span className="ch-meta">
+              {partViews.filter(p => !p.isRemoved).length} parts
+              {partViews.some(p => p.isRemoved) && ` \u00b7 ${partViews.filter(p => p.isRemoved).length} removed`}
+            </span>
             {selectedVersion && (
               <Link to={`/charts/${id}/versions/${selectedVersion.id}`} style={{ fontSize: 13 }}>
                 Open version detail
@@ -166,90 +519,24 @@ export function ChartPage() {
             )}
           </div>
 
-          {/* Instrument rows */}
+          {/* Layout content */}
           {loadingInstruments ? (
             <p style={{ color: 'var(--text-muted)' }}>Loading instruments...</p>
           ) : instrumentData ? (
-            <>
-              {instrumentData.instruments.length === 0 && instrumentData.scoreParts.length === 0 ? (
-                <div style={{ textAlign: 'center', padding: '40px 0', color: 'var(--text-muted)' }}>
-                  <p style={{ marginBottom: 8 }}>No instruments defined yet.</p>
-                  <Link to={`/ensembles/${chart.ensembleId}`}>
-                    <Button variant="secondary">Add instruments to this ensemble</Button>
-                  </Link>
-                </div>
-              ) : (
-                <>
-                  <h3 style={{ fontSize: 12, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.08em', color: 'var(--text-muted)', marginBottom: 12 }}>
-                    Instruments in this ensemble
-                  </h3>
-
-                  <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-                    {instrumentData.instruments.map(inst => (
-                      <InstrumentCard
-                        key={inst.slotId}
-                        instrument={inst}
-                        chartId={id!}
-                        versionId={selectedVersionId!}
-                      />
-                    ))}
-                  </div>
-
-                  {/* Score section */}
-                  {instrumentData.scoreParts.length > 0 && (
-                    <>
-                      <div style={{
-                        borderTop: '1px solid var(--border)', marginTop: 24, paddingTop: 16, marginBottom: 12,
-                      }}>
-                        <h3 style={{ fontSize: 12, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.08em', color: 'var(--text-muted)', margin: 0 }}>
-                          Shared with everyone
-                        </h3>
-                      </div>
-                      <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-                        {instrumentData.scoreParts.map(sp => (
-                          <div key={sp.partId} style={{
-                            padding: '14px 18px',
-                            background: 'var(--surface)',
-                            border: '1px solid var(--border)',
-                            borderRadius: 'var(--radius)',
-                            display: 'flex', alignItems: 'center', gap: 12,
-                          }}>
-                            <ContentKindIcon kind={sp.kind as any} size={20} />
-                            <div style={{ flex: 1 }}>
-                              <span style={{ fontWeight: 500, fontSize: 14 }}>{sp.name}</span>
-                              <span style={{ color: 'var(--text-muted)', fontSize: 12, marginLeft: 8 }}>
-                                {KIND_LABELS[sp.kind as keyof typeof KIND_LABELS] || sp.kind}
-                              </span>
-                              {sp.annotationCount > 0 && (
-                                <span style={{ color: 'var(--text-muted)', fontSize: 12, marginLeft: 8 }}>
-                                  {sp.annotationCount} annotation{sp.annotationCount !== 1 ? 's' : ''}
-                                </span>
-                              )}
-                              {sp.diffStatus && sp.diffStatus.changedMeasureCount > 0 && (
-                                <span style={{
-                                  fontSize: 11, marginLeft: 6, padding: '1px 8px', borderRadius: 8,
-                                  background: 'var(--warning-subtle, #fef3cd)',
-                                  color: 'var(--warning-text, #856404)',
-                                  fontWeight: 500,
-                                }}>
-                                  {sp.diffStatus.changedMeasureCount} measure{sp.diffStatus.changedMeasureCount !== 1 ? 's' : ''} changed
-                                  {sp.diffStatus.sourceVersionName && (
-                                    <span style={{ fontWeight: 400, opacity: 0.8 }}> vs {sp.diffStatus.sourceVersionName}</span>
-                                  )}
-                                </span>
-                              )}
-                            </div>
-                            <Link to={`/charts/${id}/versions/${selectedVersionId}`}>
-                              <Button size="sm" variant="secondary">Open</Button>
-                            </Link>
-                          </div>
-                        ))}
-                      </div>
-                    </>
-                  )}
-                </>
-              )}
-            </>
+            partViews.length === 0 ? (
+              <div style={{ textAlign: 'center', padding: '40px 0', color: 'var(--text-muted)' }}>
+                <p style={{ marginBottom: 8 }}>No instruments defined yet.</p>
+                <Link to={`/ensembles/${chart.ensembleId}`}>
+                  <Button variant="secondary">Add instruments to this ensemble</Button>
+                </Link>
+              </div>
+            ) : (
+              <>
+                {layout === 'B' && <LayoutB parts={partViews} chartId={id!} versionId={selectedVersionId!} />}
+                {layout === 'C' && <LayoutC parts={partViews} chartId={id!} versionId={selectedVersionId!} />}
+                {layout === 'D' && <LayoutD parts={partViews} chartId={id!} versionId={selectedVersionId!} />}
+              </>
+            )
           ) : null}
         </>
       )}
@@ -271,146 +558,5 @@ export function ChartPage() {
         </Modal>
       )}
     </Layout>
-  );
-}
-
-// ── Instrument Card Component ────────────────────────────────────────────────
-
-function InstrumentCard({
-  instrument, chartId, versionId,
-}: {
-  instrument: InstrumentRow;
-  chartId: string;
-  versionId: string;
-}) {
-  const { instrumentName, assignedUsers, currentParts, previousVersionParts } = instrument;
-  const hasCurrent = currentParts.length > 0;
-  const hasPrevious = previousVersionParts.length > 0;
-
-  return (
-    <div style={{
-      padding: '16px 20px',
-      background: 'var(--surface)',
-      border: '1px solid var(--border)',
-      borderRadius: 'var(--radius)',
-    }}>
-      {/* Header: instrument name + assigned users */}
-      <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: hasCurrent || hasPrevious ? 12 : 0 }}>
-        <div style={{
-          width: 36, height: 36, borderRadius: 10, flexShrink: 0,
-          background: 'var(--accent-subtle)',
-          border: '1px solid var(--accent-glow)',
-          display: 'flex', alignItems: 'center', justifyContent: 'center',
-          color: 'var(--accent)',
-        }}>
-          <InstrumentIcon name={instrumentName} size={20} />
-        </div>
-        <div style={{ flex: 1 }}>
-          <span style={{ fontSize: 15, fontWeight: 600 }}>{instrumentName}</span>
-          <span style={{ color: 'var(--text-muted)', fontSize: 12, marginLeft: 10 }}>
-            {assignedUsers.length === 0
-              ? '(unassigned)'
-              : assignedUsers.map(u => u.name || 'Unknown').join(', ')}
-          </span>
-        </div>
-      </div>
-
-      {/* State A: Has content in current version */}
-      {hasCurrent && (
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 8, marginLeft: 48 }}>
-          {currentParts.map(part => (
-            <PartRow key={part.partId} part={part} chartId={chartId} versionId={versionId} />
-          ))}
-        </div>
-      )}
-
-      {/* State B: No content in current version, but has content in previous */}
-      {!hasCurrent && hasPrevious && (
-        <div style={{ marginLeft: 48 }}>
-          <p style={{ fontSize: 13, color: 'var(--text-muted)', marginBottom: 8 }}>
-            No content in current version
-          </p>
-          <div style={{ opacity: 0.6 }}>
-            {previousVersionParts.map(pp => (
-              <div key={pp.partId} style={{ fontSize: 12, color: 'var(--text-faint)', marginBottom: 4 }}>
-                {pp.name} <span style={{ fontStyle: 'italic' }}>(from {pp.versionName})</span>
-              </div>
-            ))}
-          </div>
-          <div style={{ display: 'flex', gap: 8, marginTop: 8 }}>
-            <Link to={`/charts/${chartId}/upload`}>
-              <Button size="sm" variant="secondary">Upload new part</Button>
-            </Link>
-          </div>
-        </div>
-      )}
-
-      {/* State C: No content ever uploaded */}
-      {!hasCurrent && !hasPrevious && (
-        <div style={{ marginLeft: 48 }}>
-          <p style={{ fontSize: 13, color: 'var(--text-faint)', fontStyle: 'italic', marginBottom: 8 }}>
-            No content yet
-          </p>
-          <Link to={`/charts/${chartId}/upload`}>
-            <Button size="sm" variant="secondary">Upload part</Button>
-          </Link>
-        </div>
-      )}
-    </div>
-  );
-}
-
-function PartRow({
-  part, chartId, versionId,
-}: {
-  part: InstrumentPart;
-  chartId: string;
-  versionId: string;
-}) {
-  return (
-    <div style={{
-      display: 'flex', alignItems: 'center', gap: 10,
-      padding: '8px 12px',
-      background: 'var(--surface-raised)',
-      border: '1px solid var(--border)',
-      borderRadius: 10,
-    }}>
-      <ContentKindIcon kind={part.kind as any} size={16} />
-      <div style={{ flex: 1 }}>
-        <span style={{ fontSize: 13, fontWeight: 500 }}>{part.name}</span>
-        {part.kind !== 'part' && (
-          <span style={{
-            fontSize: 10, fontWeight: 600, color: 'var(--text-faint)',
-            background: 'var(--surface)', padding: '1px 6px',
-            borderRadius: 6, marginLeft: 6,
-          }}>
-            {KIND_LABELS[part.kind as keyof typeof KIND_LABELS] || part.kind}
-          </span>
-        )}
-        <span style={{ color: 'var(--text-muted)', fontSize: 12, marginLeft: 8 }}>
-          {part.annotationCount} annotation{part.annotationCount !== 1 ? 's' : ''}
-        </span>
-        {part.diffStatus && (
-          <span style={{
-            fontSize: 11, marginLeft: 6, padding: '1px 8px', borderRadius: 8,
-            background: part.diffStatus.changedMeasureCount > 0 ? 'var(--warning-subtle, #fef3cd)' : 'var(--success-subtle, #d4edda)',
-            color: part.diffStatus.changedMeasureCount > 0 ? 'var(--warning-text, #856404)' : 'var(--success-text, #155724)',
-            fontWeight: 500,
-          }}>
-            {part.diffStatus.changedMeasureCount > 0
-              ? `${part.diffStatus.changedMeasureCount} measure${part.diffStatus.changedMeasureCount !== 1 ? 's' : ''} changed`
-              : 'no changes'}
-            {part.diffStatus.sourceVersionName && (
-              <span style={{ fontWeight: 400, opacity: 0.8 }}>
-                {' '}vs {part.diffStatus.sourceVersionName}
-              </span>
-            )}
-          </span>
-        )}
-      </div>
-      <Link to={`/charts/${chartId}/versions/${versionId}`}>
-        <Button size="sm" variant="secondary">Open</Button>
-      </Link>
-    </div>
   );
 }
