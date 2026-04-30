@@ -1,0 +1,1927 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width,initial-scale=1" />
+<title>Scorva — Events Wireframes</title>
+<style>
+:root {
+  --paper:#f5f2ec; --paper-2:#ebe7df;
+  --card:#ffffff; --card-2:#fbfaf6;
+  --highlight:#fff3da; --highlight-2:#ffe9be;
+  --ink:#0e1a2b; --ink-2:#324155; --ink-3:#6a778a; --ink-4:#9aa4b3;
+  --line:#d8d2c5; --line-2:#e7e2d6;
+  --accent:#c8531c; --accent-2:#e0763f; --accent-soft:#fbe7d7;
+  --add:#2f8d57; --add-bg:#e6f3eb;
+  --mod:#b58200; --mod-bg:#faedc4;
+  --ok:#2f8d57; --ok-soft:#d9ecdf;
+  --serif:"Fraunces","Iowan Old Style",Georgia,serif;
+  --sans:"Inter",system-ui,sans-serif;
+  --mono:"JetBrains Mono","Geist Mono",ui-monospace,monospace;
+  --r-sm:6px; --r-md:10px; --r-lg:14px;
+  --shadow-sm:0 1px 2px rgba(14,26,43,0.04);
+  --shadow-md:0 4px 14px rgba(14,26,43,0.06),0 1px 2px rgba(14,26,43,0.05);
+  --shadow-lg:0 18px 48px rgba(14,26,43,0.12),0 2px 6px rgba(14,26,43,0.06);
+}
+* { box-sizing: border-box; }
+html, body { margin: 0; padding: 0; background: var(--paper-2); font-family: var(--sans); color: var(--ink); -webkit-font-smoothing: antialiased; }
+.mono { font-family: var(--mono); }
+.serif { font-family: var(--serif); letter-spacing: -0.015em; }
+
+.wf-shell { max-width: 1280px; margin: 0 auto; padding: 32px 40px 80px; }
+.wf-header { display: flex; align-items: baseline; justify-content: space-between; padding-bottom: 18px; margin-bottom: 24px; border-bottom: 1px solid var(--line); }
+.wf-header h1 { font-family: var(--serif); font-weight: 500; font-size: 26px; margin: 0; }
+.wf-header .meta { font-family: var(--mono); font-size: 11px; color: var(--ink-3); text-transform: uppercase; letter-spacing: 0.1em; }
+.wf-intro { background: var(--card); border: 1px solid var(--line); border-radius: var(--r-md); padding: 16px 20px; margin-bottom: 26px; font-size: 13.5px; line-height: 1.55; color: var(--ink-2); max-width: 880px; }
+.wf-intro b { color: var(--ink); }
+.wf-nav { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 30px; padding: 10px; background: var(--card); border: 1px solid var(--line); border-radius: var(--r-md); }
+.wf-nav button { font-family: var(--mono); font-size: 11px; padding: 6px 11px; border-radius: var(--r-sm); border: 1px solid var(--line); background: var(--card-2); color: var(--ink-2); cursor: pointer; letter-spacing: 0.04em; }
+.wf-nav button:hover { background: var(--paper); }
+.wf-nav button.active { background: var(--ink); color: var(--paper); border-color: var(--ink); }
+.wf-screen { display: none; margin-bottom: 50px; }
+.wf-screen.active { display: block; }
+.wf-screen h2 { font-family: var(--serif); font-weight: 500; font-size: 19px; margin: 0 0 6px; }
+.wf-screen .caption { font-size: 13px; color: var(--ink-3); margin: 0 0 18px; max-width: 760px; line-height: 1.5; }
+.wf-frame-wrap { display: flex; gap: 24px; align-items: flex-start; }
+.wf-frame { background: var(--paper); border: 1px solid var(--line); border-radius: var(--r-md); overflow: hidden; box-shadow: var(--shadow-md); flex: 1; min-width: 0; }
+.wf-frame-label { display: flex; align-items: center; justify-content: space-between; padding: 8px 14px; font-family: var(--mono); font-size: 10.5px; text-transform: uppercase; letter-spacing: 0.08em; color: var(--ink-3); background: var(--card-2); border-bottom: 1px solid var(--line-2); }
+.wf-frame-label .form-factor { padding: 2px 7px; border-radius: 999px; background: var(--paper-2); border: 1px solid var(--line); color: var(--ink-2); }
+.wf-notes { width: 280px; flex-shrink: 0; font-size: 12.5px; color: var(--ink-2); line-height: 1.55; }
+.wf-notes h4 { font-family: var(--mono); font-size: 10.5px; text-transform: uppercase; letter-spacing: 0.1em; color: var(--ink-3); margin: 0 0 10px; }
+.wf-notes ul { list-style: none; padding: 0; margin: 0; }
+.wf-notes li { padding: 8px 0; border-bottom: 1px dashed var(--line-2); display: flex; gap: 8px; }
+.wf-notes li:last-child { border-bottom: none; }
+.wf-notes li::before { content: "·"; color: var(--accent); font-weight: 700; flex-shrink: 0; }
+.wf-notes .defer { display: inline-block; font-family: var(--mono); font-size: 9.5px; background: var(--mod-bg); color: var(--mod); padding: 1px 5px; border-radius: 3px; margin-right: 4px; text-transform: uppercase; letter-spacing: 0.06em; }
+.wf-notes .assume { display: inline-block; font-family: var(--mono); font-size: 9.5px; background: var(--ok-soft); color: var(--ok); padding: 1px 5px; border-radius: 3px; margin-right: 4px; text-transform: uppercase; letter-spacing: 0.06em; }
+.wf-notes .data { display: inline-block; font-family: var(--mono); font-size: 9.5px; background: var(--accent-soft); color: var(--accent); padding: 1px 5px; border-radius: 3px; margin-right: 4px; text-transform: uppercase; letter-spacing: 0.06em; }
+
+.frame-ipad-l { aspect-ratio: 1024/720; width: 100%; background: var(--paper); display: flex; flex-direction: column; }
+
+.app-shell { display: grid; grid-template-columns: 200px 1fr; height: 100%; width: 100%; background: var(--paper); }
+.sidebar { border-right: 1px solid var(--line); padding: 14px 10px; font-size: 12px; display: flex; flex-direction: column; gap: 1px; overflow: hidden; }
+.sidebar .brand { display: flex; align-items: center; gap: 7px; padding: 2px 4px 12px; border-bottom: 1px solid var(--line-2); margin-bottom: 10px; }
+.sidebar .brand .mark { width: 20px; height: 20px; border-radius: 5px; background: var(--ink); color: var(--paper); display: flex; align-items: center; justify-content: center; font-family: var(--serif); font-weight: 600; font-size: 13px; font-style: italic; }
+.sidebar .brand .name { font-family: var(--serif); font-weight: 500; font-size: 15px; letter-spacing: -0.02em; }
+.sidebar .group { font-family: var(--mono); font-size: 9px; text-transform: uppercase; letter-spacing: 0.1em; color: var(--ink-4); padding: 12px 4px 5px; }
+.sidebar .item { padding: 5px 7px; border-radius: var(--r-sm); color: var(--ink-2); cursor: pointer; display: flex; align-items: center; gap: 7px; }
+.sidebar .item:hover { background: var(--paper-2); }
+.sidebar .item.active { background: var(--ink); color: var(--paper); }
+.sidebar .item.sub { padding-left: 16px; font-size: 11.5px; color: var(--ink-3); }
+.sidebar .item.sub.active { color: var(--paper); }
+.sidebar .dot { width: 6px; height: 6px; border-radius: 999px; background: var(--ink-4); flex-shrink: 0; }
+.sidebar .dot.live { background: var(--accent); }
+.sidebar .badge { margin-left: auto; font-family: var(--mono); font-size: 9.5px; padding: 1px 5px; border-radius: 3px; background: var(--accent-soft); color: var(--accent); }
+.sidebar .item.active .badge { background: rgba(255,255,255,0.18); color: var(--paper); }
+
+.topbar { display: flex; align-items: center; gap: 10px; padding: 9px 18px; border-bottom: 1px solid var(--line-2); background: var(--paper); font-size: 12.5px; flex-shrink: 0; }
+.crumbs { display: flex; align-items: center; gap: 5px; color: var(--ink-3); }
+.crumbs .sep { color: var(--ink-4); }
+.crumbs .cur { color: var(--ink); font-weight: 500; }
+.topbar .grow { flex: 1; }
+.topbar .right { display: flex; align-items: center; gap: 12px; color: var(--ink-3); font-family: var(--mono); font-size: 11px; }
+.topbar .sync { display: inline-flex; align-items: center; gap: 5px; }
+.topbar .sync .dot { width: 6px; height: 6px; border-radius: 999px; background: var(--ok); }
+
+.btn { display: inline-flex; align-items: center; gap: 5px; padding: 6px 11px; border-radius: var(--r-sm); font-size: 12px; font-weight: 500; background: var(--ink); color: var(--paper); border: 1px solid var(--ink); cursor: pointer; font-family: inherit; }
+.btn.primary { background: var(--accent); border-color: var(--accent); color: white; }
+.btn.ghost { background: transparent; color: var(--ink); border-color: var(--line); }
+.btn.ghost:hover { background: var(--paper-2); }
+.btn.tiny { padding: 3px 8px; font-size: 11px; }
+
+.list-shell { flex: 1; overflow: auto; padding: 24px 32px 60px; }
+.list-inner { max-width: 880px; margin: 0 auto; }
+.list-h { display: flex; align-items: flex-end; justify-content: space-between; margin-bottom: 20px; }
+.list-h h1 { font-family: var(--serif); font-weight: 500; font-size: 24px; margin: 0; letter-spacing: -0.02em; }
+.list-h .eyebrow { font-family: var(--mono); font-size: 10px; letter-spacing: 0.12em; text-transform: uppercase; color: var(--ink-4); margin-bottom: 4px; }
+.list-h .meta { font-family: var(--mono); font-size: 11px; color: var(--ink-3); }
+
+.section-head {
+  display: flex; align-items: baseline; justify-content: space-between;
+  margin: 28px 0 12px;
+}
+.section-head h3 {
+  font-family: var(--serif); font-weight: 500; font-size: 17px;
+  margin: 0; letter-spacing: -0.015em;
+}
+.section-head .meta { font-family: var(--mono); font-size: 10.5px; color: var(--ink-4); text-transform: uppercase; letter-spacing: 0.08em; }
+
+/* ===============================================================
+   Event card grid
+   =============================================================== */
+.events-grid {
+  display: grid; grid-template-columns: 1fr 1fr; gap: 12px;
+  margin-bottom: 24px;
+}
+.event-card {
+  background: var(--card); border: 1px solid var(--line);
+  border-radius: var(--r-md);
+  padding: 14px 16px;
+  cursor: pointer;
+  position: relative;
+}
+.event-card:hover { background: var(--card-2); border-color: var(--ink-3); }
+.event-card.imminent { border-color: var(--accent); background: var(--accent-soft); }
+.event-card.imminent::before {
+  content: ""; position: absolute; left: -1px; top: 14px; bottom: 14px;
+  width: 3px; background: var(--accent); border-radius: 2px;
+}
+.event-card .ev-date {
+  display: flex; align-items: baseline; gap: 8px;
+  font-family: var(--mono); font-size: 10.5px;
+  color: var(--ink-3); letter-spacing: 0.06em;
+  text-transform: uppercase;
+  margin-bottom: 4px;
+}
+.event-card.imminent .ev-date { color: var(--accent); font-weight: 600; }
+.event-card .ev-name {
+  font-family: var(--serif); font-weight: 500; font-size: 17px;
+  letter-spacing: -0.01em;
+}
+.event-card .ev-meta {
+  font-size: 11.5px; color: var(--ink-3); margin-top: 6px;
+  display: flex; gap: 12px;
+}
+.event-card .ev-meta span::before {
+  content: ""; display: inline-block; width: 4px; height: 4px;
+  background: var(--ink-4); border-radius: 999px;
+  margin-right: 5px; vertical-align: middle;
+}
+.event-card .ev-meta span:first-child::before { display: none; }
+.event-card.add-card {
+  background: transparent; border-style: dashed;
+  display: flex; align-items: center; justify-content: center;
+  color: var(--ink-3); font-size: 13px; font-weight: 500;
+  min-height: 90px;
+}
+.event-card.add-card:hover { background: var(--card-2); color: var(--ink); }
+.event-card.add-card .plus {
+  font-size: 16px; margin-right: 6px; color: var(--accent);
+}
+
+/* Chart row reused */
+.chart-row {
+  display: grid; grid-template-columns: 1fr 130px 110px 110px;
+  gap: 14px; align-items: center;
+  padding: 12px 16px;
+  background: var(--card); border: 1px solid var(--line);
+  border-bottom: none; cursor: pointer;
+}
+.chart-row:first-of-type { border-radius: var(--r-md) var(--r-md) 0 0; }
+.chart-row:last-of-type { border-radius: 0 0 var(--r-md) var(--r-md); border-bottom: 1px solid var(--line); }
+.chart-row:hover { background: var(--card-2); }
+.chart-row .name { font-family: var(--serif); font-weight: 500; font-size: 16px; letter-spacing: -0.01em; }
+.chart-row .sub { font-size: 11.5px; color: var(--ink-3); margin-top: 2px; }
+.chart-row .grip {
+  font-family: var(--mono); color: var(--ink-4); cursor: grab;
+  margin-right: 6px;
+}
+.chart-row.dragging { opacity: 0.6; background: var(--card-2); border-color: var(--accent); }
+.chart-row.in-event-badge {
+  display: inline-flex; align-items: center;
+  font-family: var(--mono); font-size: 10px;
+  padding: 1px 6px; border-radius: 999px;
+  background: var(--accent-soft); color: var(--accent);
+  font-weight: 600;
+}
+
+.ver-pill {
+  display: inline-flex; align-items: center; gap: 5px;
+  font-family: var(--mono); font-size: 10.5px;
+  padding: 2px 7px; border-radius: 999px;
+  border: 1px solid var(--line); background: var(--card);
+  color: var(--ink-2);
+}
+.dot-changed { width: 6px; height: 6px; border-radius: 999px; background: var(--accent); }
+.ver-pill.changed { background: var(--accent-soft); border-color: var(--accent); color: var(--accent); font-weight: 600; }
+
+/* ===============================================================
+   Drag layout — split with charts on left, drop zone on right
+   =============================================================== */
+.drag-shell {
+  display: grid; grid-template-columns: 1fr 1fr;
+  gap: 0; height: 100%; flex: 1;
+}
+.drag-pane {
+  padding: 22px 26px; overflow: auto;
+  background: var(--paper);
+}
+.drag-pane.right {
+  background: var(--card-2);
+  border-left: 1px solid var(--line);
+}
+.drag-pane h4 {
+  font-family: var(--mono); font-size: 10px;
+  letter-spacing: 0.1em; text-transform: uppercase;
+  color: var(--ink-4); margin: 0 0 12px;
+}
+.drag-pane .panel-h {
+  font-family: var(--serif); font-weight: 500; font-size: 17px;
+  margin: 0 0 6px; letter-spacing: -0.015em;
+}
+.drag-pane .panel-sub {
+  font-size: 11.5px; color: var(--ink-3); margin-bottom: 16px;
+}
+
+.drop-zone {
+  border: 1.5px dashed var(--line);
+  border-radius: var(--r-md);
+  background: var(--card);
+  padding: 24px 16px;
+  min-height: 200px;
+  display: flex; flex-direction: column; gap: 6px;
+}
+.drop-zone.active {
+  border-color: var(--accent); border-style: solid;
+  background: var(--accent-soft);
+}
+.drop-zone .empty {
+  color: var(--ink-3); font-size: 12.5px;
+  text-align: center; padding: 36px 12px;
+  font-style: italic;
+}
+
+.setlist-row {
+  display: grid; grid-template-columns: 28px 1fr 80px 24px;
+  gap: 10px; align-items: center;
+  padding: 10px 12px;
+  background: var(--paper);
+  border: 1px solid var(--line);
+  border-radius: var(--r-sm);
+}
+.setlist-row .num {
+  font-family: var(--mono); font-size: 11px;
+  color: var(--ink-4); text-align: center;
+  width: 22px; height: 22px;
+  border-radius: 999px; background: var(--card-2);
+  display: flex; align-items: center; justify-content: center;
+  font-weight: 600;
+}
+.setlist-row .name {
+  font-family: var(--serif); font-weight: 500; font-size: 14.5px;
+}
+.setlist-row .sub {
+  font-size: 11px; color: var(--ink-3); margin-top: 1px;
+}
+.setlist-row .meta { font-family: var(--mono); font-size: 10.5px; color: var(--ink-3); }
+.setlist-row .x { color: var(--ink-4); cursor: pointer; font-size: 14px; text-align: center; }
+.setlist-row .grip { color: var(--ink-4); cursor: grab; font-family: var(--mono); }
+.setlist-row.ghost {
+  border: 1.5px dashed var(--accent);
+  background: var(--accent-soft);
+  opacity: 0.85;
+}
+
+/* ===============================================================
+   Modal for create event
+   =============================================================== */
+.modal-back {
+  position: absolute; inset: 0;
+  background: rgba(14,26,43,0.32);
+  display: flex; align-items: center; justify-content: center;
+}
+.modal {
+  width: 480px;
+  background: var(--card); border: 1px solid var(--line);
+  border-radius: var(--r-lg);
+  box-shadow: var(--shadow-lg);
+  padding: 24px 26px;
+}
+.modal h3 { font-family: var(--serif); font-weight: 500; font-size: 19px; margin: 0 0 16px; }
+.modal label {
+  display: block; font-family: var(--mono); font-size: 10px;
+  text-transform: uppercase; letter-spacing: 0.08em;
+  color: var(--ink-3); margin-bottom: 4px;
+}
+.modal input, .modal select {
+  width: 100%; padding: 8px 11px;
+  background: var(--paper);
+  border: 1px solid var(--line);
+  border-radius: var(--r-sm);
+  font-family: inherit; font-size: 13px; color: var(--ink);
+  margin-bottom: 12px;
+}
+.modal-row { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+.modal-foot {
+  display: flex; justify-content: flex-end; gap: 8px;
+  padding-top: 8px; margin-top: 4px;
+  border-top: 1px solid var(--line-2);
+}
+
+/* ===============================================================
+   Event detail page
+   =============================================================== */
+.event-head {
+  background: var(--card); border: 1px solid var(--line);
+  border-radius: var(--r-md);
+  padding: 20px 22px;
+  margin-bottom: 18px;
+}
+.event-head .ev-meta-row {
+  display: flex; gap: 16px; align-items: baseline;
+  font-family: var(--mono); font-size: 10.5px;
+  color: var(--ink-3); text-transform: uppercase; letter-spacing: 0.06em;
+  margin-bottom: 6px;
+}
+.event-head .ev-meta-row .pill {
+  padding: 2px 8px; border-radius: 999px;
+  background: var(--accent-soft); color: var(--accent);
+  border: 1px solid var(--accent);
+  font-size: 10px; font-weight: 600;
+}
+.event-head h1 { font-family: var(--serif); font-weight: 500; font-size: 26px; margin: 0 0 4px; letter-spacing: -0.02em; }
+.event-head .ev-foot { display: flex; gap: 14px; font-size: 12.5px; color: var(--ink-3); margin-top: 6px; }
+.event-head .ev-actions { float: right; display: flex; gap: 6px; margin-top: 4px; }
+
+/* ===============================================================
+   My Parts pivot tabs
+   =============================================================== */
+.pivot-tabs {
+  display: inline-flex; gap: 0;
+  background: var(--card); border: 1px solid var(--line);
+  border-radius: var(--r-sm);
+  padding: 2px;
+  font-family: var(--sans); font-size: 12px;
+}
+.pivot-tabs button {
+  padding: 5px 11px; background: transparent; border: none;
+  color: var(--ink-3); cursor: pointer; font-family: inherit; font-size: 12px;
+  border-radius: var(--r-sm);
+}
+.pivot-tabs button.active { background: var(--ink); color: var(--paper); font-weight: 500; }
+
+/* My Parts grouped by event */
+.event-group {
+  background: var(--card); border: 1px solid var(--line);
+  border-radius: var(--r-md);
+  margin-bottom: 14px;
+  overflow: hidden;
+}
+.event-group .ev-h {
+  padding: 12px 16px;
+  background: var(--card-2);
+  border-bottom: 1px solid var(--line-2);
+  display: flex; justify-content: space-between; align-items: baseline;
+}
+.event-group .ev-h.imminent { background: var(--accent-soft); border-color: var(--accent); }
+.event-group .ev-h .ev-h-l .eyebrow {
+  font-family: var(--mono); font-size: 10px; letter-spacing: 0.1em;
+  text-transform: uppercase; color: var(--ink-4); margin-bottom: 2px;
+}
+.event-group .ev-h.imminent .ev-h-l .eyebrow { color: var(--accent); font-weight: 600; }
+.event-group .ev-h .ev-h-l .name { font-family: var(--serif); font-weight: 500; font-size: 16px; letter-spacing: -0.01em; }
+.event-group .ev-h .ev-h-r { font-family: var(--mono); font-size: 11px; color: var(--ink-3); }
+.event-group .row {
+  display: grid; grid-template-columns: 28px 1fr 110px 110px;
+  gap: 14px; align-items: center;
+  padding: 11px 16px;
+  border-bottom: 1px solid var(--line-2);
+  cursor: pointer;
+}
+.event-group .row:last-child { border-bottom: none; }
+.event-group .row:hover { background: var(--card-2); }
+.event-group .row .num {
+  font-family: var(--mono); font-size: 10px; color: var(--ink-4);
+  text-align: center; width: 24px; height: 24px;
+  border-radius: 999px; background: var(--paper);
+  display: flex; align-items: center; justify-content: center; font-weight: 600;
+}
+.event-group .row .name { font-family: var(--serif); font-weight: 500; font-size: 14.5px; }
+.event-group .row .name .sub { display: block; font-size: 11.5px; color: var(--ink-3); font-weight: 400; margin-top: 1px; font-family: var(--sans); }
+.event-group .row.has-update { background: linear-gradient(90deg, var(--accent-soft) 0%, var(--card) 30%); }
+
+/* ===============================================================
+   Chart cards — match Claude Design image 2
+   =============================================================== */
+.cards-grid {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 14px;
+  margin-bottom: 28px;
+}
+.chart-card {
+  background: var(--card);
+  border: 1px solid var(--line);
+  border-radius: var(--r-lg);
+  padding: 0;
+  cursor: pointer;
+  position: relative;
+  display: flex; flex-direction: column;
+  transition: transform 0.1s, box-shadow 0.12s;
+  overflow: hidden;
+}
+.chart-card:hover { transform: translateY(-1px); box-shadow: var(--shadow-md); border-color: var(--ink-3); }
+.chart-card.changed { border-color: var(--accent); }
+
+.chart-card .cc-thumb {
+  height: 90px;
+  background: var(--paper);
+  border-bottom: 1px solid var(--line-2);
+  padding: 14px 16px;
+  display: flex; flex-direction: column; gap: 4px;
+  position: relative;
+}
+.chart-card .cc-thumb .ln {
+  height: 1.4px; background: var(--ink); opacity: 0.55;
+}
+.chart-card .cc-thumb .gp { height: 6px; }
+.chart-card .cc-badge {
+  position: absolute; top: 10px; right: 10px;
+  font-family: var(--mono); font-size: 9.5px; font-weight: 600;
+  letter-spacing: 0.06em; text-transform: uppercase;
+  padding: 3px 7px; border-radius: var(--r-sm);
+  background: var(--accent); color: white;
+}
+.chart-card .cc-badge.draft { background: var(--ink); color: var(--paper); }
+.chart-card .cc-badge.archived { background: var(--ink-3); color: var(--paper); }
+
+.chart-card .cc-body {
+  padding: 12px 14px 10px;
+  display: flex; flex-direction: column; gap: 4px;
+}
+.chart-card .cc-title-row {
+  display: flex; align-items: baseline; justify-content: space-between;
+}
+.chart-card .cc-title {
+  font-family: var(--serif); font-weight: 500; font-size: 17px;
+  letter-spacing: -0.015em;
+}
+.chart-card .cc-ver {
+  font-family: var(--mono); font-size: 10.5px;
+  color: var(--ink-3); padding: 1px 6px;
+  border-radius: 999px; background: var(--paper-2);
+  border: 1px solid var(--line);
+}
+.chart-card .cc-meta {
+  font-size: 11.5px; color: var(--ink-3);
+}
+
+.chart-card .cc-spark {
+  display: flex; gap: 3px; align-items: flex-end;
+  height: 14px; margin-top: 4px;
+}
+.chart-card .cc-spark .b {
+  width: 5px; background: var(--paper-2); border-radius: 1px;
+}
+.chart-card .cc-spark .b.cur { background: var(--accent); }
+.chart-card .cc-spark .b.med { background: var(--ink-4); }
+
+.chart-card .cc-foot {
+  border-top: 1px solid var(--line-2);
+  padding: 8px 14px;
+  font-family: var(--mono); font-size: 10.5px;
+  color: var(--ink-3);
+  display: flex; justify-content: space-between;
+}
+.chart-card .cc-foot .alert { color: var(--accent); font-weight: 600; }
+.chart-card .cc-foot .ok { color: var(--ink-3); }
+
+.chart-card.dropcard {
+  border-style: dashed; background: transparent;
+  align-items: center; justify-content: center;
+  padding: 28px 18px; min-height: 200px;
+  text-align: center; color: var(--ink-3);
+}
+.chart-card.dropcard:hover {
+  border-color: var(--accent); background: var(--accent-soft); color: var(--accent);
+}
+.chart-card.dropcard .plus-circle {
+  width: 32px; height: 32px; border-radius: 999px;
+  background: var(--card); border: 1px solid var(--line);
+  display: flex; align-items: center; justify-content: center;
+  margin-bottom: 8px;
+}
+.chart-card.dropcard .lg {
+  font-family: var(--serif); font-weight: 500; font-size: 16px;
+  color: var(--ink); margin-bottom: 4px;
+}
+.chart-card.dropcard .sm {
+  font-family: var(--mono); font-size: 10.5px;
+}
+
+/* Filter / tab pills above charts */
+.chart-tabs {
+  display: inline-flex; align-items: center; gap: 0;
+  margin-left: 14px;
+}
+.chart-tabs .tab {
+  padding: 4px 10px;
+  font-size: 12px; color: var(--ink-3);
+  cursor: pointer; border-radius: var(--r-sm);
+  display: inline-flex; align-items: baseline; gap: 4px;
+}
+.chart-tabs .tab.active { background: var(--card); color: var(--ink); border: 1px solid var(--line); }
+.chart-tabs .tab .n {
+  font-family: var(--mono); font-size: 10.5px; color: var(--ink-4);
+}
+.chart-tabs .tab.active .n { color: var(--ink-3); }
+
+/* ===============================================================
+   Stat cards in header (3 numbers like image 2)
+   =============================================================== */
+.stat-row {
+  display: flex; gap: 28px; margin-left: auto;
+}
+.stat-block .n {
+  font-family: var(--serif); font-weight: 500; font-size: 32px;
+  letter-spacing: -0.02em; color: var(--ink); line-height: 1;
+}
+.stat-block .l {
+  font-family: var(--mono); font-size: 9.5px; color: var(--ink-4);
+  letter-spacing: 0.08em; text-transform: uppercase;
+  margin-top: 4px;
+}
+
+/* ===============================================================
+   Roster & instruments table (lower section, image 2 style)
+   =============================================================== */
+.roster-section h3 {
+  font-family: var(--serif); font-weight: 500; font-size: 18px;
+  margin: 0; letter-spacing: -0.015em;
+}
+.roster-table {
+  background: var(--card);
+  border: 1px solid var(--line);
+  border-radius: var(--r-lg);
+  overflow: hidden;
+}
+.roster-row {
+  display: grid; grid-template-columns: 36px 1fr 1fr auto;
+  gap: 14px; align-items: center;
+  padding: 12px 16px;
+  border-bottom: 1px solid var(--line-2);
+}
+.roster-row:last-child { border-bottom: none; }
+.roster-row.score-row {
+  background: linear-gradient(135deg, var(--card) 0%, var(--accent-soft) 240%);
+}
+.roster-row .inst-icon {
+  width: 32px; height: 32px; border-radius: var(--r-sm);
+  background: var(--paper-2); border: 1px solid var(--line);
+  display: flex; align-items: center; justify-content: center;
+  font-family: var(--serif); font-size: 16px; color: var(--ink-3);
+}
+.roster-row.score-row .inst-icon {
+  background: var(--ink); color: var(--paper); border-color: var(--ink);
+}
+.roster-row .inst {
+  font-family: var(--serif); font-weight: 500; font-size: 15px;
+  letter-spacing: -0.01em;
+}
+.roster-row .inst-pill {
+  display: inline-block;
+  margin-left: 8px;
+  font-family: var(--mono); font-size: 9.5px; font-weight: 600;
+  padding: 2px 6px; border-radius: var(--r-sm);
+  background: var(--accent-soft); color: var(--accent);
+  letter-spacing: 0.06em; text-transform: uppercase;
+  vertical-align: middle;
+}
+.roster-row .person {
+  display: flex; align-items: center; gap: 10px;
+  font-size: 13px;
+}
+.roster-row .person .av {
+  width: 26px; height: 26px; border-radius: 999px;
+  background: linear-gradient(135deg, var(--accent), #d97a4a);
+  color: white; font-weight: 600; font-size: 11px;
+  display: flex; align-items: center; justify-content: center;
+}
+.roster-row .person .av.alt-1 { background: linear-gradient(135deg, #4a6b8c, #2c4763); }
+.roster-row .person .av.alt-2 { background: linear-gradient(135deg, #6b8c4a, #4a6b2c); }
+.roster-row .person .av.alt-3 { background: linear-gradient(135deg, #8c4a6b, #632c4a); }
+.roster-row .person .av.alt-4 { background: linear-gradient(135deg, #8c7a4a, #634d2c); }
+.roster-row .person .av.score-av {
+  background: var(--ink); color: var(--paper); font-family: var(--mono); font-size: 10px;
+}
+.roster-row .person .meta {
+  font-family: var(--mono); font-size: 10.5px; color: var(--ink-3);
+  margin-top: 2px;
+}
+.roster-row .actions { display: flex; gap: 6px; }
+.roster-row .btn-tiny {
+  padding: 4px 10px; font-size: 11px; font-family: inherit;
+  border: 1px solid var(--line); background: var(--card);
+  color: var(--ink-2); border-radius: var(--r-sm); cursor: pointer;
+}
+.roster-row .btn-tiny:hover { background: var(--paper-2); border-color: var(--ink-3); }
+
+.roster-head {
+  display: flex; align-items: center; justify-content: space-between;
+  margin: 32px 0 14px;
+}
+.roster-head .actions { display: flex; gap: 6px; }
+
+/* ===============================================================
+   Slide-in side panel (Members + Events) — opens on demand
+   =============================================================== */
+.panel-trigger {
+  display: inline-flex; align-items: center; gap: 6px;
+  padding: 5px 11px; border-radius: var(--r-sm);
+  background: transparent; border: 1px solid var(--line);
+  color: var(--ink-2); cursor: pointer;
+  font-family: inherit; font-size: 12px;
+}
+.panel-trigger:hover { background: var(--paper-2); border-color: var(--ink-3); }
+.panel-trigger .icon {
+  width: 14px; height: 14px; display: inline-flex;
+  align-items: center; justify-content: center;
+  font-family: var(--mono);
+}
+.panel-trigger .badge-dot {
+  width: 6px; height: 6px; border-radius: 999px;
+  background: var(--accent);
+}
+
+.slide-panel-back {
+  position: absolute; inset: 0;
+  background: rgba(14,26,43,0.18);
+  display: flex; justify-content: flex-end;
+}
+.slide-panel {
+  width: 360px; max-width: 80%;
+  background: var(--paper);
+  border-left: 1px solid var(--line);
+  display: flex; flex-direction: column;
+  box-shadow: var(--shadow-lg);
+  overflow: hidden;
+}
+.slide-panel-h {
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 14px 18px;
+  border-bottom: 1px solid var(--line-2);
+  background: var(--card-2);
+  flex-shrink: 0;
+}
+.slide-panel-h .title {
+  font-family: var(--serif); font-weight: 500; font-size: 17px;
+  letter-spacing: -0.01em;
+}
+.slide-panel-h .close {
+  width: 24px; height: 24px;
+  display: flex; align-items: center; justify-content: center;
+  border-radius: var(--r-sm); cursor: pointer;
+  color: var(--ink-3); font-size: 16px;
+}
+.slide-panel-h .close:hover { background: var(--paper-2); color: var(--ink); }
+
+.slide-panel-body {
+  flex: 1; overflow: auto;
+}
+
+/* ===============================================================
+   Right-side panel with collapsible Members + Events sections
+   (re-used inside slide-panel-body)
+   =============================================================== */
+.right-panel {
+  width: 320px; flex-shrink: 0;
+  border-left: 1px solid var(--line);
+  background: var(--card-2);
+  display: flex; flex-direction: column;
+  overflow: auto;
+}
+.panel-section {
+  border-bottom: 1px solid var(--line-2);
+}
+.panel-section:last-child { border-bottom: none; }
+.panel-h {
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 14px 18px;
+  cursor: pointer;
+  user-select: none;
+}
+.panel-h:hover { background: var(--paper-2); }
+.panel-h .left {
+  display: flex; align-items: center; gap: 8px;
+}
+.panel-h .caret {
+  font-family: var(--mono); font-size: 11px;
+  color: var(--ink-3); width: 12px; display: inline-block;
+  transition: transform 0.15s;
+}
+.panel-h.collapsed .caret { transform: rotate(-90deg); }
+.panel-h .title {
+  font-family: var(--serif); font-weight: 500; font-size: 15px;
+  letter-spacing: -0.01em;
+}
+.panel-h .count {
+  font-family: var(--mono); font-size: 10.5px;
+  color: var(--ink-3); padding: 1px 7px;
+  border-radius: 999px; background: var(--paper);
+  border: 1px solid var(--line);
+}
+.panel-h .add {
+  font-family: var(--mono); font-size: 11px;
+  color: var(--accent); cursor: pointer;
+  padding: 2px 6px;
+}
+.panel-h .add:hover { background: var(--accent-soft); border-radius: var(--r-sm); }
+.panel-body {
+  padding: 4px 12px 14px;
+}
+.panel-section.collapsed .panel-body { display: none; }
+
+/* Member rows */
+.member-row {
+  display: grid; grid-template-columns: 28px 1fr auto;
+  gap: 10px; align-items: center;
+  padding: 7px 6px;
+  border-radius: var(--r-sm);
+  cursor: pointer;
+}
+.member-row:hover { background: var(--paper-2); }
+.member-row .avatar {
+  width: 26px; height: 26px; border-radius: 999px;
+  background: linear-gradient(135deg, var(--accent), #d97a4a);
+  color: white; font-weight: 600; font-size: 11px;
+  display: flex; align-items: center; justify-content: center;
+  font-family: var(--sans);
+}
+.member-row .avatar.alt-1 { background: linear-gradient(135deg, #4a6b8c, #2c4763); }
+.member-row .avatar.alt-2 { background: linear-gradient(135deg, #6b8c4a, #4a6b2c); }
+.member-row .avatar.alt-3 { background: linear-gradient(135deg, #8c4a6b, #632c4a); }
+.member-row .avatar.alt-4 { background: linear-gradient(135deg, #8c7a4a, #634d2c); }
+.member-row .who { font-size: 12.5px; font-weight: 500; }
+.member-row .role {
+  font-size: 11px; color: var(--ink-3); margin-top: 1px;
+}
+.member-row .stat {
+  font-family: var(--mono); font-size: 9.5px;
+  color: var(--ink-4);
+  text-transform: uppercase; letter-spacing: 0.06em;
+}
+
+/* Compact event card for the side panel */
+.event-mini {
+  padding: 10px 11px;
+  border: 1px solid var(--line);
+  border-radius: var(--r-sm);
+  margin-bottom: 6px;
+  cursor: pointer;
+  background: var(--paper);
+  position: relative;
+}
+.event-mini:hover { background: var(--card); border-color: var(--ink-3); }
+.event-mini.imminent { border-color: var(--accent); background: var(--accent-soft); }
+.event-mini.imminent::before {
+  content: ""; position: absolute; left: -1px; top: 10px; bottom: 10px;
+  width: 3px; background: var(--accent); border-radius: 2px;
+}
+.event-mini .em-date {
+  font-family: var(--mono); font-size: 9.5px; letter-spacing: 0.06em;
+  text-transform: uppercase; color: var(--ink-3);
+}
+.event-mini.imminent .em-date { color: var(--accent); font-weight: 600; }
+.event-mini .em-name {
+  font-family: var(--serif); font-weight: 500; font-size: 13px;
+  letter-spacing: -0.005em; margin-top: 2px;
+}
+.event-mini .em-meta {
+  font-size: 10.5px; color: var(--ink-3); margin-top: 3px;
+}
+
+/* ===============================================================
+   Instruments section on main page (below charts)
+   =============================================================== */
+.instrument-grid {
+  display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px;
+}
+.instrument-card {
+  padding: 12px 14px;
+  border: 1px solid var(--line);
+  border-radius: var(--r-md);
+  background: var(--card);
+  cursor: pointer;
+}
+.instrument-card:hover { background: var(--card-2); border-color: var(--ink-3); }
+.instrument-card .ic-h {
+  display: flex; align-items: baseline; justify-content: space-between;
+}
+.instrument-card .ic-name {
+  font-family: var(--serif); font-weight: 500; font-size: 14px;
+  letter-spacing: -0.005em;
+}
+.instrument-card .ic-count {
+  font-family: var(--mono); font-size: 10px;
+  color: var(--ink-4); letter-spacing: 0.04em;
+}
+.instrument-card .ic-player {
+  font-size: 11.5px; color: var(--ink-3); margin-top: 4px;
+}
+.instrument-card .ic-empty {
+  font-size: 11px; color: var(--ink-4); font-style: italic; margin-top: 4px;
+}
+.instrument-card.empty {
+  border-style: dashed; background: transparent;
+}
+
+/* Player view event context badge */
+.event-context-bar {
+  display: flex; align-items: center; gap: 12px;
+  padding: 8px 18px;
+  background: var(--accent-soft);
+  border-bottom: 1px solid var(--accent);
+  font-size: 12px;
+}
+.event-context-bar .pill {
+  font-family: var(--mono); font-size: 10px; font-weight: 600;
+  padding: 2px 7px; border-radius: 999px;
+  background: var(--accent); color: white;
+  letter-spacing: 0.04em; text-transform: uppercase;
+}
+.event-context-bar .ev-name { font-family: var(--serif); font-weight: 500; font-size: 14px; color: var(--ink); }
+.event-context-bar .progress { font-family: var(--mono); font-size: 11px; color: var(--ink-2); }
+.event-context-bar .next {
+  margin-left: auto; display: inline-flex; gap: 5px; align-items: center;
+  font-family: var(--sans); font-size: 12px; font-weight: 500;
+  color: var(--ink); padding: 4px 10px;
+  background: white; border: 1px solid var(--line);
+  border-radius: var(--r-sm); cursor: pointer;
+}
+.event-context-bar .next:hover { background: var(--paper-2); }
+</style>
+</head>
+<body>
+<div class="wf-shell">
+
+  <div class="wf-header">
+    <h1 class="serif">Scorva — Events Wireframes</h1>
+    <span class="meta">Wireframe · v0.1 · Apr 30 2026</span>
+  </div>
+
+  <div class="wf-intro">
+    Supplements the player view wireframes with the <b>events / setlists</b> feature. From Jason Buchanan interview: charts also need to be organized by performance, gig, or rehearsal. An event is an ensemble-scoped object that <b>references</b> charts (charts are not removed from the chart list when added to an event — they appear in both). Players gain a new pivot in My Parts: by chart / by ensemble / by event. The player view itself gets an event-context bar when accessed via a setlist.
+  </div>
+
+  <div class="wf-nav" id="nav">
+    <button data-target="E1" class="active">E1 · Ensemble landing + slide-in panel</button>
+    <button data-target="E2">E2 · Create event</button>
+    <button data-target="E3">E3 · Drag chart into event</button>
+    <button data-target="E4">E4 · Event detail / setlist</button>
+    <button data-target="E5">E5 · My Parts · by event</button>
+    <button data-target="E6">E6 · Player view · event context</button>
+  </div>
+
+  <!-- ============================================================
+       E1 — Ensemble page with Events section
+       ============================================================ -->
+  <section class="wf-screen active" data-screen="E1">
+    <h2 class="serif">E1 · Ensemble landing — chart cards + roster · slide-in panel for members & events</h2>
+    <p class="caption">Main page is the chart-card grid (matches Claude Design image 2) with Roster &amp; Instruments below. Members &amp; Events live in a slide-in panel that opens from a button in the topbar — keeps the main view focused on the work, surfaces the context on demand.</p>
+    <div class="wf-frame-wrap">
+      <div class="wf-frame">
+        <div class="wf-frame-label">Ensemble landing · resting state <span class="form-factor">iPad · landscape</span></div>
+        <div class="frame-ipad-l">
+          <div class="app-shell" style="grid-template-columns: 200px 1fr;">
+            <aside class="sidebar">
+              <div class="brand"><div class="mark">S</div><div class="name serif">Scorva</div></div>
+              <div class="item"><span class="dot"></span>My Parts <span class="badge">3</span></div>
+              <div class="item"><span class="dot"></span>Notifications</div>
+              <div class="group">Ensembles</div>
+              <div class="item active"><span class="dot live"></span>TAK Ensemble</div>
+              <div class="item sub">Lunar Noon</div>
+              <div class="item sub">Lichen Songs</div>
+              <div class="item sub">Hourglass</div>
+              <div class="item"><span class="dot"></span>St. Mark's Worship</div>
+              <div class="item"><span class="dot"></span>Big Band — Tues</div>
+            </aside>
+            <main style="display:flex; flex-direction:column; min-width:0;">
+              <div class="topbar">
+                <div class="crumbs">
+                  <span>Ensembles</span><span class="sep">›</span>
+                  <span class="cur">TAK Ensemble</span>
+                </div>
+                <div class="grow"></div>
+                <button class="panel-trigger">
+                  <span class="icon">☰</span>
+                  Members &amp; events
+                  <span class="badge-dot" title="upcoming event in 2h"></span>
+                </button>
+                <span class="sync"><span class="dot" style="width:6px; height:6px; border-radius:999px; background:var(--ok); display:inline-block; margin-right:4px;"></span><span style="font-family: var(--mono); font-size: 11px; color: var(--ink-3);">synced</span></span>
+                <button class="btn ghost tiny">Settings</button>
+                <button class="btn tiny">New chart</button>
+              </div>
+              <div class="list-shell" style="padding: 22px 28px 40px;">
+                <div class="list-inner" style="max-width: 100%;">
+
+                  <div class="list-h" style="align-items: flex-start;">
+                    <div>
+                      <div class="eyebrow">ensemble</div>
+                      <h1 class="serif" style="font-size: 32px;">TAK Ensemble</h1>
+                      <div style="font-size: 13px; color: var(--ink-3); margin-top: 4px;">Tuesdays · Aoki Hall · contemporary chamber</div>
+                    </div>
+                    <div class="stat-row">
+                      <div class="stat-block">
+                        <div class="n">3</div>
+                        <div class="l">active charts</div>
+                      </div>
+                      <div class="stat-block">
+                        <div class="n">5</div>
+                        <div class="l">members (+ score)</div>
+                      </div>
+                      <div class="stat-block">
+                        <div class="n">2</div>
+                        <div class="l">parts changed this week</div>
+                      </div>
+                    </div>
+                  </div>
+
+                  <div class="section-head" style="margin-top: 24px; align-items: center;">
+                    <div style="display: flex; align-items: baseline;">
+                      <h3 class="serif" style="font-size: 19px;">Charts</h3>
+                      <div class="chart-tabs">
+                        <span class="tab active">All <span class="n">4</span></span>
+                        <span class="tab">Active <span class="n">3</span></span>
+                        <span class="tab">Draft <span class="n">1</span></span>
+                        <span class="tab">Archived <span class="n">0</span></span>
+                      </div>
+                    </div>
+                    <span class="meta" style="font-family: var(--sans); font-size: 12px; color: var(--ink-3);">Sort: recent ▾</span>
+                  </div>
+
+                  <div class="cards-grid">
+                    <div class="chart-card changed">
+                      <div class="cc-thumb">
+                        <span class="cc-badge">2 changed</span>
+                        <div class="ln" style="width: 80%;"></div>
+                        <div class="ln" style="width: 90%;"></div>
+                        <div class="ln" style="width: 70%;"></div>
+                        <div class="ln" style="width: 85%;"></div>
+                        <div class="gp"></div>
+                        <div class="ln" style="width: 75%;"></div>
+                      </div>
+                      <div class="cc-body">
+                        <div class="cc-title-row">
+                          <span class="cc-title">Lunar Noon</span>
+                          <span class="cc-ver">v3</span>
+                        </div>
+                        <div class="cc-meta">M. Iglesias · 4 parts</div>
+                        <div class="cc-spark">
+                          <span class="b" style="height: 30%"></span>
+                          <span class="b cur" style="height: 90%"></span>
+                          <span class="b med" style="height: 50%"></span>
+                          <span class="b" style="height: 25%"></span>
+                          <span class="b med" style="height: 60%"></span>
+                          <span class="b" style="height: 35%"></span>
+                        </div>
+                      </div>
+                      <div class="cc-foot">
+                        <span class="alert">2 parts changed since v2</span>
+                        <span>pushed Tue</span>
+                      </div>
+                    </div>
+
+                    <div class="chart-card">
+                      <div class="cc-thumb">
+                        <div class="ln" style="width: 80%;"></div>
+                        <div class="ln" style="width: 90%;"></div>
+                        <div class="ln" style="width: 70%;"></div>
+                        <div class="ln" style="width: 85%;"></div>
+                        <div class="gp"></div>
+                        <div class="ln" style="width: 75%;"></div>
+                      </div>
+                      <div class="cc-body">
+                        <div class="cc-title-row">
+                          <span class="cc-title">Lichen Songs</span>
+                          <span class="cc-ver">v5</span>
+                        </div>
+                        <div class="cc-meta">M. Iglesias · 4 parts</div>
+                        <div class="cc-spark">
+                          <span class="b med" style="height: 50%"></span>
+                          <span class="b" style="height: 30%"></span>
+                          <span class="b med" style="height: 60%"></span>
+                          <span class="b" style="height: 25%"></span>
+                          <span class="b med" style="height: 70%"></span>
+                          <span class="b" style="height: 40%"></span>
+                        </div>
+                      </div>
+                      <div class="cc-foot">
+                        <span class="ok">all parts current</span>
+                        <span>pushed Apr 18</span>
+                      </div>
+                    </div>
+
+                    <div class="chart-card">
+                      <div class="cc-thumb">
+                        <span class="cc-badge draft">draft</span>
+                        <div class="ln" style="width: 60%;"></div>
+                        <div class="ln" style="width: 80%;"></div>
+                        <div class="ln" style="width: 50%;"></div>
+                        <div class="ln" style="width: 70%;"></div>
+                      </div>
+                      <div class="cc-body">
+                        <div class="cc-title-row">
+                          <span class="cc-title">Hourglass</span>
+                          <span class="cc-ver">v2</span>
+                        </div>
+                        <div class="cc-meta">M. Iglesias · 2 parts</div>
+                        <div class="cc-spark">
+                          <span class="b" style="height: 25%"></span>
+                          <span class="b" style="height: 35%"></span>
+                          <span class="b med" style="height: 55%"></span>
+                          <span class="b" style="height: 25%"></span>
+                          <span class="b" style="height: 30%"></span>
+                          <span class="b" style="height: 28%"></span>
+                        </div>
+                      </div>
+                      <div class="cc-foot">
+                        <span style="color: var(--ink-3);">draft · 2 of 4 parts</span>
+                        <span style="color: var(--ink-4);">missing Violin 1, Viola</span>
+                      </div>
+                    </div>
+
+                    <div class="chart-card dropcard">
+                      <div class="plus-circle">+</div>
+                      <div class="lg">New chart</div>
+                      <div class="sm">drop a PDF or ⌘N</div>
+                    </div>
+                  </div>
+
+                  <div class="roster-head">
+                    <h3 class="serif" style="font-size: 19px;">Roster &amp; instruments</h3>
+                    <div class="actions">
+                      <button class="btn ghost tiny">Add member</button>
+                      <button class="btn ghost tiny">Add instrument</button>
+                    </div>
+                  </div>
+                  <div class="roster-table">
+                    <div class="roster-row score-row">
+                      <div class="inst-icon">𝄞</div>
+                      <div>
+                        <span class="inst">Conductor's Score</span>
+                        <span class="inst-pill">score lane</span>
+                      </div>
+                      <div class="person">
+                        <div class="av score-av">MI</div>
+                        <div>
+                          M. Iglesias
+                          <div class="meta">composer · ensemble owner</div>
+                        </div>
+                      </div>
+                      <div class="actions">
+                        <button class="btn-tiny">Open</button>
+                      </div>
+                    </div>
+                    <div class="roster-row">
+                      <div class="inst-icon">♪</div>
+                      <div>
+                        <span class="inst">Flute</span>
+                      </div>
+                      <div class="person">
+                        <div class="av">CM</div>
+                        <div>
+                          Charlotte M.
+                          <div class="meta">since 2022</div>
+                        </div>
+                      </div>
+                      <div class="actions">
+                        <button class="btn-tiny">Re-assign</button>
+                        <button class="btn-tiny">Mute</button>
+                      </div>
+                    </div>
+                    <div class="roster-row">
+                      <div class="inst-icon">♪</div>
+                      <div>
+                        <span class="inst">Clarinet</span>
+                      </div>
+                      <div class="person">
+                        <div class="av alt-1">MG</div>
+                        <div>
+                          Madison G.
+                          <div class="meta">since 2023</div>
+                        </div>
+                      </div>
+                      <div class="actions">
+                        <button class="btn-tiny">Re-assign</button>
+                        <button class="btn-tiny">Mute</button>
+                      </div>
+                    </div>
+                    <div class="roster-row">
+                      <div class="inst-icon">♪</div>
+                      <div>
+                        <span class="inst">Violin 1</span>
+                        <span class="inst-pill" style="background: var(--accent); color: white;">you</span>
+                      </div>
+                      <div class="person">
+                        <div class="av alt-2">AS</div>
+                        <div>
+                          Andrew S.
+                          <div class="meta">principal · since 2024</div>
+                        </div>
+                      </div>
+                      <div class="actions">
+                        <button class="btn-tiny">Re-assign</button>
+                        <button class="btn-tiny">Mute</button>
+                      </div>
+                    </div>
+                    <div class="roster-row">
+                      <div class="inst-icon">♪</div>
+                      <div>
+                        <span class="inst">Cello</span>
+                      </div>
+                      <div class="person">
+                        <div class="av alt-3">MR</div>
+                        <div>
+                          Mariel R.
+                          <div class="meta">since 2022</div>
+                        </div>
+                      </div>
+                      <div class="actions">
+                        <button class="btn-tiny">Re-assign</button>
+                        <button class="btn-tiny">Mute</button>
+                      </div>
+                    </div>
+                    <div class="roster-row">
+                      <div class="inst-icon">♪</div>
+                      <div>
+                        <span class="inst">Percussion</span>
+                      </div>
+                      <div class="person">
+                        <div class="av alt-4">EL</div>
+                        <div>
+                          Ellery L.
+                          <div class="meta">since 2024</div>
+                        </div>
+                      </div>
+                      <div class="actions">
+                        <button class="btn-tiny">Re-assign</button>
+                        <button class="btn-tiny">Mute</button>
+                      </div>
+                    </div>
+                  </div>
+
+                </div>
+              </div>
+            </main>
+          </div>
+        </div>
+      </div>
+      <aside class="wf-notes">
+        <h4>Design notes</h4>
+        <ul>
+          <li>Main page matches Claude Design image 2: chart-card grid, header stats, Roster &amp; Instruments table below. The card thumbnails carry "X CHANGED" / "DRAFT" / "ARCHIVED" badges in the top-right corner.</li>
+          <li>The "Members &amp; events" trigger lives in the topbar with a small accent dot when an event is imminent. Tap to open the slide-in panel (next screen, E1b).</li>
+          <li><span class="assume">assume</span> Trigger label is "Members &amp; events" — could also be a single icon if topbar gets crowded.</li>
+          <li>Stats in the header (3 / 5 / 2) repeat what's elsewhere on the page but give the director a glance summary. Identical to image 2.</li>
+          <li>Roster row layout matches image 2: instrument icon, instrument name (with "score lane" pill or "you" pill), assigned member with avatar + tenure, action buttons. The score lane gets the gradient background to set it apart.</li>
+          <li><span class="defer">defer</span> Drag-to-reorder roster rows. The "drag to reorder" hint can be added in a polish pass.</li>
+        </ul>
+      </aside>
+    </div>
+
+    <h3 class="serif" style="margin-top: 40px; font-size: 18px;">E1b · Slide-in panel open — Members &amp; Events</h3>
+    <p class="caption">Tapping the topbar trigger slides this in from the right. Two collapsible sections: Members at the top, Events below. "+ new" on Events opens the create-event flow (E2).</p>
+    <div class="wf-frame-wrap">
+      <div class="wf-frame">
+        <div class="wf-frame-label">Slide-in panel · open <span class="form-factor">iPad · landscape</span></div>
+        <div class="frame-ipad-l">
+          <div class="app-shell" style="grid-template-columns: 200px 1fr;">
+            <aside class="sidebar">
+              <div class="brand"><div class="mark">S</div><div class="name serif">Scorva</div></div>
+              <div class="item"><span class="dot"></span>My Parts</div>
+              <div class="item"><span class="dot"></span>Notifications</div>
+              <div class="group">Ensembles</div>
+              <div class="item active"><span class="dot live"></span>TAK Ensemble</div>
+              <div class="item sub">Lunar Noon</div>
+              <div class="item sub">Lichen Songs</div>
+              <div class="item sub">Hourglass</div>
+            </aside>
+            <main style="display:flex; flex-direction:column; min-width:0; position: relative;">
+              <div class="topbar">
+                <div class="crumbs">
+                  <span>Ensembles</span><span class="sep">›</span>
+                  <span class="cur">TAK Ensemble</span>
+                </div>
+                <div class="grow"></div>
+                <button class="panel-trigger" style="background: var(--ink); color: var(--paper); border-color: var(--ink);">
+                  <span class="icon">☰</span>
+                  Members &amp; events
+                </button>
+              </div>
+              <div class="list-shell" style="padding: 22px 28px 40px; opacity: 0.45;">
+                <div class="list-inner" style="max-width: 100%;">
+                  <div class="list-h" style="align-items: flex-start;">
+                    <div>
+                      <div class="eyebrow">ensemble</div>
+                      <h1 class="serif" style="font-size: 32px;">TAK Ensemble</h1>
+                    </div>
+                  </div>
+                  <div class="cards-grid" style="margin-top: 24px;">
+                    <div class="chart-card"><div class="cc-thumb"></div><div class="cc-body"><div class="cc-title-row"><span class="cc-title">Lunar Noon</span><span class="cc-ver">v3</span></div></div></div>
+                    <div class="chart-card"><div class="cc-thumb"></div><div class="cc-body"><div class="cc-title-row"><span class="cc-title">Lichen Songs</span><span class="cc-ver">v5</span></div></div></div>
+                    <div class="chart-card"><div class="cc-thumb"></div><div class="cc-body"><div class="cc-title-row"><span class="cc-title">Hourglass</span><span class="cc-ver">v2</span></div></div></div>
+                    <div class="chart-card dropcard"><div class="plus-circle">+</div></div>
+                  </div>
+                </div>
+              </div>
+
+              <!-- Slide-in panel -->
+              <div class="slide-panel-back">
+                <div class="slide-panel">
+                  <div class="slide-panel-h">
+                    <span class="title serif">Members &amp; Events</span>
+                    <span class="close">×</span>
+                  </div>
+                  <div class="slide-panel-body">
+
+                    <div class="panel-section">
+                      <div class="panel-h">
+                        <div class="left">
+                          <span class="caret">▾</span>
+                          <span class="title">Members</span>
+                          <span class="count">5</span>
+                        </div>
+                        <span class="add">+ invite</span>
+                      </div>
+                      <div class="panel-body">
+                        <div class="member-row">
+                          <div class="avatar">CM</div>
+                          <div>
+                            <div class="who">Charlotte M.</div>
+                            <div class="role">Flute</div>
+                          </div>
+                          <span class="stat">opened v3</span>
+                        </div>
+                        <div class="member-row">
+                          <div class="avatar alt-1">MG</div>
+                          <div>
+                            <div class="who">Madison G.</div>
+                            <div class="role">Clarinet</div>
+                          </div>
+                          <span class="stat">opened v3</span>
+                        </div>
+                        <div class="member-row">
+                          <div class="avatar alt-2">AS</div>
+                          <div>
+                            <div class="who">Andrew S. <span style="color: var(--ink-4); font-weight: 400; font-size: 11px;">(you)</span></div>
+                            <div class="role">Violin 1</div>
+                          </div>
+                          <span class="stat" style="color: var(--accent); font-weight: 600;">on v3</span>
+                        </div>
+                        <div class="member-row">
+                          <div class="avatar alt-3">MR</div>
+                          <div>
+                            <div class="who">Mariel R.</div>
+                            <div class="role">Cello</div>
+                          </div>
+                          <span class="stat" style="color: var(--ink-4);">v2</span>
+                        </div>
+                        <div class="member-row">
+                          <div class="avatar alt-4">EL</div>
+                          <div>
+                            <div class="who">Ellery L.</div>
+                            <div class="role">Percussion</div>
+                          </div>
+                          <span class="stat">opened v3</span>
+                        </div>
+                      </div>
+                    </div>
+
+                    <div class="panel-section">
+                      <div class="panel-h">
+                        <div class="left">
+                          <span class="caret">▾</span>
+                          <span class="title">Events</span>
+                          <span class="count">2 upcoming</span>
+                        </div>
+                        <span class="add">+ new</span>
+                      </div>
+                      <div class="panel-body">
+                        <div class="event-mini imminent">
+                          <div class="em-date">today · 6:00 PM · in 2h</div>
+                          <div class="em-name">April 30 Gig — Issue Project Room</div>
+                          <div class="em-meta">5 charts · your Violin 1 · all preserved</div>
+                        </div>
+                        <div class="event-mini">
+                          <div class="em-date">May 4 · 2:00 PM</div>
+                          <div class="em-name">Recording session — Studio C</div>
+                          <div class="em-meta">3 charts · your Violin 1</div>
+                        </div>
+                        <div class="event-mini" style="opacity: 0.6;">
+                          <div class="em-date">Apr 22 · past</div>
+                          <div class="em-name">Dress rehearsal</div>
+                          <div class="em-meta">5 charts</div>
+                        </div>
+                      </div>
+                    </div>
+
+                  </div>
+                </div>
+              </div>
+            </main>
+          </div>
+        </div>
+      </div>
+      <aside class="wf-notes">
+        <h4>Design notes</h4>
+        <ul>
+          <li>Slide-in is 360px wide. The page behind dims slightly (rgba 0.18 ink) so focus is on the panel without losing context.</li>
+          <li>Both sections start expanded. Tap caret to collapse. State could persist per user.</li>
+          <li>"+ new" on Events opens the create-event modal (E2). The panel stays open behind so the user lands back in context.</li>
+          <li><span class="assume">assume</span> Closing the panel is via × button, ESC key, or tapping the dimmed area outside the panel. All standard slide-out behaviors.</li>
+          <li><span class="defer">defer</span> Pinning the panel open as a persistent right-rail (for users who want it always visible). Reasonable v1.5 add.</li>
+          <li>The trigger button in the topbar gets a subtle accent state when the panel is open (shown here in ink-on-ink), to mirror selected-state.</li>
+        </ul>
+      </aside>
+    </div>
+  </section>
+
+  <!-- ============================================================
+       E2 — Create event modal
+       ============================================================ -->
+  <section class="wf-screen" data-screen="E2">
+    <h2 class="serif">E2 · Create event</h2>
+    <p class="caption">Modal triggered by "+ New event." Minimal — just enough for the event to be findable. Charts get added afterward via the drag-drop or the explicit "Add charts" flow on the event detail page.</p>
+    <div class="wf-frame-wrap">
+      <div class="wf-frame">
+        <div class="wf-frame-label">Create event modal <span class="form-factor">iPad · landscape</span></div>
+        <div class="frame-ipad-l">
+          <div class="app-shell">
+            <aside class="sidebar">
+              <div class="brand"><div class="mark">S</div><div class="name serif">Scorva</div></div>
+              <div class="item"><span class="dot"></span>My Parts</div>
+              <div class="item"><span class="dot"></span>Notifications</div>
+              <div class="group">Ensembles</div>
+              <div class="item active"><span class="dot live"></span>TAK Ensemble</div>
+              <div class="item sub">Lunar Noon</div>
+              <div class="item sub">Lichen Songs</div>
+              <div class="item sub">Hourglass</div>
+            </aside>
+            <main style="display:flex; flex-direction:column; position: relative;">
+              <div class="topbar">
+                <div class="crumbs">
+                  <span>Ensembles</span><span class="sep">›</span>
+                  <span class="cur">TAK Ensemble</span>
+                </div>
+                <div class="grow"></div>
+                <div class="right"><span class="sync"><span class="dot"></span>synced</span></div>
+              </div>
+              <div class="list-shell" style="opacity: 0.5;">
+                <div class="list-inner">
+                  <div class="list-h">
+                    <div>
+                      <div class="eyebrow">5 musicians · contemporary chamber</div>
+                      <h1 class="serif">TAK Ensemble</h1>
+                    </div>
+                    <div class="meta">3 charts</div>
+                  </div>
+                  <div class="section-head">
+                    <h3 class="serif">Events</h3>
+                  </div>
+                  <div class="events-grid">
+                    <div class="event-card"><div class="ev-name">May 4 · Recording session</div></div>
+                    <div class="event-card add-card"><span class="plus">+</span> New event</div>
+                  </div>
+                </div>
+              </div>
+
+              <!-- Modal -->
+              <div class="modal-back">
+                <div class="modal">
+                  <h3 class="serif">New event</h3>
+                  <label>Name</label>
+                  <input type="text" value="April 30 Gig — Issue Project Room" />
+
+                  <div class="modal-row">
+                    <div>
+                      <label>Date</label>
+                      <input type="text" value="April 30, 2026" />
+                    </div>
+                    <div>
+                      <label>Time</label>
+                      <input type="text" value="6:00 PM" />
+                    </div>
+                  </div>
+
+                  <div class="modal-row">
+                    <div>
+                      <label>Type</label>
+                      <select>
+                        <option>Gig / performance</option>
+                        <option>Rehearsal</option>
+                        <option>Recording</option>
+                        <option>Workshop</option>
+                        <option>Other</option>
+                      </select>
+                    </div>
+                    <div>
+                      <label>Location (optional)</label>
+                      <input type="text" value="Issue Project Room, Brooklyn" />
+                    </div>
+                  </div>
+
+                  <label>Notes (optional)</label>
+                  <input type="text" value="Soundcheck at 5:00 PM" />
+
+                  <div class="modal-foot">
+                    <button class="btn ghost">Cancel</button>
+                    <button class="btn primary">Create event</button>
+                  </div>
+                </div>
+              </div>
+            </main>
+          </div>
+        </div>
+      </div>
+      <aside class="wf-notes">
+        <h4>Design notes</h4>
+        <ul>
+          <li><span class="data">data</span> Required: name, date. Optional: time, type, location, notes. Type defaults to "Gig / performance."</li>
+          <li><span class="assume">assume</span> After "Create event," lands on the empty event detail (E4) so the user can immediately drag charts into the new setlist.</li>
+          <li><span class="defer">defer</span> Recurring events (weekly Tuesday rehearsal). Real need for big bands but adds complexity.</li>
+          <li><span class="defer">defer</span> Calendar invite / iCal export. Useful eventually.</li>
+          <li>Time is a string field for now. A real time picker is a v1.5 polish.</li>
+        </ul>
+      </aside>
+    </div>
+  </section>
+
+  <!-- ============================================================
+       E3 — Drag chart into event
+       ============================================================ -->
+  <section class="wf-screen" data-screen="E3">
+    <h2 class="serif">E3 · Drag a chart into an event</h2>
+    <p class="caption">From the ensemble page, the user opens the event detail (or the event's "edit" mode) and gets a split: charts on the left, the event's setlist on the right. Dragging a chart card across creates a reference — the original stays put. The drop zone shows the active state, and the card snaps in as the next setlist position.</p>
+    <div class="wf-frame-wrap">
+      <div class="wf-frame">
+        <div class="wf-frame-label">Drag chart into event · mid-drag <span class="form-factor">iPad · landscape</span></div>
+        <div class="frame-ipad-l">
+          <div class="app-shell">
+            <aside class="sidebar">
+              <div class="brand"><div class="mark">S</div><div class="name serif">Scorva</div></div>
+              <div class="item"><span class="dot"></span>My Parts</div>
+              <div class="group">Ensembles</div>
+              <div class="item"><span class="dot"></span>TAK Ensemble</div>
+              <div class="item sub">Lunar Noon</div>
+              <div class="item sub">Lichen Songs</div>
+              <div class="item sub">Hourglass</div>
+            </aside>
+            <main style="display:flex; flex-direction:column;">
+              <div class="topbar">
+                <div class="crumbs">
+                  <span>TAK Ensemble</span><span class="sep">›</span>
+                  <span>Events</span><span class="sep">›</span>
+                  <span class="cur">April 30 Gig · adding charts</span>
+                </div>
+                <div class="grow"></div>
+                <div class="right"><button class="btn ghost tiny">Done</button></div>
+              </div>
+              <div class="drag-shell">
+                <div class="drag-pane">
+                  <h4>Ensemble charts · drag to add</h4>
+                  <div class="panel-h serif">3 charts in TAK Ensemble</div>
+                  <div class="panel-sub">Original charts stay in place. Adding to event creates a reference.</div>
+
+                  <div class="chart-row" style="border-radius: var(--r-md); border-bottom: 1px solid var(--line); margin-bottom: 8px;">
+                    <div>
+                      <span class="grip">⋮⋮</span>
+                      <span class="name serif">Lichen Songs</span>
+                      <div class="sub" style="margin-left: 16px;">v5 · Violin 1 · in 1 event</div>
+                    </div>
+                    <div></div>
+                    <div></div>
+                    <div></div>
+                  </div>
+
+                  <div class="chart-row dragging" style="border-radius: var(--r-md); border-bottom: 1px solid var(--accent); margin-bottom: 8px; box-shadow: var(--shadow-md); transform: translate(60px, 8px) rotate(-1deg);">
+                    <div>
+                      <span class="grip">⋮⋮</span>
+                      <span class="name serif">Lunar Noon</span>
+                      <div class="sub" style="margin-left: 16px;">v3 · Violin 1 · in 2 events</div>
+                    </div>
+                    <div></div>
+                    <div></div>
+                    <div></div>
+                  </div>
+
+                  <div class="chart-row" style="border-radius: var(--r-md); border-bottom: 1px solid var(--line); margin-bottom: 8px;">
+                    <div>
+                      <span class="grip">⋮⋮</span>
+                      <span class="name serif">Hourglass</span>
+                      <div class="sub" style="margin-left: 16px;">v2 · Violin 1 · in 0 events</div>
+                    </div>
+                    <div></div>
+                    <div></div>
+                    <div></div>
+                  </div>
+                </div>
+
+                <div class="drag-pane right">
+                  <h4>Setlist · April 30 Gig</h4>
+                  <div class="panel-h serif">April 30 Gig</div>
+                  <div class="panel-sub">Drag charts here. Reorder by dragging within the list.</div>
+
+                  <div class="drop-zone active">
+                    <div class="setlist-row">
+                      <div class="num">1</div>
+                      <div>
+                        <div class="name">Inquilab</div>
+                        <div class="sub">v2 · 4:30</div>
+                      </div>
+                      <div class="meta">your V1</div>
+                      <div class="x">×</div>
+                    </div>
+                    <div class="setlist-row">
+                      <div class="num">2</div>
+                      <div>
+                        <div class="name">Lichen Songs</div>
+                        <div class="sub">v5 · 6:10</div>
+                      </div>
+                      <div class="meta">your V1</div>
+                      <div class="x">×</div>
+                    </div>
+                    <div class="setlist-row ghost">
+                      <div class="num" style="background: var(--accent); color: white;">3</div>
+                      <div>
+                        <div class="name">Lunar Noon</div>
+                        <div class="sub">drop here</div>
+                      </div>
+                      <div class="meta" style="color: var(--accent);">incoming</div>
+                      <div></div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </main>
+          </div>
+        </div>
+      </div>
+      <aside class="wf-notes">
+        <h4>Design notes</h4>
+        <ul>
+          <li>The "Inquilab" chart in the setlist is from a chart that already exists in the ensemble — the setlist can hold any subset of the ensemble's charts.</li>
+          <li><span class="assume">assume</span> Drop creates an <code>event_charts</code> row at the next available <code>sort_order</code>. The user can reorder afterward.</li>
+          <li><span class="assume">assume</span> Dropping the same chart twice is silently a no-op (or shows a "already in setlist" toast). Charts have a unique constraint per event.</li>
+          <li>The "in 2 events" hint on the chart row in the left pane updates live — once dropped, it becomes "in 3 events."</li>
+          <li><span class="defer">defer</span> Bulk add (select multiple, drag together).</li>
+          <li><span class="defer">defer</span> Inline create from scratch ("add a placeholder chart that doesn't exist yet, fill in PDFs later"). Not v1.</li>
+        </ul>
+      </aside>
+    </div>
+  </section>
+
+  <!-- ============================================================
+       E4 — Event detail / setlist view
+       ============================================================ -->
+  <section class="wf-screen" data-screen="E4">
+    <h2 class="serif">E4 · Event detail / setlist view</h2>
+    <p class="caption">Viewing one event. Header has the event metadata. Below is the setlist in performance order with each chart's version, duration, and the player's part. "Open setlist" launches the player view starting at chart 1 with event context. Reorder via drag.</p>
+    <div class="wf-frame-wrap">
+      <div class="wf-frame">
+        <div class="wf-frame-label">Event detail · April 30 Gig <span class="form-factor">iPad · landscape</span></div>
+        <div class="frame-ipad-l">
+          <div class="app-shell">
+            <aside class="sidebar">
+              <div class="brand"><div class="mark">S</div><div class="name serif">Scorva</div></div>
+              <div class="item"><span class="dot"></span>My Parts</div>
+              <div class="group">Ensembles</div>
+              <div class="item"><span class="dot"></span>TAK Ensemble</div>
+              <div class="item sub">Lunar Noon</div>
+              <div class="item sub">Lichen Songs</div>
+              <div class="item sub">Hourglass</div>
+              <div class="item sub active" style="color: var(--paper);"><span class="dot live"></span>April 30 Gig</div>
+            </aside>
+            <main style="display:flex; flex-direction:column;">
+              <div class="topbar">
+                <div class="crumbs">
+                  <span>TAK Ensemble</span><span class="sep">›</span>
+                  <span>Events</span><span class="sep">›</span>
+                  <span class="cur">April 30 Gig</span>
+                </div>
+                <div class="grow"></div>
+                <div class="right"><span class="sync"><span class="dot"></span>synced</span></div>
+              </div>
+              <div class="list-shell">
+                <div class="list-inner">
+                  <div class="event-head">
+                    <div class="ev-actions">
+                      <button class="btn ghost tiny">Edit</button>
+                      <button class="btn primary tiny">Open setlist</button>
+                    </div>
+                    <div class="ev-meta-row">
+                      <span class="pill">Today · in 2h</span>
+                      <span>April 30, 2026 · 6:00 PM</span>
+                      <span>Gig / performance</span>
+                    </div>
+                    <h1 class="serif">April 30 Gig — Issue Project Room</h1>
+                    <div class="ev-foot">
+                      <span>📍 Issue Project Room, Brooklyn</span>
+                      <span>· Soundcheck 5:00 PM</span>
+                    </div>
+                  </div>
+
+                  <div class="section-head">
+                    <h3 class="serif">Setlist · 5 charts · 26:40 total</h3>
+                    <span class="meta">drag to reorder</span>
+                  </div>
+
+                  <div class="chart-row" style="grid-template-columns: 28px 1fr 130px 110px 80px;">
+                    <div class="num" style="font-family: var(--mono); font-size: 11px; color: var(--ink-3); text-align: center; width: 24px; height: 24px; border-radius: 999px; background: var(--paper); display: flex; align-items: center; justify-content: center; font-weight: 600;">1</div>
+                    <div>
+                      <div class="name serif">Inquilab</div>
+                      <div class="sub">your part · Violin 1 · 32 measures</div>
+                    </div>
+                    <div><span class="ver-pill">v2</span></div>
+                    <div class="meta-col mono" style="font-size: 11px; color: var(--ink-3);">4:30</div>
+                    <div class="meta-col mono" style="font-size: 11px; color: var(--ink-4); text-align: right;">⋮⋮</div>
+                  </div>
+                  <div class="chart-row" style="grid-template-columns: 28px 1fr 130px 110px 80px; background: linear-gradient(90deg, var(--accent-soft) 0%, var(--card) 25%);">
+                    <div class="num" style="font-family: var(--mono); font-size: 11px; color: var(--ink-3); text-align: center; width: 24px; height: 24px; border-radius: 999px; background: var(--paper); display: flex; align-items: center; justify-content: center; font-weight: 600;">2</div>
+                    <div>
+                      <div class="name serif">Lunar Noon</div>
+                      <div class="sub">your part · Violin 1 · 64 measures · 4 changed</div>
+                    </div>
+                    <div><span class="ver-pill changed"><span class="dot-changed"></span>v3 · updated</span></div>
+                    <div class="meta-col mono" style="font-size: 11px; color: var(--ink-3);">7:20</div>
+                    <div class="meta-col mono" style="font-size: 11px; color: var(--ink-4); text-align: right;">⋮⋮</div>
+                  </div>
+                  <div class="chart-row" style="grid-template-columns: 28px 1fr 130px 110px 80px;">
+                    <div class="num" style="font-family: var(--mono); font-size: 11px; color: var(--ink-3); text-align: center; width: 24px; height: 24px; border-radius: 999px; background: var(--paper); display: flex; align-items: center; justify-content: center; font-weight: 600;">3</div>
+                    <div>
+                      <div class="name serif">Lichen Songs</div>
+                      <div class="sub">your part · Violin 1 · 48 measures</div>
+                    </div>
+                    <div><span class="ver-pill">v5</span></div>
+                    <div class="meta-col mono" style="font-size: 11px; color: var(--ink-3);">6:10</div>
+                    <div class="meta-col mono" style="font-size: 11px; color: var(--ink-4); text-align: right;">⋮⋮</div>
+                  </div>
+                  <div class="chart-row" style="grid-template-columns: 28px 1fr 130px 110px 80px;">
+                    <div class="num" style="font-family: var(--mono); font-size: 11px; color: var(--ink-3); text-align: center; width: 24px; height: 24px; border-radius: 999px; background: var(--paper); display: flex; align-items: center; justify-content: center; font-weight: 600;">4</div>
+                    <div>
+                      <div class="name serif">Hourglass</div>
+                      <div class="sub">your part · Violin 1 · 92 measures</div>
+                    </div>
+                    <div><span class="ver-pill">v2</span></div>
+                    <div class="meta-col mono" style="font-size: 11px; color: var(--ink-3);">8:40</div>
+                    <div class="meta-col mono" style="font-size: 11px; color: var(--ink-4); text-align: right;">⋮⋮</div>
+                  </div>
+                </div>
+              </div>
+            </main>
+          </div>
+        </div>
+      </div>
+      <aside class="wf-notes">
+        <h4>Design notes</h4>
+        <ul>
+          <li>"Open setlist" jumps the player into the player view at chart 1 with event context (E6).</li>
+          <li><span class="assume">assume</span> Duration is a per-chart field on the chart record (or per-version). Total = sum of durations. Manual entry for v1.</li>
+          <li>Chart 2 (Lunar Noon) shows the "updated" treatment — same as the chart list. Updates propagate automatically; the setlist always points at the current version of each chart.</li>
+          <li><span class="defer">defer</span> Pinning a setlist to a specific version of a chart ("we played v2 of Lunar Noon at this gig" — historical fact, not editable). Useful for performance archives.</li>
+          <li><span class="defer">defer</span> Per-event notes on each setlist position ("dedicated to Sarah," "with John on cello").</li>
+          <li>The sidebar shows the event nested under TAK Ensemble — events are first-class children of an ensemble.</li>
+        </ul>
+      </aside>
+    </div>
+  </section>
+
+  <!-- ============================================================
+       E5 — My Parts · by event pivot
+       ============================================================ -->
+  <section class="wf-screen" data-screen="E5">
+    <h2 class="serif">E5 · My Parts · by event pivot</h2>
+    <p class="caption">My Parts gets a new pivot tab. "By chart" is the existing flat list. "By ensemble" groups by ensemble. "By event" shows upcoming and recent events with their setlists, in performance order.</p>
+    <div class="wf-frame-wrap">
+      <div class="wf-frame">
+        <div class="wf-frame-label">My Parts · by event <span class="form-factor">iPad · landscape</span></div>
+        <div class="frame-ipad-l">
+          <div class="app-shell">
+            <aside class="sidebar">
+              <div class="brand"><div class="mark">S</div><div class="name serif">Scorva</div></div>
+              <div class="item active"><span class="dot live"></span>My Parts <span class="badge">3</span></div>
+              <div class="item"><span class="dot"></span>Notifications</div>
+              <div class="group">Ensembles</div>
+              <div class="item"><span class="dot"></span>TAK Ensemble</div>
+              <div class="item"><span class="dot"></span>St. Mark's Worship</div>
+              <div class="item"><span class="dot"></span>Big Band — Tues</div>
+            </aside>
+            <main style="display:flex; flex-direction:column;">
+              <div class="topbar">
+                <div class="crumbs"><span class="cur">My Parts</span></div>
+                <div class="grow"></div>
+                <div class="right">
+                  <div class="pivot-tabs">
+                    <button>By chart</button>
+                    <button>By ensemble</button>
+                    <button class="active">By event</button>
+                  </div>
+                  <span class="sync"><span class="dot"></span>synced</span>
+                </div>
+              </div>
+              <div class="list-shell">
+                <div class="list-inner">
+                  <div class="list-h">
+                    <div>
+                      <div class="eyebrow">Across all ensembles · upcoming and recent</div>
+                      <h1 class="serif">My Parts</h1>
+                    </div>
+                    <div class="meta">3 events · 11 charts</div>
+                  </div>
+
+                  <div class="event-group">
+                    <div class="ev-h imminent">
+                      <div class="ev-h-l">
+                        <div class="eyebrow">today · in 2h · TAK Ensemble</div>
+                        <div class="name">April 30 Gig — Issue Project Room</div>
+                      </div>
+                      <div class="ev-h-r">5 charts · 26:40 · setlist order</div>
+                    </div>
+                    <div class="row">
+                      <div class="num">1</div>
+                      <div class="name">Inquilab <span class="sub">your Violin 1 · v2 · 4:30</span></div>
+                      <div><span class="ver-pill">v2</span></div>
+                      <div class="meta-col mono" style="font-size: 11px; color: var(--ink-3); text-align: right;">opens at 1</div>
+                    </div>
+                    <div class="row has-update">
+                      <div class="num">2</div>
+                      <div class="name">Lunar Noon <span class="sub">your Violin 1 · v3 · 7:20 · 4 changed since you last opened</span></div>
+                      <div><span class="ver-pill changed"><span class="dot-changed"></span>v3 · updated</span></div>
+                      <div class="meta-col mono" style="font-size: 11px; color: var(--ink-3); text-align: right;">opens at 2</div>
+                    </div>
+                    <div class="row">
+                      <div class="num">3</div>
+                      <div class="name">Lichen Songs <span class="sub">your Violin 1 · v5 · 6:10</span></div>
+                      <div><span class="ver-pill">v5</span></div>
+                      <div class="meta-col mono" style="font-size: 11px; color: var(--ink-3); text-align: right;">opens at 3</div>
+                    </div>
+                    <div class="row">
+                      <div class="num">4</div>
+                      <div class="name">Hourglass <span class="sub">your Violin 1 · v2 · 8:40</span></div>
+                      <div><span class="ver-pill">v2</span></div>
+                      <div class="meta-col mono" style="font-size: 11px; color: var(--ink-3); text-align: right;">opens at 4</div>
+                    </div>
+                  </div>
+
+                  <div class="event-group">
+                    <div class="ev-h">
+                      <div class="ev-h-l">
+                        <div class="eyebrow">Tue · in 5 days · Big Band</div>
+                        <div class="name">Tuesday rehearsal</div>
+                      </div>
+                      <div class="ev-h-r">8 charts</div>
+                    </div>
+                    <div class="row has-update">
+                      <div class="num">1</div>
+                      <div class="name">All of Me <span class="sub">your Trumpet 2 · v2 · 1 measure changed</span></div>
+                      <div><span class="ver-pill changed"><span class="dot-changed"></span>v2 · updated</span></div>
+                      <div class="meta-col mono" style="font-size: 11px; color: var(--ink-3); text-align: right;">opens at 1</div>
+                    </div>
+                    <div class="row">
+                      <div class="num">2</div>
+                      <div class="name">Birdland <span class="sub">your Trumpet 2 · v4</span></div>
+                      <div><span class="ver-pill">v4</span></div>
+                      <div class="meta-col mono" style="font-size: 11px; color: var(--ink-3); text-align: right;">opens at 2</div>
+                    </div>
+                  </div>
+
+                  <div class="event-group">
+                    <div class="ev-h">
+                      <div class="ev-h-l">
+                        <div class="eyebrow">Sun · in 4 days · St. Mark's Worship</div>
+                        <div class="name">Sunday service</div>
+                      </div>
+                      <div class="ev-h-r">4 charts</div>
+                    </div>
+                    <div class="row">
+                      <div class="num">1</div>
+                      <div class="name">Cornerstone <span class="sub">your Keyboard · v1</span></div>
+                      <div><span class="ver-pill">v1</span></div>
+                      <div class="meta-col mono" style="font-size: 11px; color: var(--ink-3); text-align: right;">opens at 1</div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </main>
+          </div>
+        </div>
+      </div>
+      <aside class="wf-notes">
+        <h4>Design notes</h4>
+        <ul>
+          <li>"Opens at N" hint shows where this chart sits in its event's setlist — useful when deciding which to look at first.</li>
+          <li><span class="assume">assume</span> Charts in events show event context inline. Charts NOT in any event would appear in a separate "Other charts" section at the bottom (not shown — would only contain Hourglass-style standalones).</li>
+          <li>Updated charts get the same "has-update" treatment as elsewhere — the visual language is consistent across pivots.</li>
+          <li><span class="defer">defer</span> Cross-ensemble setlists. The April 30 Gig is one ensemble. A jazz musician with a sub gig pulling in a guest would need cross-ensemble events.</li>
+        </ul>
+      </aside>
+    </div>
+  </section>
+
+  <!-- ============================================================
+       E6 — Player view with event context
+       ============================================================ -->
+  <section class="wf-screen" data-screen="E6">
+    <h2 class="serif">E6 · Player view with event context</h2>
+    <p class="caption">When the player opens a chart through an event (rather than directly), a thin event-context bar sits between the topbar and the toolbar. It shows the event name, position in the setlist (3 of 8), and a "next chart" affordance. Tapping "next" advances the player to chart 4 in the setlist. Without this context, the player view is identical to the standalone version.</p>
+    <div class="wf-frame-wrap">
+      <div class="wf-frame">
+        <div class="wf-frame-label">Player view via event · "April 30 Gig · 2 of 5" <span class="form-factor">iPad · landscape</span></div>
+        <div class="frame-ipad-l">
+          <div class="app-shell" style="grid-template-columns: 44px 1fr;">
+            <aside style="width: 44px; flex-shrink: 0; display: flex; flex-direction: column; align-items: center; padding: 10px 0; gap: 4px; background: var(--card-2); border-right: 1px solid var(--line-2);">
+              <div style="width: 32px; height: 32px; border-radius: var(--r-sm); display: flex; align-items: center; justify-content: center; background: var(--ink); color: var(--paper); font-family: var(--mono); font-size: 11px;">✎</div>
+              <div style="width: 32px; height: 32px; border-radius: var(--r-sm); display: flex; align-items: center; justify-content: center; color: var(--ink-2); font-family: var(--mono); font-size: 11px;">T</div>
+              <div style="width: 32px; height: 32px; border-radius: var(--r-sm); display: flex; align-items: center; justify-content: center; color: var(--ink-2); font-family: var(--mono); font-size: 11px;">▬</div>
+            </aside>
+            <main style="display:flex; flex-direction:column; min-width:0;">
+              <div class="topbar">
+                <div class="crumbs">
+                  <span style="font-size:14px;">‹</span>
+                  <span>April 30 Gig</span>
+                  <span class="sep">·</span>
+                  <span class="cur">Lunar Noon · Violin 1</span>
+                </div>
+                <div class="grow"></div>
+                <div class="right"><span class="sync"><span class="dot"></span>synced</span></div>
+              </div>
+
+              <!-- Event context bar -->
+              <div class="event-context-bar">
+                <span class="pill">setlist</span>
+                <span class="ev-name">April 30 Gig</span>
+                <span class="progress">2 of 5 · 7:20 · ~14 min remaining</span>
+                <button class="next">next: Lichen Songs ›</button>
+              </div>
+
+              <!-- Standard toolbar -->
+              <div style="display: flex; align-items: center; gap: 6px; padding: 7px 14px; background: var(--card-2); border-bottom: 1px solid var(--line-2); flex-shrink: 0;">
+                <div style="display: flex; gap: 2px; padding-right: 6px; border-right: 1px solid var(--line-2);">
+                  <div style="height: 28px; padding: 0 9px; border-radius: var(--r-sm); display: inline-flex; align-items: center; gap: 5px; background: var(--ink); color: var(--paper); font-size: 11.5px; font-weight: 500;">v3 ▾</div>
+                </div>
+                <div style="display: flex; gap: 2px; padding: 0 6px; border-right: 1px solid var(--line-2);">
+                  <div style="width: 30px; height: 28px; border-radius: var(--r-sm); display: flex; align-items: center; justify-content: center; background: var(--ink); color: var(--paper); font-family: var(--mono); font-size: 11px;">✎</div>
+                  <div style="width: 30px; height: 28px; border-radius: var(--r-sm); display: flex; align-items: center; justify-content: center; color: var(--ink-2); font-family: var(--mono); font-size: 11px;">T</div>
+                  <div style="width: 30px; height: 28px; border-radius: var(--r-sm); display: flex; align-items: center; justify-content: center; color: var(--ink-2); font-family: var(--mono); font-size: 11px;">▬</div>
+                </div>
+                <div style="display: flex; gap: 2px; padding: 0 6px;">
+                  <div style="height: 28px; padding: 0 9px; border-radius: var(--r-sm); display: inline-flex; align-items: center; gap: 5px; color: var(--ink-2); font-size: 11.5px;">◐ annotations ▾</div>
+                </div>
+                <div style="flex: 1;"></div>
+                <span style="font-family: var(--mono); font-size: 11px; color: var(--ink-3);">synced</span>
+              </div>
+
+              <!-- Score canvas placeholder -->
+              <div style="flex: 1; background: var(--paper-2); display: flex; align-items: center; justify-content: center; padding: 18px;">
+                <div style="width: 720px; max-width: 100%; height: 100%; background: var(--card); border: 1px solid var(--line); padding: 36px 50px; box-shadow: var(--shadow-sm); position: relative;">
+                  <div style="text-align: center; font-family: var(--mono); font-size: 10.5px; letter-spacing: 0.18em; text-transform: uppercase; color: var(--ink-3); margin-bottom: 22px;">Lunar Noon · Violin 1 · v3</div>
+                  <div style="position: absolute; top: 80px; left: 50px; right: 50px; height: 1px; background: var(--ink); opacity: 0.6;"></div>
+                  <div style="position: absolute; top: 90px; left: 50px; right: 50px; height: 1px; background: var(--ink); opacity: 0.6;"></div>
+                  <div style="position: absolute; top: 100px; left: 50px; right: 50px; height: 1px; background: var(--ink); opacity: 0.6;"></div>
+                  <div style="position: absolute; top: 110px; left: 50px; right: 50px; height: 1px; background: var(--ink); opacity: 0.6;"></div>
+                  <div style="position: absolute; top: 120px; left: 50px; right: 50px; height: 1px; background: var(--ink); opacity: 0.6;"></div>
+                  <div style="position: absolute; top: 60px; left: 80px; font-family: var(--mono); font-size: 10px; color: var(--accent);">M.1–4</div>
+                  <div style="text-align: center; margin-top: 220px; font-style: italic; color: var(--ink-4); font-family: var(--mono); font-size: 11px;">[score canvas — same as standalone player view]</div>
+                </div>
+              </div>
+
+              <!-- Page controls -->
+              <div style="display: flex; align-items: center; justify-content: space-between; padding: 8px 18px; background: var(--card-2); border-top: 1px solid var(--line-2); font-family: var(--mono); font-size: 11px; color: var(--ink-3); flex-shrink: 0;">
+                <div style="display: flex; gap: 8px; align-items: center;">
+                  <div style="width: 36px; height: 28px; display: flex; align-items: center; justify-content: center; border-radius: var(--r-sm); background: var(--card); border: 1px solid var(--line);">‹</div>
+                  <span>page 1 of 4</span>
+                  <div style="width: 36px; height: 28px; display: flex; align-items: center; justify-content: center; border-radius: var(--r-sm); background: var(--card); border: 1px solid var(--line);">›</div>
+                  <span style="font-size: 10px; color: var(--ink-4); background: var(--paper); padding: 2px 7px; border-radius: 999px; border: 1px dashed var(--line);">foot pedal: page → · long-press: next chart</span>
+                </div>
+                <div style="display: flex; gap: 14px; align-items: center;">
+                  <span style="color: var(--ink-4);">view: single · two-up · scroll</span>
+                  <div style="display: inline-flex; align-items: center; gap: 4px; padding: 2px 5px; background: var(--card); border: 1px solid var(--line); border-radius: var(--r-sm);">
+                    <button style="width: 22px; height: 22px; background: transparent; border: none; color: var(--ink-2);">−</button>
+                    <span style="font-family: var(--mono); font-size: 10.5px; padding: 0 4px;">100%</span>
+                    <button style="width: 22px; height: 22px; background: transparent; border: none; color: var(--ink-2);">+</button>
+                  </div>
+                </div>
+              </div>
+            </main>
+          </div>
+        </div>
+      </div>
+      <aside class="wf-notes">
+        <h4>Design notes</h4>
+        <ul>
+          <li>The event-context bar is only present when the chart was opened via an event. Direct chart access keeps the player view as designed (no event bar).</li>
+          <li>"Next chart" advances to setlist position N+1. "Long-press the foot pedal" is a future affordance for hands-free chart switching during performance — relevant for solo-with-pedal contexts.</li>
+          <li><span class="assume">assume</span> The breadcrumb leads with "April 30 Gig" instead of "Lunar Noon" because the user's mental context is the event.</li>
+          <li><span class="assume">assume</span> "Time remaining" is the sum of remaining setlist durations. Useful before downbeat for pacing.</li>
+          <li><span class="defer">defer</span> Auto-advance after a chart's last page (with confirmation). Risky during performance — hand input only for v1.</li>
+          <li><span class="defer">defer</span> "Mark this chart as played" affordance for a director's tracking view post-performance.</li>
+        </ul>
+      </aside>
+    </div>
+  </section>
+
+</div>
+
+<script>
+  const nav = document.getElementById('nav');
+  const screens = document.querySelectorAll('.wf-screen');
+  nav.addEventListener('click', (e) => {
+    if (e.target.tagName !== 'BUTTON') return;
+    const target = e.target.dataset.target;
+    nav.querySelectorAll('button').forEach(b => b.classList.toggle('active', b.dataset.target === target));
+    screens.forEach(s => s.classList.toggle('active', s.dataset.screen === target));
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+  });
+</script>
+
+</body>
+</html>

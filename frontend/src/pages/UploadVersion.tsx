@@ -1,7 +1,7 @@
 import { useState, useEffect, FormEvent } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { createVersion } from '../api/versions';
-import { uploadPart, migrateFrom, InstrumentAssignment, MigrateFromResult } from '../api/parts';
+import { uploadPart, migrateFrom, InstrumentAssignment } from '../api/parts';
 import { getChart, getChartAnnotationSources, AnnotationSourceVersion } from '../api/charts';
 import { getEnsemble } from '../api/ensembles';
 import { getInstrumentSlots } from '../api/instrumentSlots';
@@ -11,7 +11,6 @@ import { Button } from '../components/Button';
 import { FileDropZone } from '../components/FileDropZone';
 import { SlotAssignmentPicker } from '../components/SlotAssignmentPicker';
 import { ContentKindIcon, KIND_LABELS } from '../components/ContentKindIcon';
-import { PostUploadModal, UploadedPartInfo } from '../components/PostUploadModal';
 import { ApiError } from '../api/client';
 
 type MigrationEntry = UploadEntry & {
@@ -98,13 +97,6 @@ export function UploadVersion() {
   const [uploading, setUploading] = useState(false);
   const [error, setError] = useState('');
   const [progress, setProgress] = useState('');
-
-  // Post-upload modal state
-  const [showPostUpload, setShowPostUpload] = useState(false);
-  const [uploadedParts, setUploadedParts] = useState<UploadedPartInfo[]>([]);
-  const [uploadMigrationResults, setUploadMigrationResults] = useState<MigrateFromResult[]>([]);
-  const [uploadedVersionId, setUploadedVersionId] = useState('');
-  const [uploadedVersionName, setUploadedVersionName] = useState('');
 
   function getDefaultSource(entrySlotIds: string[]): string | null {
     for (const v of annotationSources) {
@@ -210,25 +202,18 @@ export function UploadVersion() {
         }))
         .filter((m): m is { targetPartId: string; sourcePartId: string } => m.targetPartId != null);
 
-      const migrationResultsList: MigrateFromResult[] = [];
       if (migrationsToRun.length > 0) {
         setProgress(`Migrating annotations (${migrationsToRun.length} part${migrationsToRun.length !== 1 ? 's' : ''})...`);
         for (const m of migrationsToRun) {
           try {
-            const result = await migrateFrom(m.targetPartId, m.sourcePartId);
-            migrationResultsList.push(result);
+            await migrateFrom(m.targetPartId, m.sourcePartId);
           } catch {
             console.warn(`[UploadVersion] Migration failed for part ${m.targetPartId}`);
           }
         }
       }
 
-      const resolvedName = versionName.trim() || `Version ${new Date().toLocaleDateString()}`;
-      setUploadedParts(partsUploaded.map(p => ({ partId: p.partId, name: p.name, kind: p.kind })));
-      setUploadMigrationResults(migrationResultsList);
-      setUploadedVersionId(version.id);
-      setUploadedVersionName(resolvedName);
-      setShowPostUpload(true);
+      navigate(`/charts/${chartId}/versions/${version.id}`, { replace: true });
     } catch (err) {
       setError(err instanceof ApiError ? err.message : 'Upload failed');
     } finally {
@@ -446,16 +431,6 @@ export function UploadVersion() {
         </Button>
       </form>
 
-      {showPostUpload && (
-        <PostUploadModal
-          chartId={chartId!}
-          versionId={uploadedVersionId}
-          versionName={uploadedVersionName}
-          parts={uploadedParts}
-          migrationResults={uploadMigrationResults}
-          onGoToChart={() => navigate(`/charts/${chartId}/versions/${uploadedVersionId}`)}
-        />
-      )}
     </Layout>
   );
 }

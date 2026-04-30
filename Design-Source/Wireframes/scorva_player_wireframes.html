@@ -1,0 +1,2488 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width,initial-scale=1" />
+<title>Scorva — Player View Wireframes</title>
+<style>
+/* ===============================================================
+   Design tokens — lifted from Scorva Remix hifi-styles.css
+   Wireframes use the same palette as the hi-fi system so layout
+   intent translates cleanly to the polished build.
+   =============================================================== */
+:root {
+  --paper:#f5f2ec; --paper-2:#ebe7df;
+  --card:#ffffff; --card-2:#fbfaf6;
+  --highlight:#fff3da; --highlight-2:#ffe9be;
+  --ink:#0e1a2b; --ink-2:#324155; --ink-3:#6a778a; --ink-4:#9aa4b3;
+  --line:#d8d2c5; --line-2:#e7e2d6;
+  --accent:#c8531c; --accent-2:#e0763f; --accent-soft:#fbe7d7;
+  --add:#2f8d57; --add-bg:#e6f3eb;
+  --rem:#b94545; --rem-bg:#fbe7e7;
+  --mod:#b58200; --mod-bg:#faedc4;
+  --ok:#2f8d57; --ok-soft:#d9ecdf;
+  --warn:#b58200; --warn-soft:#faedc4;
+
+  --serif:"Fraunces","Iowan Old Style",Georgia,serif;
+  --sans:"Inter","Söhne","Helvetica Neue",system-ui,sans-serif;
+  --mono:"JetBrains Mono","Geist Mono",ui-monospace,monospace;
+
+  --r-sm:6px; --r-md:10px; --r-lg:14px; --r-xl:18px;
+  --shadow-sm:0 1px 2px rgba(14,26,43,0.04);
+  --shadow-md:0 4px 14px rgba(14,26,43,0.06),0 1px 2px rgba(14,26,43,0.05);
+  --shadow-lg:0 18px 48px rgba(14,26,43,0.12),0 2px 6px rgba(14,26,43,0.06);
+}
+
+* { box-sizing: border-box; }
+html, body {
+  margin: 0; padding: 0;
+  background: var(--paper-2);
+  font-family: var(--sans);
+  color: var(--ink);
+  -webkit-font-smoothing: antialiased;
+}
+.mono { font-family: var(--mono); letter-spacing: 0; }
+.serif { font-family: var(--serif); letter-spacing: -0.015em; }
+
+/* ===============================================================
+   Wireframe page chrome — index, screen titles, notes
+   These are NOT part of the product. They exist so you can
+   navigate the wireframes and read the design intent inline.
+   =============================================================== */
+.wf-shell {
+  max-width: 1280px; margin: 0 auto; padding: 32px 40px 80px;
+}
+.wf-header {
+  display: flex; align-items: baseline; justify-content: space-between;
+  padding-bottom: 18px; margin-bottom: 28px;
+  border-bottom: 1px solid var(--line);
+}
+.wf-header h1 {
+  font-family: var(--serif); font-weight: 500;
+  font-size: 28px; letter-spacing: -0.02em; margin: 0;
+}
+.wf-header .meta {
+  font-family: var(--mono); font-size: 11px;
+  color: var(--ink-3); text-transform: uppercase; letter-spacing: 0.1em;
+}
+.wf-intro {
+  background: var(--card); border: 1px solid var(--line);
+  border-radius: var(--r-md); padding: 18px 22px;
+  margin-bottom: 28px; font-size: 13.5px; line-height: 1.55;
+  color: var(--ink-2); max-width: 880px;
+}
+.wf-intro b { color: var(--ink); }
+.wf-intro .legend {
+  display: flex; gap: 18px; margin-top: 10px;
+  font-family: var(--mono); font-size: 10.5px; color: var(--ink-3);
+  text-transform: uppercase; letter-spacing: 0.08em;
+}
+.wf-intro .legend span { display: inline-flex; align-items: center; gap: 6px; }
+.wf-intro .legend .swatch {
+  width: 12px; height: 12px; border-radius: 3px;
+  border: 1px solid var(--line);
+}
+
+.wf-nav {
+  display: flex; flex-wrap: wrap; gap: 6px;
+  margin-bottom: 36px;
+  padding: 10px; background: var(--card);
+  border: 1px solid var(--line); border-radius: var(--r-md);
+}
+.wf-nav button {
+  font-family: var(--mono); font-size: 11px;
+  padding: 6px 11px; border-radius: var(--r-sm);
+  border: 1px solid var(--line); background: var(--card-2);
+  color: var(--ink-2); cursor: pointer;
+  letter-spacing: 0.04em;
+}
+.wf-nav button:hover { background: var(--paper); }
+.wf-nav button.active { background: var(--ink); color: var(--paper); border-color: var(--ink); }
+
+.wf-screen {
+  display: none;
+  margin-bottom: 60px;
+}
+.wf-screen.active { display: block; }
+.wf-screen h2 {
+  font-family: var(--serif); font-weight: 500;
+  font-size: 20px; letter-spacing: -0.015em;
+  margin: 0 0 6px;
+}
+.wf-screen .caption {
+  font-size: 13px; color: var(--ink-3); margin: 0 0 20px;
+  max-width: 760px; line-height: 1.5;
+}
+.wf-frame-wrap {
+  display: flex; gap: 24px; align-items: flex-start;
+}
+.wf-frame {
+  background: var(--paper);
+  border: 1px solid var(--line);
+  border-radius: var(--r-md);
+  overflow: hidden;
+  box-shadow: var(--shadow-md);
+  flex: 1;
+  min-width: 0;
+}
+.wf-frame-label {
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 8px 14px;
+  font-family: var(--mono); font-size: 10.5px;
+  text-transform: uppercase; letter-spacing: 0.08em;
+  color: var(--ink-3);
+  background: var(--card-2);
+  border-bottom: 1px solid var(--line-2);
+}
+.wf-frame-label .form-factor {
+  padding: 2px 7px; border-radius: 999px;
+  background: var(--paper-2); border: 1px solid var(--line);
+  color: var(--ink-2);
+}
+.wf-notes {
+  width: 280px; flex-shrink: 0;
+  font-size: 12.5px; color: var(--ink-2); line-height: 1.55;
+}
+.wf-notes h4 {
+  font-family: var(--mono); font-size: 10.5px;
+  text-transform: uppercase; letter-spacing: 0.1em;
+  color: var(--ink-3); margin: 0 0 10px;
+}
+.wf-notes ul { list-style: none; padding: 0; margin: 0; }
+.wf-notes li {
+  padding: 8px 0; border-bottom: 1px dashed var(--line-2);
+  display: flex; gap: 8px;
+}
+.wf-notes li:last-child { border-bottom: none; }
+.wf-notes li::before {
+  content: "·"; color: var(--accent);
+  font-weight: 700; flex-shrink: 0;
+}
+.wf-notes .defer {
+  display: inline-block;
+  font-family: var(--mono); font-size: 9.5px;
+  background: var(--mod-bg); color: var(--mod);
+  padding: 1px 5px; border-radius: 3px;
+  margin-right: 4px; text-transform: uppercase; letter-spacing: 0.06em;
+}
+.wf-notes .assume {
+  display: inline-block;
+  font-family: var(--mono); font-size: 9.5px;
+  background: var(--ok-soft); color: var(--ok);
+  padding: 1px 5px; border-radius: 3px;
+  margin-right: 4px; text-transform: uppercase; letter-spacing: 0.06em;
+}
+
+/* ===============================================================
+   Form-factor frames — iPad and laptop
+   =============================================================== */
+.frame-ipad-l {
+  /* iPad landscape ~ 1180×820 effective. We use 1024×768 inside frame. */
+  aspect-ratio: 1024/720;
+  width: 100%;
+  background: var(--paper);
+  display: flex; flex-direction: column;
+}
+.frame-laptop {
+  aspect-ratio: 1280/780;
+  width: 100%;
+  background: var(--paper);
+  display: flex; flex-direction: column;
+}
+.frame-ipad-p {
+  aspect-ratio: 768/1024;
+  max-width: 480px;
+  background: var(--paper);
+  display: flex; flex-direction: column;
+}
+
+/* ===============================================================
+   Shared chrome — sidebar, topbar, breadcrumbs
+   Lifted from hifi-styles patterns but simplified.
+   =============================================================== */
+.app-shell {
+  display: grid; grid-template-columns: 200px 1fr;
+  height: 100%; width: 100%;
+  background: var(--paper);
+}
+.app-shell.no-sidebar { grid-template-columns: 1fr; }
+
+.sidebar {
+  border-right: 1px solid var(--line);
+  padding: 14px 10px;
+  font-size: 12px;
+  display: flex; flex-direction: column; gap: 1px;
+  overflow: hidden;
+}
+.sidebar .brand {
+  display: flex; align-items: center; gap: 7px;
+  padding: 2px 4px 12px;
+  border-bottom: 1px solid var(--line-2);
+  margin-bottom: 10px;
+}
+.sidebar .brand .mark {
+  width: 20px; height: 20px; border-radius: 5px;
+  background: var(--ink); color: var(--paper);
+  display: flex; align-items: center; justify-content: center;
+  font-family: var(--serif); font-weight: 600; font-size: 13px;
+  font-style: italic;
+}
+.sidebar .brand .name {
+  font-family: var(--serif); font-weight: 500; font-size: 15px;
+  letter-spacing: -0.02em;
+}
+.sidebar .group {
+  font-family: var(--mono); font-size: 9px;
+  text-transform: uppercase; letter-spacing: 0.1em;
+  color: var(--ink-4);
+  padding: 12px 4px 5px;
+}
+.sidebar .item {
+  padding: 5px 7px; border-radius: var(--r-sm);
+  color: var(--ink-2); cursor: pointer;
+  display: flex; align-items: center; gap: 7px;
+}
+.sidebar .item:hover { background: var(--paper-2); }
+.sidebar .item.active { background: var(--ink); color: var(--paper); }
+.sidebar .item.sub { padding-left: 16px; font-size: 11.5px; color: var(--ink-3); }
+.sidebar .item.sub.active { color: var(--paper); }
+.sidebar .dot {
+  width: 6px; height: 6px; border-radius: 999px; background: var(--ink-4);
+  flex-shrink: 0;
+}
+.sidebar .dot.live { background: var(--accent); }
+.sidebar .dot.ok { background: var(--ok); }
+.sidebar .badge {
+  margin-left: auto;
+  font-family: var(--mono); font-size: 9.5px;
+  padding: 1px 5px; border-radius: 3px;
+  background: var(--accent-soft); color: var(--accent);
+}
+.sidebar .item.active .badge { background: rgba(255,255,255,0.18); color: var(--paper); }
+
+.topbar {
+  display: flex; align-items: center; gap: 10px;
+  padding: 9px 18px;
+  border-bottom: 1px solid var(--line-2);
+  background: var(--paper);
+  font-size: 12.5px;
+  flex-shrink: 0;
+}
+.crumbs { display: flex; align-items: center; gap: 5px; color: var(--ink-3); }
+.crumbs .sep { color: var(--ink-4); }
+.crumbs .cur { color: var(--ink); font-weight: 500; }
+.topbar .grow { flex: 1; }
+.topbar .right { display: flex; align-items: center; gap: 12px; color: var(--ink-3); font-family: var(--mono); font-size: 11px; }
+.topbar .sync { display: inline-flex; align-items: center; gap: 5px; }
+.topbar .sync .dot { width: 6px; height: 6px; border-radius: 999px; background: var(--ok); }
+
+/* ===============================================================
+   Buttons (compact wireframe variants)
+   =============================================================== */
+.btn {
+  display: inline-flex; align-items: center; gap: 5px;
+  padding: 6px 11px; border-radius: var(--r-sm);
+  font-size: 12px; font-weight: 500;
+  background: var(--ink); color: var(--paper);
+  border: 1px solid var(--ink); cursor: pointer;
+  font-family: inherit;
+}
+.btn:hover { background: #1a293d; }
+.btn.primary { background: var(--accent); border-color: var(--accent); color: white; }
+.btn.ghost { background: transparent; color: var(--ink); border-color: var(--line); }
+.btn.ghost:hover { background: var(--paper-2); }
+.btn.tiny { padding: 3px 8px; font-size: 11px; }
+.btn.icon { padding: 6px; }
+.kbd { font-family: var(--mono); font-size: 10px; opacity: 0.7; padding: 1px 4px; background: rgba(255,255,255,0.12); border-radius: 3px; }
+.btn.ghost .kbd { background: var(--paper-2); opacity: 1; color: var(--ink-3); }
+
+/* ===============================================================
+   PLAYER TOOLBAR — top and side. Brief specifies both.
+   =============================================================== */
+.toolbar-top {
+  display: flex; align-items: center; gap: 6px;
+  padding: 7px 14px;
+  background: var(--card-2);
+  border-bottom: 1px solid var(--line-2);
+  flex-shrink: 0;
+}
+.toolbar-top .group {
+  display: flex; gap: 2px; padding: 0 6px;
+  border-right: 1px solid var(--line-2);
+}
+.toolbar-top .group:last-child { border-right: none; }
+.toolbar-top .group:first-child { padding-left: 0; }
+.tool {
+  width: 30px; height: 28px; border-radius: var(--r-sm);
+  display: flex; align-items: center; justify-content: center;
+  background: transparent; color: var(--ink-2);
+  border: 1px solid transparent; cursor: pointer;
+  font-family: var(--mono); font-size: 11px;
+}
+.tool:hover { background: var(--paper); }
+.tool.active { background: var(--ink); color: var(--paper); border-color: var(--ink); }
+.tool .label {
+  font-family: var(--mono); font-size: 10px; letter-spacing: 0.04em;
+}
+.tool-wide {
+  height: 28px; padding: 0 9px; border-radius: var(--r-sm);
+  display: inline-flex; align-items: center; gap: 5px;
+  background: transparent; color: var(--ink-2);
+  border: 1px solid transparent; cursor: pointer;
+  font-size: 11.5px;
+}
+.tool-wide:hover { background: var(--paper); }
+.tool-wide.active { background: var(--ink); color: var(--paper); }
+.tool-wide .caret { color: var(--ink-4); margin-left: 2px; }
+.tool-wide.active .caret { color: var(--paper); opacity: 0.7; }
+
+.toolbar-side {
+  width: 44px; flex-shrink: 0;
+  display: flex; flex-direction: column;
+  align-items: center; padding: 10px 0;
+  gap: 4px;
+  background: var(--card-2);
+  border-right: 1px solid var(--line-2);
+}
+.toolbar-side .tool { width: 32px; height: 32px; }
+.toolbar-side .divider {
+  width: 24px; height: 1px;
+  background: var(--line-2); margin: 4px 0;
+}
+
+/* ===============================================================
+   PAGE CANVAS — where the score (with measure boxes) renders
+   =============================================================== */
+.canvas-wrap {
+  flex: 1; position: relative; overflow: hidden;
+  background: var(--paper-2);
+  display: flex; flex-direction: column;
+}
+.page-area {
+  flex: 1; overflow: auto; position: relative;
+  display: flex; align-items: flex-start; justify-content: center;
+  padding: 18px;
+}
+.page {
+  width: 720px;
+  background: var(--card);
+  border: 1px solid var(--line);
+  box-shadow: var(--shadow-sm);
+  padding: 36px 50px;
+  position: relative;
+  flex-shrink: 0;
+}
+.page-narrow { width: 540px; }
+.page-title {
+  text-align: center;
+  font-family: var(--mono); font-size: 10.5px;
+  letter-spacing: 0.18em; text-transform: uppercase;
+  color: var(--ink-3);
+  margin-bottom: 22px;
+}
+.staff-system {
+  position: relative;
+  margin-bottom: 36px;
+}
+.staff-lines {
+  display: flex; flex-direction: column; gap: 5px;
+  margin-left: 22px;
+}
+.staff-line { height: 1.2px; background: var(--ink); opacity: 0.65; }
+.clef {
+  font-family: var(--serif); font-size: 26px; color: var(--ink-3);
+  position: absolute; left: -4px; top: -2px;
+}
+.barline {
+  position: absolute; top: 1px; bottom: 1px;
+  width: 1px; background: var(--ink); opacity: 0.5;
+}
+.measure-box {
+  position: absolute; top: -3px; bottom: -3px;
+  border: 1.5px solid var(--accent);
+  border-radius: 2px;
+  pointer-events: auto;
+  cursor: pointer;
+}
+.measure-box:hover { background: rgba(200, 83, 28, 0.06); }
+.measure-box .m-label {
+  position: absolute; top: -16px; left: 2px;
+  font-family: var(--mono); font-size: 9.5px;
+  font-weight: 600; color: var(--accent);
+}
+.measure-box.changed {
+  background: rgba(181,130,0,0.12);
+  border-color: var(--mod);
+}
+.measure-box.changed .m-label { color: var(--mod); }
+.measure-box.added {
+  background: rgba(47,141,87,0.10);
+  border-color: var(--add);
+}
+.measure-box.added .m-label { color: var(--add); }
+.measure-box.selected {
+  background: rgba(14,26,43,0.06);
+  border-color: var(--ink);
+  border-width: 2px;
+}
+.measure-box.selected .m-label { color: var(--ink); }
+
+/* Decorative noteheads — purely visual */
+.note {
+  position: absolute;
+  width: 6px; height: 4px; border-radius: 50%;
+  background: var(--ink);
+  transform: rotate(-12deg);
+}
+
+/* Annotations on the page */
+.annot {
+  position: absolute;
+  font-family: 'Caveat', cursive;
+  font-size: 16px; font-weight: 600;
+  color: var(--accent);
+  pointer-events: auto;
+}
+.annot.cresc {
+  width: 80px; height: 14px;
+}
+.annot.cresc::before, .annot.cresc::after {
+  content: ""; position: absolute; left: 0; right: 0;
+  border-top: 1.5px solid var(--accent);
+}
+.annot.cresc::before { top: 2px; transform: rotate(2deg); transform-origin: left; }
+.annot.cresc::after  { bottom: 2px; transform: rotate(-2deg); transform-origin: left; }
+.annot.selected {
+  outline: 1.5px dashed var(--ink);
+  outline-offset: 4px;
+}
+.annot.selected .handle {
+  position: absolute;
+  width: 6px; height: 6px;
+  background: var(--card); border: 1px solid var(--ink);
+}
+.annot.highlight-mark {
+  background: rgba(255, 230, 130, 0.45);
+  border-radius: 2px;
+}
+
+/* Page footer with page-turn affordances */
+.page-controls {
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 8px 18px;
+  background: var(--card-2);
+  border-top: 1px solid var(--line-2);
+  font-family: var(--mono); font-size: 11px;
+  color: var(--ink-3);
+  flex-shrink: 0;
+}
+.page-controls .page-btn {
+  width: 36px; height: 28px;
+  display: flex; align-items: center; justify-content: center;
+  border-radius: var(--r-sm);
+  background: var(--card); border: 1px solid var(--line);
+  cursor: pointer;
+}
+.page-controls .page-btn:hover { background: var(--paper); }
+.page-controls .pedal-hint {
+  font-size: 10px; color: var(--ink-4);
+  background: var(--paper); padding: 2px 7px; border-radius: 999px;
+  border: 1px dashed var(--line);
+}
+.page-controls .zoom {
+  display: inline-flex; align-items: center; gap: 4px;
+  padding: 2px 5px; background: var(--card);
+  border: 1px solid var(--line); border-radius: var(--r-sm);
+}
+.page-controls .zoom button {
+  width: 22px; height: 22px;
+  background: transparent; border: none; color: var(--ink-2);
+  cursor: pointer; font-family: inherit;
+}
+.page-controls .zoom .level {
+  font-family: var(--mono); font-size: 10.5px; padding: 0 4px;
+}
+
+/* ===============================================================
+   Version pill, sync indicator, etc.
+   =============================================================== */
+.ver-pill {
+  display: inline-flex; align-items: center; gap: 5px;
+  font-family: var(--mono); font-size: 10.5px;
+  padding: 2px 7px; border-radius: 999px;
+  border: 1px solid var(--line); background: var(--card);
+  color: var(--ink-2);
+}
+.ver-pill.changed {
+  background: var(--accent-soft); border-color: var(--accent);
+  color: var(--accent); font-weight: 600;
+}
+.dot-changed {
+  width: 6px; height: 6px; border-radius: 999px;
+  background: var(--accent);
+}
+
+/* ===============================================================
+   Diff banner / migration banner — variant A (persistent strip)
+   =============================================================== */
+.diff-banner {
+  display: flex; align-items: center; gap: 12px;
+  padding: 10px 14px;
+  margin: 10px 14px;
+  background: var(--ok-soft);
+  border: 1px solid rgba(47,141,87,0.35);
+  border-radius: var(--r-md);
+}
+.diff-banner .icon {
+  width: 28px; height: 28px; border-radius: 999px;
+  background: white; border: 1.5px solid var(--ok); color: var(--ok);
+  display: flex; align-items: center; justify-content: center;
+  font-size: 14px; font-weight: 700;
+  flex-shrink: 0;
+}
+.diff-banner .body { flex: 1; min-width: 0; }
+.diff-banner .body .t { font-weight: 500; font-size: 13px; }
+.diff-banner .body .sub { font-size: 11.5px; color: var(--ink-3); margin-top: 1px; }
+.diff-banner .actions { display: flex; gap: 5px; }
+.diff-banner .actions .b {
+  padding: 4px 10px; font-size: 11px;
+  border: 1px solid var(--line); background: white;
+  border-radius: var(--r-sm); cursor: pointer; font-weight: 500;
+  color: var(--ink-2);
+}
+.diff-banner .actions .b.primary {
+  background: var(--ink); color: var(--paper); border-color: var(--ink);
+}
+
+/* Diff banner variant B — bottom-sheet summary that requires acknowledge */
+.diff-overlay {
+  position: absolute; inset: 0;
+  background: rgba(14,26,43,0.32);
+  display: flex; align-items: flex-end; justify-content: center;
+  padding-bottom: 0;
+}
+.diff-sheet {
+  width: 100%;
+  background: var(--card);
+  border-top: 1px solid var(--line);
+  border-top-left-radius: var(--r-lg); border-top-right-radius: var(--r-lg);
+  padding: 22px 28px 24px;
+  box-shadow: var(--shadow-lg);
+}
+.diff-sheet h3 {
+  font-family: var(--serif); font-weight: 500;
+  font-size: 19px; margin: 0 0 6px;
+  letter-spacing: -0.015em;
+}
+.diff-sheet .sub {
+  font-size: 12.5px; color: var(--ink-3); margin-bottom: 16px;
+}
+.diff-stat-row {
+  display: flex; gap: 18px; margin-bottom: 16px;
+}
+.diff-stat {
+  flex: 1; padding: 10px 14px;
+  border: 1px solid var(--line);
+  border-radius: var(--r-md);
+  background: var(--paper);
+}
+.diff-stat .n {
+  font-family: var(--serif); font-weight: 500;
+  font-size: 22px; letter-spacing: -0.02em;
+  display: block; margin-bottom: 2px;
+}
+.diff-stat .l {
+  font-family: var(--mono); font-size: 10px;
+  text-transform: uppercase; letter-spacing: 0.08em;
+  color: var(--ink-3);
+}
+.diff-stat.changed .n { color: var(--mod); }
+.diff-stat.preserved .n { color: var(--ok); }
+.diff-stat.review .n { color: var(--accent); }
+.diff-sheet .row {
+  display: flex; align-items: center; gap: 10px;
+  margin-top: 6px;
+}
+
+/* Diff banner variant C — stepper / guided walkthrough */
+.diff-stepper {
+  position: absolute;
+  bottom: 14px; left: 50%; transform: translateX(-50%);
+  display: flex; align-items: center; gap: 8px;
+  padding: 10px 14px;
+  background: var(--card);
+  border: 1px solid var(--ink);
+  border-radius: 999px;
+  box-shadow: var(--shadow-lg);
+  font-size: 12px;
+}
+.diff-stepper .progress {
+  font-family: var(--mono); font-size: 10.5px; color: var(--ink-3);
+  padding: 0 4px;
+}
+.diff-stepper .step-label {
+  font-weight: 500;
+}
+.diff-stepper .step-meta { color: var(--ink-3); font-size: 11px; }
+.diff-stepper .nav-btn {
+  width: 26px; height: 26px; border-radius: 999px;
+  background: var(--paper); border: 1px solid var(--line);
+  display: flex; align-items: center; justify-content: center;
+  cursor: pointer;
+}
+.diff-stepper .done {
+  margin-left: 6px;
+  padding: 4px 12px; font-size: 11px;
+  background: var(--ink); color: var(--paper);
+  border-radius: var(--r-sm); border: none;
+  cursor: pointer;
+}
+
+/* Diff overlay arrow pointing at a measure */
+.diff-callout {
+  position: absolute;
+  background: var(--card);
+  border: 1px solid var(--ink);
+  border-radius: var(--r-md);
+  padding: 8px 12px;
+  font-size: 12px;
+  box-shadow: var(--shadow-md);
+  width: 220px;
+}
+.diff-callout .head {
+  font-family: var(--mono); font-size: 10px;
+  text-transform: uppercase; letter-spacing: 0.08em;
+  color: var(--mod); margin-bottom: 4px;
+}
+.diff-callout .body { color: var(--ink-2); line-height: 1.4; }
+.diff-callout .annot-ok {
+  margin-top: 6px; padding-top: 6px;
+  border-top: 1px dashed var(--line-2);
+  font-size: 11px; color: var(--ok);
+  display: flex; align-items: center; gap: 5px;
+}
+
+/* ===============================================================
+   Cards / list rows for Chart-list, My Parts, Notifications
+   =============================================================== */
+.list-shell {
+  flex: 1; overflow: auto;
+  padding: 28px 36px 60px;
+}
+.list-inner { max-width: 880px; margin: 0 auto; }
+.list-h {
+  display: flex; align-items: flex-end; justify-content: space-between;
+  margin-bottom: 22px;
+}
+.list-h h1 {
+  font-family: var(--serif); font-weight: 500;
+  font-size: 26px; margin: 0;
+  letter-spacing: -0.02em;
+}
+.list-h .eyebrow {
+  font-family: var(--mono); font-size: 10px;
+  letter-spacing: 0.12em; text-transform: uppercase;
+  color: var(--ink-4); margin-bottom: 4px;
+}
+.list-h .meta {
+  font-family: var(--mono); font-size: 11px; color: var(--ink-3);
+}
+.list-row {
+  display: grid;
+  grid-template-columns: 32px 1fr 130px 90px 110px;
+  gap: 14px; align-items: center;
+  padding: 12px 16px;
+  background: var(--card);
+  border: 1px solid var(--line);
+  border-bottom: none;
+  cursor: pointer;
+}
+.list-row:first-of-type { border-radius: var(--r-md) var(--r-md) 0 0; }
+.list-row:last-of-type { border-radius: 0 0 var(--r-md) var(--r-md); border-bottom: 1px solid var(--line); }
+.list-row:hover { background: var(--card-2); }
+.list-row .glyph {
+  width: 28px; height: 28px; border-radius: var(--r-sm);
+  background: var(--paper); border: 1px solid var(--line);
+  display: flex; align-items: center; justify-content: center;
+  font-family: var(--serif); font-size: 14px; color: var(--ink-3);
+}
+.list-row .name {
+  font-weight: 500; font-size: 14px;
+}
+.list-row .name .sub {
+  display: block; font-size: 11.5px; color: var(--ink-3);
+  font-weight: 400; margin-top: 1px;
+}
+.list-row .meta-col {
+  font-family: var(--mono); font-size: 10.5px; color: var(--ink-3);
+}
+.list-row .ver-col { display: flex; }
+.list-row.has-update {
+  background: linear-gradient(90deg, var(--accent-soft) 0%, var(--card) 30%);
+}
+
+/* Chart list (charts of one ensemble) */
+.chart-row {
+  display: grid;
+  grid-template-columns: 1fr 130px 110px 110px;
+  gap: 14px; align-items: center;
+  padding: 14px 16px;
+  background: var(--card);
+  border: 1px solid var(--line);
+  border-bottom: none;
+  cursor: pointer;
+}
+.chart-row:first-of-type { border-radius: var(--r-md) var(--r-md) 0 0; }
+.chart-row:last-of-type { border-radius: 0 0 var(--r-md) var(--r-md); border-bottom: 1px solid var(--line); }
+.chart-row:hover { background: var(--card-2); }
+.chart-row .name {
+  font-family: var(--serif); font-weight: 500; font-size: 17px;
+  letter-spacing: -0.01em;
+}
+.chart-row .sub { font-size: 11.5px; color: var(--ink-3); margin-top: 2px; }
+
+/* Notification feed */
+.notif-row {
+  display: grid; grid-template-columns: 32px 1fr 100px;
+  gap: 14px; align-items: flex-start;
+  padding: 14px 18px;
+  background: var(--card);
+  border-bottom: 1px solid var(--line-2);
+  cursor: pointer;
+}
+.notif-row:hover { background: var(--card-2); }
+.notif-row.unread { background: var(--card-2); border-left: 3px solid var(--accent); }
+.notif-row.unread .name { font-weight: 600; }
+.notif-row .icon-wrap {
+  width: 28px; height: 28px; border-radius: 999px;
+  background: var(--paper); border: 1px solid var(--line);
+  display: flex; align-items: center; justify-content: center;
+  font-size: 13px; color: var(--ink-3);
+  flex-shrink: 0;
+}
+.notif-row.unread .icon-wrap {
+  background: var(--accent-soft); color: var(--accent); border-color: var(--accent);
+}
+.notif-row .name { font-size: 13.5px; line-height: 1.4; }
+.notif-row .name b { font-weight: 600; }
+.notif-row .sub { font-size: 11.5px; color: var(--ink-3); margin-top: 4px; }
+.notif-row .when { font-family: var(--mono); font-size: 10.5px; color: var(--ink-4); text-align: right; }
+
+/* ===============================================================
+   Version dropdown / popover
+   =============================================================== */
+.ver-dropdown {
+  position: absolute;
+  top: 38px; left: 50%; transform: translateX(-50%);
+  width: 320px;
+  background: var(--card); border: 1px solid var(--ink);
+  border-radius: var(--r-md);
+  box-shadow: var(--shadow-lg);
+  padding: 6px;
+  z-index: 10;
+}
+.ver-dropdown .head {
+  padding: 6px 10px; font-family: var(--mono); font-size: 10px;
+  text-transform: uppercase; letter-spacing: 0.1em; color: var(--ink-4);
+  border-bottom: 1px solid var(--line-2);
+  margin-bottom: 4px;
+}
+.ver-dropdown .row {
+  display: grid; grid-template-columns: 1fr auto;
+  align-items: center; gap: 8px;
+  padding: 8px 10px; border-radius: var(--r-sm);
+  cursor: pointer;
+}
+.ver-dropdown .row:hover { background: var(--paper-2); }
+.ver-dropdown .row.cur { background: var(--highlight); }
+.ver-dropdown .row .vname { font-weight: 500; font-size: 13px; }
+.ver-dropdown .row .vmeta { font-size: 11px; color: var(--ink-3); margin-top: 1px; }
+.ver-dropdown .row .right { font-family: var(--mono); font-size: 10px; color: var(--ink-4); }
+.ver-dropdown .row.cur .right { color: var(--accent); font-weight: 600; }
+.ver-dropdown .foot {
+  border-top: 1px solid var(--line-2); margin-top: 4px; padding-top: 4px;
+}
+.ver-dropdown .foot .row { color: var(--accent); font-weight: 500; font-size: 12px; }
+
+/* ===============================================================
+   History view (split: preview + rail)
+   =============================================================== */
+.history-shell {
+  display: grid; grid-template-columns: 1fr 280px;
+  height: 100%; flex: 1; background: var(--paper);
+}
+.history-preview {
+  padding: 24px 32px;
+  background: var(--card);
+  border-right: 1px solid var(--line);
+  overflow: hidden;
+}
+.history-preview h2 {
+  font-family: var(--serif); font-weight: 500;
+  font-size: 22px; margin: 0 0 14px;
+  letter-spacing: -0.02em;
+}
+.history-preview .label {
+  font-family: var(--mono); font-size: 10px; letter-spacing: 0.1em;
+  text-transform: uppercase; color: var(--ink-4); margin-bottom: 8px;
+}
+.history-rail {
+  padding: 20px 18px; overflow: auto;
+}
+.history-rail .label {
+  font-family: var(--mono); font-size: 10px; letter-spacing: 0.1em;
+  text-transform: uppercase; color: var(--ink-4); margin-bottom: 12px;
+}
+.h-entry {
+  display: grid; grid-template-columns: 22px 1fr;
+  gap: 12px; padding: 10px 10px;
+  border-radius: var(--r-md); cursor: pointer;
+  position: relative;
+}
+.h-entry:hover { background: var(--card-2); }
+.h-entry.cur { background: var(--highlight); }
+.h-entry.cur::before {
+  content: ""; position: absolute; left: 0; top: 8px; bottom: 8px;
+  width: 2px; background: var(--accent); border-radius: 2px;
+}
+.h-entry .dot-col { display: flex; flex-direction: column; align-items: center; }
+.h-entry .dot {
+  width: 10px; height: 10px; border-radius: 999px;
+  background: var(--ink-4); border: 2px solid var(--paper);
+  margin-top: 5px;
+}
+.h-entry.cur .dot { background: var(--accent); }
+.h-entry.changed .dot { background: var(--mod); }
+.h-entry.added .dot { background: var(--add); }
+.h-entry .line { width: 1.5px; flex: 1; background: var(--line); margin-top: 3px; }
+.h-entry:last-child .line { display: none; }
+.h-entry .vlabel { font-weight: 600; font-size: 13.5px; }
+.h-entry .when { font-family: var(--mono); font-size: 10px; color: var(--ink-4); margin-left: 6px; font-weight: 400; }
+.h-entry .desc { font-size: 12px; color: var(--ink-3); margin-top: 2px; line-height: 1.4; }
+
+/* ===============================================================
+   Filter dropdown for annotation visibility
+   =============================================================== */
+.filter-pop {
+  position: absolute;
+  top: 42px; right: 14px;
+  width: 240px;
+  background: var(--card); border: 1px solid var(--ink);
+  border-radius: var(--r-md);
+  box-shadow: var(--shadow-lg);
+  padding: 6px;
+  z-index: 10;
+}
+.filter-pop .head {
+  padding: 6px 10px; font-family: var(--mono); font-size: 10px;
+  text-transform: uppercase; letter-spacing: 0.1em; color: var(--ink-4);
+}
+.filter-pop .opt {
+  display: flex; align-items: center; gap: 8px;
+  padding: 7px 10px; border-radius: var(--r-sm);
+  cursor: pointer; font-size: 12.5px;
+}
+.filter-pop .opt:hover { background: var(--paper-2); }
+.filter-pop .opt input { accent-color: var(--ink); }
+.filter-pop .divider {
+  height: 1px; background: var(--line-2); margin: 4px 8px;
+}
+
+/* ===============================================================
+   Auto-split annotation demo box
+   =============================================================== */
+.autosplit-tooltip {
+  position: absolute;
+  background: var(--ink); color: var(--paper);
+  font-size: 11px; padding: 5px 9px;
+  border-radius: var(--r-sm);
+  font-family: var(--mono);
+}
+.autosplit-tooltip::after {
+  content: ""; position: absolute;
+  top: 100%; left: 20px;
+  border: 5px solid transparent;
+  border-top-color: var(--ink);
+}
+
+/* ===============================================================
+   Misc helpers
+   =============================================================== */
+.spacer-sm { height: 8px; }
+.spacer { height: 16px; }
+.row { display: flex; align-items: center; gap: 8px; }
+
+/* Selection handles (8 around bbox) */
+.handle-bbox {
+  position: absolute;
+  border: 1.5px dashed var(--ink);
+}
+.handle-bbox .h {
+  position: absolute;
+  width: 7px; height: 7px;
+  background: var(--card);
+  border: 1.5px solid var(--ink);
+}
+.handle-bbox .h.tl { top: -4px; left: -4px; }
+.handle-bbox .h.tc { top: -4px; left: 50%; transform: translateX(-50%); }
+.handle-bbox .h.tr { top: -4px; right: -4px; }
+.handle-bbox .h.ml { top: 50%; left: -4px; transform: translateY(-50%); }
+.handle-bbox .h.mr { top: 50%; right: -4px; transform: translateY(-50%); }
+.handle-bbox .h.bl { bottom: -4px; left: -4px; }
+.handle-bbox .h.bc { bottom: 50%; left: 50%; transform: translate(-50%, 50%); }
+.handle-bbox .h.bc { bottom: -4px; left: 50%; transform: translateX(-50%); }
+.handle-bbox .h.br { bottom: -4px; right: -4px; }
+
+</style>
+</head>
+<body>
+<div class="wf-shell">
+
+  <!-- ============================================================
+       Header + intro
+       ============================================================ -->
+  <div class="wf-header">
+    <h1 class="serif">Scorva — Player View Wireframes</h1>
+    <span class="meta">Wireframe · v0.1 · Apr 30 2026</span>
+  </div>
+
+  <div class="wf-intro">
+    Wireframe-fidelity layouts for the player journey, drawn against the Scorva design system tokens (paper background, deep ink, warm orange accent, diff palette). The hero flow is the <b>updated-part moment</b> — three approaches to that moment are shown side by side. All other screens have one treatment each. Two form factors: iPad landscape and laptop. Inline notes flag assumptions and deferred behavior.
+    <div class="legend">
+      <span><span class="swatch" style="background: var(--accent-soft); border-color: var(--accent);"></span> measure box</span>
+      <span><span class="swatch" style="background: var(--mod-bg); border-color: var(--mod);"></span> changed</span>
+      <span><span class="swatch" style="background: var(--add-bg); border-color: var(--add);"></span> added</span>
+      <span><span class="swatch" style="background: var(--ok-soft); border-color: var(--ok);"></span> preserved annotations</span>
+    </div>
+  </div>
+
+  <!-- Screen nav -->
+  <div class="wf-nav" id="nav">
+    <button data-target="01" class="active">01 · My Parts (entry)</button>
+    <button data-target="02">02 · Chart list (entry)</button>
+    <button data-target="03">03 · Notifications (entry)</button>
+    <button data-target="04">04 · Opened part — resting</button>
+    <button data-target="05a">05a · Updated · Approach A (banner)</button>
+    <button data-target="05b">05b · Updated · Approach B (sheet)</button>
+    <button data-target="05c">05c · Updated · Approach C (stepper)</button>
+    <button data-target="06">06 · Annotation create + select</button>
+    <button data-target="07">07 · Auto-split at barlines</button>
+    <button data-target="08">08 · Version dropdown + filter</button>
+    <button data-target="09">09 · Version history</button>
+    <button data-target="10">10 · Laptop layout</button>
+  </div>
+
+  <!-- ============================================================
+       SCREEN 01 — My Parts (cross-ensemble entry)
+       ============================================================ -->
+  <section class="wf-screen active" data-screen="01">
+    <h2 class="serif">01 · My Parts</h2>
+    <p class="caption">Cross-ensemble list of every part the player is assigned. Sorted by recency or by upcoming rehearsal. Updates to parts are flagged inline so the player can see at a glance what's worth opening first.</p>
+    <div class="wf-frame-wrap">
+      <div class="wf-frame">
+        <div class="wf-frame-label">My Parts <span class="form-factor">iPad · landscape</span></div>
+        <div class="frame-ipad-l">
+          <div class="app-shell">
+            <aside class="sidebar">
+              <div class="brand"><div class="mark">S</div><div class="name serif">Scorva</div></div>
+              <div class="item active"><span class="dot live"></span>My Parts <span class="badge">3</span></div>
+              <div class="item"><span class="dot"></span>Notifications</div>
+              <div class="group">Ensembles</div>
+              <div class="item"><span class="dot"></span>TAK Ensemble</div>
+              <div class="item sub">Lunar Noon</div>
+              <div class="item sub">Lichen Songs</div>
+              <div class="item"><span class="dot"></span>St. Mark's Worship</div>
+              <div class="item"><span class="dot"></span>Big Band — Tues</div>
+            </aside>
+            <main style="display:flex; flex-direction:column;">
+              <div class="topbar">
+                <div class="crumbs"><span class="cur">My Parts</span></div>
+                <div class="grow"></div>
+                <div class="right"><span class="sync"><span class="dot"></span>synced · just now</span></div>
+              </div>
+              <div class="list-shell">
+                <div class="list-inner">
+                  <div class="list-h">
+                    <div>
+                      <div class="eyebrow">Across all ensembles</div>
+                      <h1 class="serif">My Parts</h1>
+                    </div>
+                    <div class="meta">12 parts · 3 updated · sort: rehearsal</div>
+                  </div>
+
+                  <div class="list-row has-update">
+                    <div class="glyph">𝄞</div>
+                    <div class="name">Violin 1 — Lunar Noon
+                      <span class="sub">TAK Ensemble · rehearsal in 2h</span>
+                    </div>
+                    <div class="meta-col">v3 · updated</div>
+                    <div><span class="ver-pill changed"><span class="dot-changed"></span>4 changed</span></div>
+                    <div class="meta-col">2:14 PM</div>
+                  </div>
+                  <div class="list-row has-update">
+                    <div class="glyph">𝄞</div>
+                    <div class="name">Trumpet 2 — All of Me
+                      <span class="sub">Big Band — Tues · this Tue</span>
+                    </div>
+                    <div class="meta-col">v2 · updated</div>
+                    <div><span class="ver-pill changed"><span class="dot-changed"></span>1 changed</span></div>
+                    <div class="meta-col">10:02 AM</div>
+                  </div>
+                  <div class="list-row">
+                    <div class="glyph">𝄞</div>
+                    <div class="name">Keyboard — Cornerstone
+                      <span class="sub">St. Mark's Worship · Sunday</span>
+                    </div>
+                    <div class="meta-col">v1</div>
+                    <div></div>
+                    <div class="meta-col">yesterday</div>
+                  </div>
+                  <div class="list-row">
+                    <div class="glyph">𝄞</div>
+                    <div class="name">Violin 1 — Lichen Songs
+                      <span class="sub">TAK Ensemble · next month</span>
+                    </div>
+                    <div class="meta-col">v5</div>
+                    <div></div>
+                    <div class="meta-col">3 days ago</div>
+                  </div>
+                  <div class="list-row">
+                    <div class="glyph">𝄞</div>
+                    <div class="name">Trumpet 2 — Birdland
+                      <span class="sub">Big Band — Tues · regular</span>
+                    </div>
+                    <div class="meta-col">v4</div>
+                    <div></div>
+                    <div class="meta-col">last week</div>
+                  </div>
+                </div>
+              </div>
+            </main>
+          </div>
+        </div>
+      </div>
+      <aside class="wf-notes">
+        <h4>Design notes</h4>
+        <ul>
+          <li><span class="assume">assume</span> Recency-by-rehearsal is the default sort; "rehearsal in 2h" wins over "updated 10am" if both apply.</li>
+          <li><span class="assume">assume</span> Updated rows get a subtle accent-soft tint and an "updated" pill — read at a glance, no extra column needed.</li>
+          <li>The sidebar shows ensembles as collapsible. Charts under each are a Notion-ish reorderable list (per deferred-features doc).</li>
+          <li><span class="defer">defer</span> Filter chips (instrument, ensemble, "only updated") — we'd add these once 12+ parts is the median.</li>
+          <li>Tapping a row goes straight into Screen 04 (or Screen 05* if updated).</li>
+        </ul>
+      </aside>
+    </div>
+  </section>
+
+  <!-- ============================================================
+       SCREEN 02 — Chart list (single ensemble)
+       ============================================================ -->
+  <section class="wf-screen" data-screen="02">
+    <h2 class="serif">02 · Chart list (within an ensemble)</h2>
+    <p class="caption">When a player wants to find a specific chart inside one ensemble. Expandable to show the player's parts within that chart. Includes a view-as-player vs. view-all toggle since some players (especially in chamber music) want to see the whole repertoire, not just their assignments.</p>
+    <div class="wf-frame-wrap">
+      <div class="wf-frame">
+        <div class="wf-frame-label">Chart list — TAK Ensemble <span class="form-factor">iPad · landscape</span></div>
+        <div class="frame-ipad-l">
+          <div class="app-shell">
+            <aside class="sidebar">
+              <div class="brand"><div class="mark">S</div><div class="name serif">Scorva</div></div>
+              <div class="item"><span class="dot"></span>My Parts <span class="badge">3</span></div>
+              <div class="item"><span class="dot"></span>Notifications</div>
+              <div class="group">Ensembles</div>
+              <div class="item active"><span class="dot live"></span>TAK Ensemble</div>
+              <div class="item sub active">Lunar Noon</div>
+              <div class="item sub">Lichen Songs</div>
+              <div class="item sub">Hourglass</div>
+              <div class="item"><span class="dot"></span>St. Mark's Worship</div>
+            </aside>
+            <main style="display:flex; flex-direction:column;">
+              <div class="topbar">
+                <div class="crumbs">
+                  <span>Ensembles</span><span class="sep">›</span>
+                  <span class="cur">TAK Ensemble</span>
+                </div>
+                <div class="grow"></div>
+                <div class="right">
+                  <span style="color: var(--ink-3); font-family: var(--sans); font-size: 12px;">View: <b style="color: var(--ink);">my parts</b> · all parts</span>
+                  <span class="sync"><span class="dot"></span>synced</span>
+                </div>
+              </div>
+              <div class="list-shell">
+                <div class="list-inner">
+                  <div class="list-h">
+                    <div>
+                      <div class="eyebrow">5 musicians · contemporary chamber</div>
+                      <h1 class="serif">TAK Ensemble</h1>
+                    </div>
+                    <div class="meta">3 charts · 1 updated</div>
+                  </div>
+
+                  <div class="chart-row" style="background: linear-gradient(90deg, var(--accent-soft) 0%, var(--card) 25%);">
+                    <div>
+                      <div class="name serif">Lunar Noon</div>
+                      <div class="sub">your part · Violin 1 · 64 measures</div>
+                    </div>
+                    <div><span class="ver-pill changed"><span class="dot-changed"></span>v3 · updated</span></div>
+                    <div class="meta-col mono" style="font-size: 11px; color: var(--ink-3);">2h ago</div>
+                    <div class="meta-col mono" style="font-size: 11px; color: var(--ink-3);">rehearsal in 2h</div>
+                  </div>
+                  <div class="chart-row">
+                    <div>
+                      <div class="name serif">Lichen Songs</div>
+                      <div class="sub">your part · Violin 1 · 48 measures</div>
+                    </div>
+                    <div><span class="ver-pill">v5</span></div>
+                    <div class="meta-col mono" style="font-size: 11px; color: var(--ink-3);">3d ago</div>
+                    <div class="meta-col mono" style="font-size: 11px; color: var(--ink-3);">next month</div>
+                  </div>
+                  <div class="chart-row">
+                    <div>
+                      <div class="name serif">Hourglass</div>
+                      <div class="sub">your part · Violin 1 · 92 measures</div>
+                    </div>
+                    <div><span class="ver-pill">v2</span></div>
+                    <div class="meta-col mono" style="font-size: 11px; color: var(--ink-3);">1w ago</div>
+                    <div class="meta-col mono" style="font-size: 11px; color: var(--ink-3);">—</div>
+                  </div>
+                </div>
+              </div>
+            </main>
+          </div>
+        </div>
+      </div>
+      <aside class="wf-notes">
+        <h4>Design notes</h4>
+        <ul>
+          <li>"Your part" line under each chart name shows what the player will land on by default. For chamber music with overlapping roles this matters — a player might be on Violin 1 in one chart and Violin 2 in another.</li>
+          <li><span class="assume">assume</span> The "all parts" toggle reveals every part of the chart so the player can open the score or peek at another player's part. v1 is read-only on others' annotations.</li>
+          <li>Updated rows are flagged the same way as in Screen 01 — consistent visual language across entry points.</li>
+          <li><span class="defer">defer</span> Search across charts. Feels right but not until library size demands it.</li>
+        </ul>
+      </aside>
+    </div>
+  </section>
+
+  <!-- ============================================================
+       SCREEN 03 — Notification feed
+       ============================================================ -->
+  <section class="wf-screen" data-screen="03">
+    <h2 class="serif">03 · Notifications inbox</h2>
+    <p class="caption">A feed of update events the player can act on. Tappable to jump straight into the changed part. Shows actor (who pushed the update), what changed in plain language, and how recent.</p>
+    <div class="wf-frame-wrap">
+      <div class="wf-frame">
+        <div class="wf-frame-label">Notifications <span class="form-factor">iPad · landscape</span></div>
+        <div class="frame-ipad-l">
+          <div class="app-shell">
+            <aside class="sidebar">
+              <div class="brand"><div class="mark">S</div><div class="name serif">Scorva</div></div>
+              <div class="item"><span class="dot"></span>My Parts <span class="badge">3</span></div>
+              <div class="item active"><span class="dot live"></span>Notifications <span class="badge">5</span></div>
+              <div class="group">Ensembles</div>
+              <div class="item"><span class="dot"></span>TAK Ensemble</div>
+              <div class="item"><span class="dot"></span>St. Mark's Worship</div>
+              <div class="item"><span class="dot"></span>Big Band — Tues</div>
+            </aside>
+            <main style="display:flex; flex-direction:column;">
+              <div class="topbar">
+                <div class="crumbs"><span class="cur">Notifications</span></div>
+                <div class="grow"></div>
+                <div class="right">
+                  <span style="color: var(--ink-3); font-family: var(--sans); font-size: 12px;">filter: <b style="color: var(--ink);">all</b> · only my parts</span>
+                  <span class="sync"><span class="dot"></span>synced</span>
+                </div>
+              </div>
+              <div class="list-shell" style="padding: 0;">
+                <div style="max-width: 760px; margin: 0 auto;">
+                  <div class="notif-row unread">
+                    <div class="icon-wrap">↗</div>
+                    <div>
+                      <div class="name"><b>Marta</b> pushed <b>Lunar Noon · v3</b> · 4 measures changed in your Violin 1 part</div>
+                      <div class="sub">Your 7 annotations migrated forward · review at any time</div>
+                    </div>
+                    <div class="when">2h ago</div>
+                  </div>
+                  <div class="notif-row unread">
+                    <div class="icon-wrap">↗</div>
+                    <div>
+                      <div class="name"><b>Marta</b> pushed <b>Lunar Noon · v2</b> · added Violin 1 part</div>
+                      <div class="sub">Seeded from Cello v1 · 3 annotations migrated</div>
+                    </div>
+                    <div class="when">2 days ago</div>
+                  </div>
+                  <div class="notif-row unread">
+                    <div class="icon-wrap">↗</div>
+                    <div>
+                      <div class="name"><b>Pat (bandleader)</b> pushed <b>All of Me · v2</b> · 1 measure changed in your Trumpet 2 part</div>
+                      <div class="sub">m.34 — accents added · annotations preserved</div>
+                    </div>
+                    <div class="when">today · 10am</div>
+                  </div>
+                  <div class="notif-row">
+                    <div class="icon-wrap">·</div>
+                    <div>
+                      <div class="name">You opened <b>Lichen Songs · v5</b></div>
+                      <div class="sub">Violin 1</div>
+                    </div>
+                    <div class="when">3 days ago</div>
+                  </div>
+                  <div class="notif-row">
+                    <div class="icon-wrap">·</div>
+                    <div>
+                      <div class="name"><b>Marta</b> pushed <b>Lichen Songs · v5</b> · no change in your part</div>
+                      <div class="sub">Cello part removed from chart</div>
+                    </div>
+                    <div class="when">3 days ago</div>
+                  </div>
+                </div>
+              </div>
+            </main>
+          </div>
+        </div>
+      </div>
+      <aside class="wf-notes">
+        <h4>Design notes</h4>
+        <ul>
+          <li>Plain-language summary is in the row, not behind a click. The fear ("what changed?") needs to be answered before opening.</li>
+          <li><span class="assume">assume</span> "Annotations migrated/preserved" is shown inline as reassurance — protects against the "should I keep the old?" decision-paralysis moment.</li>
+          <li>Read state is visible (unread = card-2 background + accent rule + bold name).</li>
+          <li><span class="defer">defer</span> Reactions / replies on notifications. Useful eventually for "I noticed wrong note in m.42" but not v1.</li>
+          <li>"No change in your part" notifications are deliberately included — silence is anxiety-inducing.</li>
+        </ul>
+      </aside>
+    </div>
+  </section>
+
+  <!-- ============================================================
+       SCREEN 04 — Opened part, resting state
+       ============================================================ -->
+  <section class="wf-screen" data-screen="04">
+    <h2 class="serif">04 · Opened part — resting state</h2>
+    <p class="caption">Everyday reading state. PDF fills the canvas. Top toolbar carries tools, version, sync. Side toolbar mirrors the most-used tools so the player can drive with their non-dominant hand. Page-turn and zoom live at the bottom — designed to be foot-pedal-friendly and thumb-reachable on a tablet.</p>
+    <div class="wf-frame-wrap">
+      <div class="wf-frame">
+        <div class="wf-frame-label">Opened part · resting <span class="form-factor">iPad · landscape</span></div>
+        <div class="frame-ipad-l">
+          <div class="app-shell no-sidebar" style="grid-template-columns: 44px 1fr;">
+            <!-- Side toolbar -->
+            <aside class="toolbar-side">
+              <div class="tool active" title="Ink">✎</div>
+              <div class="tool" title="Text">T</div>
+              <div class="tool" title="Highlight">▬</div>
+              <div class="divider"></div>
+              <div class="tool" title="Select">↖</div>
+              <div class="tool" title="Eraser">⌫</div>
+              <div class="divider"></div>
+              <div class="tool" title="Hide annotations">◐</div>
+            </aside>
+
+            <main style="display:flex; flex-direction:column; min-width:0;">
+              <!-- Top toolbar -->
+              <div class="toolbar-top">
+                <div class="crumbs" style="margin-right: 6px;">
+                  <span style="font-size:14px;">‹</span>
+                  <span class="cur">Lunar Noon</span>
+                  <span class="sep">·</span>
+                  <span>Violin 1</span>
+                </div>
+
+                <div class="group">
+                  <div class="tool-wide active">v3 <span class="caret">▾</span></div>
+                </div>
+                <div class="group">
+                  <div class="tool active" title="Ink">✎</div>
+                  <div class="tool" title="Text">T</div>
+                  <div class="tool" title="Highlight">▬</div>
+                </div>
+                <div class="group">
+                  <div class="tool" title="Select">↖</div>
+                  <div class="tool" title="Eraser">⌫</div>
+                </div>
+                <div class="group">
+                  <div class="tool-wide" title="Show/hide annotations">◐ annotations <span class="caret">▾</span></div>
+                </div>
+
+                <div class="grow"></div>
+                <div class="right">
+                  <span class="sync"><span class="dot"></span>synced · just now</span>
+                </div>
+              </div>
+
+              <!-- Canvas -->
+              <div class="canvas-wrap">
+                <div class="page-area">
+                  <div class="page">
+                    <div class="page-title">Lunar Noon · Violin 1 · v3</div>
+
+                    <!-- System 1 -->
+                    <div class="staff-system" style="height: 50px;">
+                      <span class="clef">𝄞</span>
+                      <div class="staff-lines">
+                        <div class="staff-line"></div><div class="staff-line"></div>
+                        <div class="staff-line"></div><div class="staff-line"></div>
+                        <div class="staff-line"></div>
+                      </div>
+                      <!-- 4 measures spanning the system -->
+                      <div class="measure-box" style="left: 22px; width: 25%;"><span class="m-label">M.1</span></div>
+                      <div class="measure-box" style="left: calc(22px + 25%); width: 25%;"><span class="m-label">M.2</span></div>
+                      <div class="measure-box" style="left: calc(22px + 50%); width: 25%;"><span class="m-label">M.3</span></div>
+                      <div class="measure-box" style="left: calc(22px + 75%); width: calc(25% - 22px);"><span class="m-label">M.4</span></div>
+                      <!-- noteheads -->
+                      <div class="note" style="left:80px; top:14px"></div>
+                      <div class="note" style="left:120px; top:18px"></div>
+                      <div class="note" style="left:170px; top:11px"></div>
+                      <div class="note" style="left:230px; top:16px"></div>
+                      <div class="note" style="left:300px; top:14px"></div>
+                      <div class="note" style="left:360px; top:9px"></div>
+                      <div class="note" style="left:420px; top:13px"></div>
+                      <div class="note" style="left:500px; top:17px"></div>
+                      <div class="note" style="left:560px; top:11px"></div>
+                      <!-- existing annotation: cresc + text -->
+                      <div class="annot cresc" style="left: 110px; top: 28px;"></div>
+                      <div class="annot" style="left: 200px; top: 36px;">cresc.</div>
+                    </div>
+
+                    <!-- System 2 -->
+                    <div class="staff-system" style="height: 50px;">
+                      <span class="clef">𝄞</span>
+                      <div class="staff-lines">
+                        <div class="staff-line"></div><div class="staff-line"></div>
+                        <div class="staff-line"></div><div class="staff-line"></div>
+                        <div class="staff-line"></div>
+                      </div>
+                      <div class="measure-box" style="left: 22px; width: 25%;"><span class="m-label">M.5</span></div>
+                      <div class="measure-box" style="left: calc(22px + 25%); width: 25%;"><span class="m-label">M.6</span></div>
+                      <div class="measure-box" style="left: calc(22px + 50%); width: 25%;"><span class="m-label">M.7</span></div>
+                      <div class="measure-box" style="left: calc(22px + 75%); width: calc(25% - 22px);"><span class="m-label">M.8</span></div>
+                      <div class="note" style="left:80px; top:11px"></div>
+                      <div class="note" style="left:140px; top:15px"></div>
+                      <div class="note" style="left:200px; top:9px"></div>
+                      <div class="note" style="left:280px; top:13px"></div>
+                      <div class="note" style="left:340px; top:17px"></div>
+                      <div class="note" style="left:420px; top:11px"></div>
+                      <div class="note" style="left:480px; top:15px"></div>
+                      <div class="note" style="left:540px; top:9px"></div>
+                      <div class="annot" style="left: 360px; top: -8px; font-size: 13px;">watch tempo</div>
+                    </div>
+
+                    <!-- System 3 -->
+                    <div class="staff-system" style="height: 50px;">
+                      <span class="clef">𝄞</span>
+                      <div class="staff-lines">
+                        <div class="staff-line"></div><div class="staff-line"></div>
+                        <div class="staff-line"></div><div class="staff-line"></div>
+                        <div class="staff-line"></div>
+                      </div>
+                      <div class="measure-box" style="left: 22px; width: 25%;"><span class="m-label">M.9</span></div>
+                      <div class="measure-box" style="left: calc(22px + 25%); width: 25%;"><span class="m-label">M.10</span></div>
+                      <div class="measure-box" style="left: calc(22px + 50%); width: 25%;"><span class="m-label">M.11</span></div>
+                      <div class="measure-box" style="left: calc(22px + 75%); width: calc(25% - 22px);"><span class="m-label">M.12</span></div>
+                      <div class="note" style="left:80px; top:13px"></div>
+                      <div class="note" style="left:140px; top:9px"></div>
+                      <div class="note" style="left:200px; top:14px"></div>
+                      <div class="note" style="left:260px; top:18px"></div>
+                      <div class="note" style="left:340px; top:11px"></div>
+                      <div class="note" style="left:400px; top:15px"></div>
+                      <div class="note" style="left:460px; top:9px"></div>
+                      <div class="note" style="left:520px; top:13px"></div>
+                    </div>
+
+                    <div style="position: absolute; bottom: 14px; left: 50px; right: 50px;
+                                display: flex; justify-content: space-between;
+                                font-family: var(--mono); font-size: 9.5px; color: var(--ink-4);">
+                      <span>page 1 of 4</span>
+                      <span>violin1.pdf</span>
+                    </div>
+                  </div>
+                </div>
+                <!-- Page controls -->
+                <div class="page-controls">
+                  <div class="row">
+                    <div class="page-btn">‹</div>
+                    <span>page 1 of 4</span>
+                    <div class="page-btn">›</div>
+                    <span class="pedal-hint">foot pedal: page →</span>
+                  </div>
+                  <div class="row" style="gap: 16px;">
+                    <span style="color: var(--ink-4);">view: single · two-up · scroll</span>
+                    <div class="zoom">
+                      <button>−</button>
+                      <span class="level">100%</span>
+                      <button>+</button>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </main>
+          </div>
+        </div>
+      </div>
+      <aside class="wf-notes">
+        <h4>Design notes</h4>
+        <ul>
+          <li><span class="assume">assume</span> Top toolbar = full toolset; side toolbar = the same tools, mirrored. They're not redundant — one is dominant-hand, one is wrist-of-the-other-hand.</li>
+          <li><span class="assume">assume</span> Side toolbar collapses on portrait. On laptop it stays.</li>
+          <li>Measure boxes are an overlay on top of the rendered PDF. They light on hover but do not visually clutter the page when not interacted with — borders are the design system's accent orange at 1.5px.</li>
+          <li>Page-turn buttons are large enough to thumb-tap. The "foot pedal: page →" hint exists because the foot pedal will route to the same handler.</li>
+          <li><span class="defer">defer</span> Two-up and scroll page modes are listed as toggles but not designed in this round.</li>
+          <li><span class="defer">defer</span> Pen pressure / stylus settings — toolbar gets a "settings" row only when ink configurability becomes real.</li>
+        </ul>
+      </aside>
+    </div>
+  </section>
+
+  <!-- ============================================================
+       SCREEN 05A — Updated part · Approach A (persistent banner)
+       ============================================================ -->
+  <section class="wf-screen" data-screen="05a">
+    <h2 class="serif">05a · Updated part — Approach A: persistent banner</h2>
+    <p class="caption">Inline-only treatment. Changed measures are visually highlighted on the page (mod-yellow). A persistent banner above the page summarizes counts and confirms annotations carried forward. The player can dismiss the banner; the highlighted measures stay until they explicitly mark "reviewed" or open a different part.</p>
+    <div class="wf-frame-wrap">
+      <div class="wf-frame">
+        <div class="wf-frame-label">Approach A · persistent banner <span class="form-factor">iPad · landscape</span></div>
+        <div class="frame-ipad-l">
+          <div class="app-shell no-sidebar" style="grid-template-columns: 44px 1fr;">
+            <aside class="toolbar-side">
+              <div class="tool active">✎</div>
+              <div class="tool">T</div>
+              <div class="tool">▬</div>
+              <div class="divider"></div>
+              <div class="tool">↖</div>
+              <div class="tool">⌫</div>
+            </aside>
+            <main style="display:flex; flex-direction:column; min-width:0;">
+              <div class="toolbar-top">
+                <div class="crumbs">
+                  <span style="font-size:14px;">‹</span>
+                  <span class="cur">Lunar Noon</span><span class="sep">·</span>
+                  <span>Violin 1</span>
+                </div>
+                <div class="group">
+                  <div class="tool-wide active">v3 <span class="caret">▾</span></div>
+                </div>
+                <div class="group">
+                  <div class="tool active">✎</div><div class="tool">T</div><div class="tool">▬</div>
+                </div>
+                <div class="grow"></div>
+                <div class="right"><span class="sync"><span class="dot"></span>synced</span></div>
+              </div>
+
+              <div class="diff-banner">
+                <div class="icon">↗</div>
+                <div class="body">
+                  <div class="t">v3 · 4 measures changed · your 7 annotations preserved</div>
+                  <div class="sub">m.17, m.18, m.34, m.42 · last opened v2 · 2 days ago</div>
+                </div>
+                <div class="actions">
+                  <button class="b">Show changes</button>
+                  <button class="b primary">Reviewed</button>
+                </div>
+              </div>
+
+              <div class="canvas-wrap">
+                <div class="page-area">
+                  <div class="page">
+                    <div class="page-title">Lunar Noon · Violin 1 · v3</div>
+
+                    <!-- System 1 -->
+                    <div class="staff-system" style="height: 50px;">
+                      <span class="clef">𝄞</span>
+                      <div class="staff-lines">
+                        <div class="staff-line"></div><div class="staff-line"></div>
+                        <div class="staff-line"></div><div class="staff-line"></div>
+                        <div class="staff-line"></div>
+                      </div>
+                      <div class="measure-box" style="left: 22px; width: 25%;"><span class="m-label">M.15</span></div>
+                      <div class="measure-box" style="left: calc(22px + 25%); width: 25%;"><span class="m-label">M.16</span></div>
+                      <div class="measure-box changed" style="left: calc(22px + 50%); width: 25%;"><span class="m-label">M.17</span></div>
+                      <div class="measure-box changed" style="left: calc(22px + 75%); width: calc(25% - 22px);"><span class="m-label">M.18</span></div>
+                      <div class="note" style="left:80px; top:14px"></div>
+                      <div class="note" style="left:140px; top:11px"></div>
+                      <div class="note" style="left:220px; top:15px"></div>
+                      <div class="note" style="left:300px; top:9px"></div>
+                      <div class="note" style="left:380px; top:13px"></div>
+                      <div class="note" style="left:440px; top:17px"></div>
+                      <div class="note" style="left:520px; top:11px"></div>
+                      <div class="note" style="left:580px; top:14px"></div>
+                      <div class="annot cresc" style="left: 380px; top: 28px;"></div>
+                      <div class="annot" style="left: 460px; top: 36px;">cresc.</div>
+                    </div>
+
+                    <!-- System 2 -->
+                    <div class="staff-system" style="height: 50px;">
+                      <span class="clef">𝄞</span>
+                      <div class="staff-lines">
+                        <div class="staff-line"></div><div class="staff-line"></div>
+                        <div class="staff-line"></div><div class="staff-line"></div>
+                        <div class="staff-line"></div>
+                      </div>
+                      <div class="measure-box" style="left: 22px; width: 25%;"><span class="m-label">M.19</span></div>
+                      <div class="measure-box" style="left: calc(22px + 25%); width: 25%;"><span class="m-label">M.20</span></div>
+                      <div class="measure-box" style="left: calc(22px + 50%); width: 25%;"><span class="m-label">M.21</span></div>
+                      <div class="measure-box" style="left: calc(22px + 75%); width: calc(25% - 22px);"><span class="m-label">M.22</span></div>
+                      <div class="note" style="left:80px; top:14px"></div>
+                      <div class="note" style="left:160px; top:11px"></div>
+                      <div class="note" style="left:240px; top:14px"></div>
+                      <div class="note" style="left:320px; top:9px"></div>
+                      <div class="note" style="left:400px; top:13px"></div>
+                      <div class="note" style="left:480px; top:17px"></div>
+                      <div class="note" style="left:540px; top:11px"></div>
+                    </div>
+
+                    <!-- System 3 -->
+                    <div class="staff-system" style="height: 50px;">
+                      <span class="clef">𝄞</span>
+                      <div class="staff-lines">
+                        <div class="staff-line"></div><div class="staff-line"></div>
+                        <div class="staff-line"></div><div class="staff-line"></div>
+                        <div class="staff-line"></div>
+                      </div>
+                      <div class="measure-box" style="left: 22px; width: 25%;"><span class="m-label">M.23</span></div>
+                      <div class="measure-box changed" style="left: calc(22px + 25%); width: 25%;"><span class="m-label">M.34</span></div>
+                      <div class="measure-box" style="left: calc(22px + 50%); width: 25%;"><span class="m-label">M.35</span></div>
+                      <div class="measure-box changed" style="left: calc(22px + 75%); width: calc(25% - 22px);"><span class="m-label">M.42</span></div>
+                      <div class="note" style="left:80px; top:13px"></div>
+                      <div class="note" style="left:160px; top:9px"></div>
+                      <div class="note" style="left:240px; top:14px"></div>
+                      <div class="note" style="left:320px; top:18px"></div>
+                      <div class="note" style="left:400px; top:11px"></div>
+                      <div class="note" style="left:480px; top:15px"></div>
+                      <div class="note" style="left:540px; top:9px"></div>
+                    </div>
+                  </div>
+                </div>
+                <div class="page-controls">
+                  <div class="row">
+                    <div class="page-btn">‹</div>
+                    <span>page 1 of 4</span>
+                    <div class="page-btn">›</div>
+                  </div>
+                  <div class="row" style="gap: 14px;">
+                    <span style="color: var(--ink-3); font-family: var(--sans); font-size: 11.5px;">jump to next change ›</span>
+                    <div class="zoom"><button>−</button><span class="level">100%</span><button>+</button></div>
+                  </div>
+                </div>
+              </div>
+            </main>
+          </div>
+        </div>
+      </div>
+      <aside class="wf-notes">
+        <h4>Trade-offs · A</h4>
+        <ul>
+          <li><b>Wins:</b> Player sees the page immediately. Changes are visible in context. Reassurance ("7 preserved") is right next to the changed-count.</li>
+          <li><b>Loses:</b> If they ignore the banner, they may miss what changed in measures that aren't on this page (m.34, m.42 are off-screen).</li>
+          <li><span class="assume">assume</span> "Reviewed" dismisses the banner AND clears the per-measure highlight on subsequent opens. Until then, every open re-shows the banner.</li>
+          <li>"Jump to next change" is the bottom-right escape hatch for the off-page-changes problem. Cheap to implement.</li>
+        </ul>
+      </aside>
+    </div>
+  </section>
+
+  <!-- ============================================================
+       SCREEN 05B — Updated part · Approach B (bottom sheet)
+       ============================================================ -->
+  <section class="wf-screen" data-screen="05b">
+    <h2 class="serif">05b · Updated part — Approach B: bottom-sheet summary</h2>
+    <p class="caption">A modal-ish bottom sheet on first open. Three numbers (changed / preserved / review). The player picks "Show me" to dismiss the sheet and land in the inline-highlighted part, or "Skip" to dismiss without ceremony. Sheet only appears once per version; subsequent opens land directly in the inline state.</p>
+    <div class="wf-frame-wrap">
+      <div class="wf-frame">
+        <div class="wf-frame-label">Approach B · bottom sheet <span class="form-factor">iPad · landscape</span></div>
+        <div class="frame-ipad-l">
+          <div class="app-shell no-sidebar" style="grid-template-columns: 44px 1fr;">
+            <aside class="toolbar-side">
+              <div class="tool active">✎</div>
+              <div class="tool">T</div>
+              <div class="tool">▬</div>
+              <div class="divider"></div>
+              <div class="tool">↖</div>
+              <div class="tool">⌫</div>
+            </aside>
+            <main style="display:flex; flex-direction:column; min-width:0; position:relative;">
+              <div class="toolbar-top">
+                <div class="crumbs">
+                  <span style="font-size:14px;">‹</span>
+                  <span class="cur">Lunar Noon</span><span class="sep">·</span>
+                  <span>Violin 1</span>
+                </div>
+                <div class="group"><div class="tool-wide active">v3 <span class="caret">▾</span></div></div>
+                <div class="grow"></div>
+                <div class="right"><span class="sync"><span class="dot"></span>synced</span></div>
+              </div>
+
+              <div class="canvas-wrap" style="position:relative;">
+                <div class="page-area">
+                  <div class="page" style="opacity: 0.55;">
+                    <div class="page-title">Lunar Noon · Violin 1 · v3</div>
+                    <div class="staff-system" style="height: 50px;">
+                      <span class="clef">𝄞</span>
+                      <div class="staff-lines">
+                        <div class="staff-line"></div><div class="staff-line"></div>
+                        <div class="staff-line"></div><div class="staff-line"></div>
+                        <div class="staff-line"></div>
+                      </div>
+                    </div>
+                    <div class="staff-system" style="height: 50px;">
+                      <span class="clef">𝄞</span>
+                      <div class="staff-lines">
+                        <div class="staff-line"></div><div class="staff-line"></div>
+                        <div class="staff-line"></div><div class="staff-line"></div>
+                        <div class="staff-line"></div>
+                      </div>
+                    </div>
+                    <div class="staff-system" style="height: 50px;">
+                      <span class="clef">𝄞</span>
+                      <div class="staff-lines">
+                        <div class="staff-line"></div><div class="staff-line"></div>
+                        <div class="staff-line"></div><div class="staff-line"></div>
+                        <div class="staff-line"></div>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+
+                <!-- The sheet -->
+                <div class="diff-overlay">
+                  <div class="diff-sheet">
+                    <h3 class="serif">v3 · what's different from v2</h3>
+                    <div class="sub">Pushed by Marta · 2 hours ago · v2 was your last open</div>
+                    <div class="diff-stat-row">
+                      <div class="diff-stat changed">
+                        <span class="n">4</span>
+                        <span class="l">measures changed</span>
+                      </div>
+                      <div class="diff-stat preserved">
+                        <span class="n">7</span>
+                        <span class="l">annotations preserved</span>
+                      </div>
+                      <div class="diff-stat review">
+                        <span class="n">1</span>
+                        <span class="l">needs your review</span>
+                      </div>
+                    </div>
+                    <div style="font-size: 12.5px; color: var(--ink-2); line-height: 1.5; margin-bottom: 14px;">
+                      m.17–18 · 6/8 → 9/8 (re-anchored to beat) &nbsp;·&nbsp; m.34 · accents added &nbsp;·&nbsp; m.42 · pitch correction (E♭→D)
+                    </div>
+                    <div class="row">
+                      <button class="btn primary">Show me ›</button>
+                      <button class="btn ghost">Skip · go straight to the part</button>
+                      <span style="flex:1;"></span>
+                      <span style="font-size: 11px; color: var(--ink-3);">Settings · always summarize on update</span>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </main>
+          </div>
+        </div>
+      </div>
+      <aside class="wf-notes">
+        <h4>Trade-offs · B</h4>
+        <ul>
+          <li><b>Wins:</b> The fear-question gets answered first ("preserved" is the largest, greenest number). Good for high-stakes scenarios where the player wants to feel the migration was clean before they trust the page.</li>
+          <li><b>Loses:</b> Adds a ceremony step. For a small change (1 measure, no annotations affected) it's overkill. Could create "summary fatigue" if pushed often.</li>
+          <li><span class="assume">assume</span> Sheet auto-suppresses for changes below a threshold (e.g., 0 changed measures + 0 affected annotations) — falls back to Approach A inline state.</li>
+          <li><span class="assume">assume</span> "Settings · always summarize" lets a power user opt this on for every open. Default is "first open only."</li>
+          <li>"Needs your review" is the count of annotations whose migration confidence was below threshold. Feeds Screen 06.</li>
+        </ul>
+      </aside>
+    </div>
+  </section>
+
+  <!-- ============================================================
+       SCREEN 05C — Updated part · Approach C (stepper)
+       ============================================================ -->
+  <section class="wf-screen" data-screen="05c">
+    <h2 class="serif">05c · Updated part — Approach C: guided stepper</h2>
+    <p class="caption">The part opens scrolled to the first changed measure with a callout pointing at it and a stepper at the bottom. The player walks through changes one at a time. "Done" exits to resting state. For high-stakes changes (chamber music with dense markings), this protects against missing things.</p>
+    <div class="wf-frame-wrap">
+      <div class="wf-frame">
+        <div class="wf-frame-label">Approach C · guided stepper <span class="form-factor">iPad · landscape</span></div>
+        <div class="frame-ipad-l">
+          <div class="app-shell no-sidebar" style="grid-template-columns: 44px 1fr;">
+            <aside class="toolbar-side">
+              <div class="tool active">✎</div>
+              <div class="tool">T</div>
+              <div class="tool">▬</div>
+              <div class="divider"></div>
+              <div class="tool">↖</div>
+              <div class="tool">⌫</div>
+            </aside>
+            <main style="display:flex; flex-direction:column; min-width:0; position:relative;">
+              <div class="toolbar-top">
+                <div class="crumbs">
+                  <span style="font-size:14px;">‹</span>
+                  <span class="cur">Lunar Noon</span><span class="sep">·</span>
+                  <span>Violin 1</span>
+                </div>
+                <div class="group"><div class="tool-wide active">v3 <span class="caret">▾</span></div></div>
+                <div class="grow"></div>
+                <div class="right"><span class="sync"><span class="dot"></span>synced</span></div>
+              </div>
+
+              <div class="canvas-wrap" style="position:relative;">
+                <div class="page-area">
+                  <div class="page">
+                    <div class="page-title">Lunar Noon · Violin 1 · v3</div>
+
+                    <div class="staff-system" style="height: 50px;">
+                      <span class="clef">𝄞</span>
+                      <div class="staff-lines">
+                        <div class="staff-line"></div><div class="staff-line"></div>
+                        <div class="staff-line"></div><div class="staff-line"></div>
+                        <div class="staff-line"></div>
+                      </div>
+                      <div class="measure-box" style="left: 22px; width: 25%;"><span class="m-label">M.15</span></div>
+                      <div class="measure-box" style="left: calc(22px + 25%); width: 25%;"><span class="m-label">M.16</span></div>
+                      <div class="measure-box changed" style="left: calc(22px + 50%); width: 25%; box-shadow: 0 0 0 4px rgba(181,130,0,0.18);"><span class="m-label">M.17</span></div>
+                      <div class="measure-box changed" style="left: calc(22px + 75%); width: calc(25% - 22px);"><span class="m-label">M.18</span></div>
+                      <div class="note" style="left:80px; top:14px"></div>
+                      <div class="note" style="left:140px; top:11px"></div>
+                      <div class="note" style="left:220px; top:15px"></div>
+                      <div class="note" style="left:300px; top:9px"></div>
+                      <div class="note" style="left:380px; top:13px"></div>
+                      <div class="note" style="left:440px; top:17px"></div>
+                      <div class="note" style="left:520px; top:11px"></div>
+                      <div class="note" style="left:580px; top:14px"></div>
+                      <div class="annot cresc" style="left: 380px; top: 28px;"></div>
+                      <div class="annot" style="left: 460px; top: 36px;">cresc.</div>
+
+                      <!-- Callout -->
+                      <div class="diff-callout" style="left: calc(22px + 50%); top: 64px;">
+                        <div class="head">m.17 · changed</div>
+                        <div class="body">Time signature 6/8 → 9/8. The crescendo over m.17–18 was re-anchored to beat 1 in the new meter.</div>
+                        <div class="annot-ok">✓ your cresc. survived</div>
+                      </div>
+                    </div>
+
+                    <div class="staff-system" style="height: 50px;">
+                      <span class="clef">𝄞</span>
+                      <div class="staff-lines">
+                        <div class="staff-line"></div><div class="staff-line"></div>
+                        <div class="staff-line"></div><div class="staff-line"></div>
+                        <div class="staff-line"></div>
+                      </div>
+                    </div>
+                    <div class="staff-system" style="height: 50px;">
+                      <span class="clef">𝄞</span>
+                      <div class="staff-lines">
+                        <div class="staff-line"></div><div class="staff-line"></div>
+                        <div class="staff-line"></div><div class="staff-line"></div>
+                        <div class="staff-line"></div>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+
+                <!-- Stepper -->
+                <div class="diff-stepper">
+                  <div class="nav-btn">‹</div>
+                  <div>
+                    <div class="step-label">m.17 · meter change</div>
+                    <div class="step-meta">crescendo re-anchored · preserved</div>
+                  </div>
+                  <span class="progress">1 / 4</span>
+                  <div class="nav-btn">›</div>
+                  <button class="done">Done</button>
+                </div>
+
+                <div class="page-controls">
+                  <div class="row">
+                    <div class="page-btn">‹</div>
+                    <span>page 1 of 4</span>
+                    <div class="page-btn">›</div>
+                  </div>
+                  <div class="zoom"><button>−</button><span class="level">100%</span><button>+</button></div>
+                </div>
+              </div>
+            </main>
+          </div>
+        </div>
+      </div>
+      <aside class="wf-notes">
+        <h4>Trade-offs · C</h4>
+        <ul>
+          <li><b>Wins:</b> Forces the player to acknowledge each change. The strongest reassurance design. Best for high-precision contexts (TAK Ensemble persona).</li>
+          <li><b>Loses:</b> Most ceremony. Will feel paternalistic for jazz and worship players who just want to scan and play.</li>
+          <li><span class="assume">assume</span> "Done" is also "I've reviewed" — same dismissal semantic as Approach A's "Reviewed" button.</li>
+          <li>The page already starts scrolled to the first changed measure — no separate "scroll to" affordance needed.</li>
+          <li><span class="defer">defer</span> Per-segment user preference ("always step me through" vs "just banner") — a setting we'd add post-research if both are desired.</li>
+        </ul>
+      </aside>
+    </div>
+
+    <div style="margin-top: 28px; padding: 18px 22px; background: var(--card); border: 1px solid var(--ink); border-radius: var(--r-md); max-width: 880px;">
+      <div style="font-family: var(--mono); font-size: 10.5px; text-transform: uppercase; letter-spacing: 0.1em; color: var(--ink-3); margin-bottom: 6px;">Recommendation</div>
+      <div style="font-size: 13.5px; line-height: 1.55; color: var(--ink-2);">
+        Take <b style="color: var(--ink);">Approach A as the default</b> with Approach B as an opt-in for first-opens-of-large-changes. Approach A respects the player's expertise — they can read music and a highlighted measure tells them what they need to know. The persistent banner does the reassurance work without ceremony. Reserve Approach B for cases where the change is large enough that "is this safe?" is genuinely uncertain (e.g., meter changes that re-anchor annotations, ≥10 measures changed, ≥3 annotations relocated). Approach C is the right design for educator workflows when those land — students benefit from being walked through.
+      </div>
+    </div>
+  </section>
+
+  <!-- ============================================================
+       SCREEN 06 — Annotation create + select
+       ============================================================ -->
+  <section class="wf-screen" data-screen="06">
+    <h2 class="serif">06 · Annotation creation and selection</h2>
+    <p class="caption">Selecting Ink and drawing on the page. The drawn annotation shows live, then auto-commits 500ms after pen-up into a selectable object with a bounding box and 8 resize handles. Move, resize, delete are the v1 operations. Tap-and-hold or right-click brings up the contextual menu.</p>
+    <div class="wf-frame-wrap">
+      <div class="wf-frame">
+        <div class="wf-frame-label">Annotation create + select <span class="form-factor">iPad · landscape</span></div>
+        <div class="frame-ipad-l">
+          <div class="app-shell no-sidebar" style="grid-template-columns: 44px 1fr;">
+            <aside class="toolbar-side">
+              <div class="tool active">✎</div>
+              <div class="tool">T</div>
+              <div class="tool">▬</div>
+              <div class="divider"></div>
+              <div class="tool">↖</div>
+              <div class="tool">⌫</div>
+            </aside>
+            <main style="display:flex; flex-direction:column; min-width:0;">
+              <div class="toolbar-top">
+                <div class="crumbs">
+                  <span style="font-size:14px;">‹</span>
+                  <span class="cur">Lunar Noon</span><span class="sep">·</span>
+                  <span>Violin 1</span>
+                </div>
+                <div class="group"><div class="tool-wide active">v3 <span class="caret">▾</span></div></div>
+                <div class="group">
+                  <div class="tool active">✎</div>
+                  <div class="tool">T</div>
+                  <div class="tool">▬</div>
+                </div>
+                <div class="group">
+                  <div class="tool-wide" style="background: var(--paper-2);">
+                    <span style="width:14px; height:14px; border-radius:50%; background: var(--accent); display:inline-block;"></span>
+                    color
+                  </div>
+                  <div class="tool-wide" style="background: var(--paper-2);">2 px</div>
+                </div>
+                <div class="grow"></div>
+                <div class="right"><span class="sync"><span class="dot"></span>synced</span></div>
+              </div>
+
+              <div class="canvas-wrap">
+                <div class="page-area">
+                  <div class="page">
+                    <div class="page-title">Lunar Noon · Violin 1 · v3</div>
+
+                    <div class="staff-system" style="height: 50px;">
+                      <span class="clef">𝄞</span>
+                      <div class="staff-lines">
+                        <div class="staff-line"></div><div class="staff-line"></div>
+                        <div class="staff-line"></div><div class="staff-line"></div>
+                        <div class="staff-line"></div>
+                      </div>
+                      <div class="measure-box" style="left: 22px; width: 25%;"><span class="m-label">M.5</span></div>
+                      <div class="measure-box" style="left: calc(22px + 25%); width: 25%;"><span class="m-label">M.6</span></div>
+                      <div class="measure-box selected" style="left: calc(22px + 50%); width: 25%;"><span class="m-label">M.7</span></div>
+                      <div class="measure-box" style="left: calc(22px + 75%); width: calc(25% - 22px);"><span class="m-label">M.8</span></div>
+                      <div class="note" style="left:80px; top:14px"></div>
+                      <div class="note" style="left:160px; top:11px"></div>
+                      <div class="note" style="left:240px; top:15px"></div>
+                      <div class="note" style="left:320px; top:9px"></div>
+                      <div class="note" style="left:400px; top:13px"></div>
+                      <div class="note" style="left:480px; top:17px"></div>
+                      <div class="note" style="left:540px; top:11px"></div>
+
+                      <!-- Selected annotation: cresc on m.7 with bbox + 8 handles -->
+                      <div class="annot cresc selected" style="left: 380px; top: 28px;">
+                        <div class="handle-bbox" style="left:-6px; top:-6px; right:-6px; bottom:-6px;">
+                          <div class="h tl"></div>
+                          <div class="h tc"></div>
+                          <div class="h tr"></div>
+                          <div class="h ml"></div>
+                          <div class="h mr"></div>
+                          <div class="h bl"></div>
+                          <div class="h bc"></div>
+                          <div class="h br"></div>
+                        </div>
+                      </div>
+                    </div>
+
+                    <div class="staff-system" style="height: 50px;">
+                      <span class="clef">𝄞</span>
+                      <div class="staff-lines">
+                        <div class="staff-line"></div><div class="staff-line"></div>
+                        <div class="staff-line"></div><div class="staff-line"></div>
+                        <div class="staff-line"></div>
+                      </div>
+                      <div class="measure-box" style="left: 22px; width: 25%;"><span class="m-label">M.9</span></div>
+                      <div class="measure-box" style="left: calc(22px + 25%); width: 25%;"><span class="m-label">M.10</span></div>
+                      <div class="measure-box" style="left: calc(22px + 50%); width: 25%;"><span class="m-label">M.11</span></div>
+                      <div class="measure-box" style="left: calc(22px + 75%); width: calc(25% - 22px);"><span class="m-label">M.12</span></div>
+                      <div class="note" style="left:80px; top:13px"></div>
+                      <div class="note" style="left:160px; top:9px"></div>
+                      <div class="note" style="left:240px; top:14px"></div>
+                      <div class="note" style="left:320px; top:18px"></div>
+                      <div class="note" style="left:400px; top:11px"></div>
+                      <div class="note" style="left:480px; top:15px"></div>
+                      <div class="note" style="left:540px; top:9px"></div>
+                    </div>
+                  </div>
+                </div>
+
+                <div class="page-controls">
+                  <div class="row">
+                    <span style="font-family: var(--mono); font-size: 10.5px; color: var(--ink-3);">selected · ink · m.7 · 28 strokes</span>
+                  </div>
+                  <div class="row" style="gap: 8px;">
+                    <button class="btn ghost tiny">Move</button>
+                    <button class="btn ghost tiny">Resize</button>
+                    <button class="btn ghost tiny" style="color: var(--rem); border-color: var(--rem);">Delete</button>
+                    <span class="kbd" style="background: var(--paper-2); color: var(--ink-3);">⌫</span>
+                  </div>
+                </div>
+              </div>
+            </main>
+          </div>
+        </div>
+      </div>
+      <aside class="wf-notes">
+        <h4>Design notes</h4>
+        <ul>
+          <li><span class="assume">assume</span> Auto-commit happens 500ms after pen-up — matches the deferred-features doc spec for the annotation object model.</li>
+          <li>Selected state shows the dashed-ink bounding box with 8 handles (tl, tc, tr, ml, mr, bl, bc, br). This is the same handle-bbox treatment Claude Code can reuse.</li>
+          <li>The selected measure box (M.7) gets a parallel "selected" treatment so the player understands the annotation is anchored there.</li>
+          <li>The bottom bar reveals contextual operations only when something is selected — otherwise it's just page controls.</li>
+          <li><span class="defer">defer</span> Multi-select / marquee / undo / copy-paste — listed in the deferred doc, post-v1.</li>
+          <li><span class="defer">defer</span> Pen color/width controls are shown as toolbar pills but not designed in detail — a settings popover off each will arrive later.</li>
+        </ul>
+      </aside>
+    </div>
+  </section>
+
+  <!-- ============================================================
+       SCREEN 07 — Auto-split at barlines
+       ============================================================ -->
+  <section class="wf-screen" data-screen="07">
+    <h2 class="serif">07 · Auto-split at barlines</h2>
+    <p class="caption">A behavior that needs to be designed honestly because it's surprising. The player draws a long ink stroke spanning measures 9–11. On auto-commit, the stroke splits at the barlines into three per-measure objects. A subtle one-time tooltip explains. After that, the split is silent — but the player can see it via hover on the bounding boxes (each is its own selectable object).</p>
+    <div class="wf-frame-wrap">
+      <div class="wf-frame">
+        <div class="wf-frame-label">Auto-split — t = 0 (drawing) <span class="form-factor">iPad · landscape</span></div>
+        <div class="frame-ipad-l" style="aspect-ratio: 1024/420;">
+          <div class="app-shell no-sidebar" style="grid-template-columns: 44px 1fr;">
+            <aside class="toolbar-side">
+              <div class="tool active">✎</div><div class="tool">T</div><div class="tool">▬</div>
+            </aside>
+            <main style="display:flex; flex-direction:column; min-width:0;">
+              <div class="toolbar-top">
+                <div class="crumbs"><span class="cur">Lunar Noon</span><span class="sep">·</span><span>Violin 1</span></div>
+                <div class="group"><div class="tool-wide active">v3 <span class="caret">▾</span></div></div>
+                <div class="grow"></div>
+                <div class="right"><span class="sync"><span class="dot"></span>synced</span></div>
+              </div>
+              <div class="canvas-wrap">
+                <div class="page-area">
+                  <div class="page" style="padding: 24px 50px;">
+                    <div class="staff-system" style="height: 50px;">
+                      <span class="clef">𝄞</span>
+                      <div class="staff-lines">
+                        <div class="staff-line"></div><div class="staff-line"></div>
+                        <div class="staff-line"></div><div class="staff-line"></div>
+                        <div class="staff-line"></div>
+                      </div>
+                      <div class="measure-box" style="left: 22px; width: 25%;"><span class="m-label">M.9</span></div>
+                      <div class="measure-box" style="left: calc(22px + 25%); width: 25%;"><span class="m-label">M.10</span></div>
+                      <div class="measure-box" style="left: calc(22px + 50%); width: 25%;"><span class="m-label">M.11</span></div>
+                      <div class="measure-box" style="left: calc(22px + 75%); width: calc(25% - 22px);"><span class="m-label">M.12</span></div>
+                      <!-- Single live stroke across 9-11 -->
+                      <div class="annot cresc" style="left: 100px; top: 30px; width: 360px;"></div>
+                    </div>
+                  </div>
+                </div>
+                <div class="page-controls"><span style="font-family: var(--mono); font-size:10.5px; color: var(--ink-3);">drawing · pen up will commit</span></div>
+              </div>
+            </main>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="spacer"></div>
+
+    <div class="wf-frame-wrap">
+      <div class="wf-frame">
+        <div class="wf-frame-label">Auto-split — t = 500ms (committed, with one-time tooltip) <span class="form-factor">iPad · landscape</span></div>
+        <div class="frame-ipad-l" style="aspect-ratio: 1024/420;">
+          <div class="app-shell no-sidebar" style="grid-template-columns: 44px 1fr;">
+            <aside class="toolbar-side">
+              <div class="tool active">✎</div><div class="tool">T</div><div class="tool">▬</div>
+            </aside>
+            <main style="display:flex; flex-direction:column; min-width:0;">
+              <div class="toolbar-top">
+                <div class="crumbs"><span class="cur">Lunar Noon</span><span class="sep">·</span><span>Violin 1</span></div>
+                <div class="group"><div class="tool-wide active">v3 <span class="caret">▾</span></div></div>
+                <div class="grow"></div>
+                <div class="right"><span class="sync"><span class="dot"></span>synced</span></div>
+              </div>
+              <div class="canvas-wrap">
+                <div class="page-area" style="position:relative;">
+                  <div class="page" style="padding: 24px 50px;">
+                    <div class="staff-system" style="height: 50px;">
+                      <span class="clef">𝄞</span>
+                      <div class="staff-lines">
+                        <div class="staff-line"></div><div class="staff-line"></div>
+                        <div class="staff-line"></div><div class="staff-line"></div>
+                        <div class="staff-line"></div>
+                      </div>
+                      <div class="measure-box" style="left: 22px; width: 25%;"><span class="m-label">M.9</span></div>
+                      <div class="measure-box" style="left: calc(22px + 25%); width: 25%;"><span class="m-label">M.10</span></div>
+                      <div class="measure-box" style="left: calc(22px + 50%); width: 25%;"><span class="m-label">M.11</span></div>
+                      <div class="measure-box" style="left: calc(22px + 75%); width: calc(25% - 22px);"><span class="m-label">M.12</span></div>
+                      <!-- THREE separate annotations, one per measure -->
+                      <div class="annot cresc" style="left: 100px; top: 30px; width: 110px;"></div>
+                      <div class="annot cresc" style="left: 222px; top: 30px; width: 130px;"></div>
+                      <div class="annot cresc" style="left: 366px; top: 30px; width: 90px;"></div>
+                      <!-- One-time tooltip pointing at the seam -->
+                      <div class="autosplit-tooltip" style="left: 200px; top: 80px;">
+                        Long markings split at barlines so they follow each measure independently.
+                      </div>
+                    </div>
+                  </div>
+                </div>
+                <div class="page-controls">
+                  <span style="font-family: var(--mono); font-size:10.5px; color: var(--ink-3);">3 annotations created · m.9, m.10, m.11</span>
+                  <button class="btn ghost tiny">Got it</button>
+                </div>
+              </div>
+            </main>
+          </div>
+        </div>
+      </div>
+      <aside class="wf-notes">
+        <h4>Design notes</h4>
+        <ul>
+          <li><b>The honest design choice:</b> the split is a real behavior, not a visual abstraction. Showing it briefly (with the seam visible at the barline) is more trustworthy than hiding it.</li>
+          <li><span class="assume">assume</span> The "Got it" tooltip shows once per user, not per draw.</li>
+          <li>After dismissal, hovering one of the three annotation segments highlights only that segment — visual confirmation that it's three separate objects.</li>
+          <li>This protects against the surprise moment when the user later tries to drag "the crescendo" and finds it's three things — they've been told what to expect.</li>
+          <li><span class="defer">defer</span> A "treat as one" toggle for crescendos that should logically be one object. Listed under measure-span anchoring in the deferred doc.</li>
+        </ul>
+      </aside>
+    </div>
+  </section>
+
+  <!-- ============================================================
+       SCREEN 08 — Version dropdown + filter
+       ============================================================ -->
+  <section class="wf-screen" data-screen="08">
+    <h2 class="serif">08 · Version dropdown + annotation filter</h2>
+    <p class="caption">Two popovers over the resting opened-part view. Left: version switcher attached to the v3 pill. Right: annotation visibility filter — show/hide globally and filter by source. Both popovers should feel like cousins of the design system's existing inspector and history-rail patterns.</p>
+    <div class="wf-frame-wrap">
+      <div class="wf-frame">
+        <div class="wf-frame-label">Version dropdown <span class="form-factor">iPad · landscape</span></div>
+        <div class="frame-ipad-l" style="aspect-ratio: 1024/520;">
+          <div class="app-shell no-sidebar" style="grid-template-columns: 44px 1fr;">
+            <aside class="toolbar-side">
+              <div class="tool active">✎</div><div class="tool">T</div><div class="tool">▬</div>
+            </aside>
+            <main style="display:flex; flex-direction:column; min-width:0; position:relative;">
+              <div class="toolbar-top">
+                <div class="crumbs"><span class="cur">Lunar Noon</span><span class="sep">·</span><span>Violin 1</span></div>
+                <div class="group" style="position:relative;">
+                  <div class="tool-wide active">v3 <span class="caret">▾</span></div>
+                  <div class="ver-dropdown">
+                    <div class="head">Versions · 4 total</div>
+                    <div class="row cur">
+                      <div>
+                        <div class="vname">v3 · Final w/ Coda cut</div>
+                        <div class="vmeta">Marta · 2h ago · 4 measures changed</div>
+                      </div>
+                      <span class="right">CURRENT</span>
+                    </div>
+                    <div class="row">
+                      <div>
+                        <div class="vname">v2 · Rehearsal A</div>
+                        <div class="vmeta">Marta · 2 days ago · added Violin 1</div>
+                      </div>
+                      <span class="right">your last open</span>
+                    </div>
+                    <div class="row">
+                      <div>
+                        <div class="vname">v1 · Initial sketch</div>
+                        <div class="vmeta">Marta · 6 days ago · cello only</div>
+                      </div>
+                      <span class="right">no part</span>
+                    </div>
+                    <div class="foot">
+                      <div class="row" style="background: transparent;">
+                        <span>›</span>&nbsp;See full version history
+                      </div>
+                    </div>
+                  </div>
+                </div>
+                <div class="grow"></div>
+                <div class="right"><span class="sync"><span class="dot"></span>synced</span></div>
+              </div>
+              <div class="canvas-wrap" style="opacity: 0.4;">
+                <div class="page-area">
+                  <div class="page" style="padding: 24px 50px;">
+                    <div class="staff-system" style="height: 50px;">
+                      <span class="clef">𝄞</span>
+                      <div class="staff-lines">
+                        <div class="staff-line"></div><div class="staff-line"></div>
+                        <div class="staff-line"></div><div class="staff-line"></div>
+                        <div class="staff-line"></div>
+                      </div>
+                    </div>
+                    <div class="staff-system" style="height: 50px;">
+                      <span class="clef">𝄞</span>
+                      <div class="staff-lines">
+                        <div class="staff-line"></div><div class="staff-line"></div>
+                        <div class="staff-line"></div><div class="staff-line"></div>
+                        <div class="staff-line"></div>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </main>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="spacer"></div>
+
+    <div class="wf-frame-wrap">
+      <div class="wf-frame">
+        <div class="wf-frame-label">Annotation filter <span class="form-factor">iPad · landscape</span></div>
+        <div class="frame-ipad-l" style="aspect-ratio: 1024/520;">
+          <div class="app-shell no-sidebar" style="grid-template-columns: 44px 1fr;">
+            <aside class="toolbar-side">
+              <div class="tool active">✎</div><div class="tool">T</div><div class="tool">▬</div>
+            </aside>
+            <main style="display:flex; flex-direction:column; min-width:0; position:relative;">
+              <div class="toolbar-top">
+                <div class="crumbs"><span class="cur">Lunar Noon</span><span class="sep">·</span><span>Violin 1</span></div>
+                <div class="group"><div class="tool-wide active">v3 <span class="caret">▾</span></div></div>
+                <div class="group">
+                  <div class="tool-wide active">◐ annotations <span class="caret">▾</span></div>
+                </div>
+                <div class="grow"></div>
+                <div class="right"><span class="sync"><span class="dot"></span>synced</span></div>
+                <div class="filter-pop">
+                  <div class="head">Annotations</div>
+                  <label class="opt"><input type="checkbox" checked> Show all annotations</label>
+                  <div class="divider"></div>
+                  <div class="head">Filter by source</div>
+                  <label class="opt"><input type="checkbox" checked> Mine</label>
+                  <label class="opt"><input type="checkbox" checked> From composer (Marta)</label>
+                  <label class="opt"><input type="checkbox"> Migrated from earlier version</label>
+                  <div class="divider"></div>
+                  <label class="opt"><input type="checkbox"> Hide all <span style="margin-left:auto; color: var(--ink-4); font-family: var(--mono); font-size: 10px;">⌘H</span></label>
+                </div>
+              </div>
+              <div class="canvas-wrap" style="opacity: 0.4;">
+                <div class="page-area">
+                  <div class="page" style="padding: 24px 50px;">
+                    <div class="staff-system" style="height: 50px;">
+                      <span class="clef">𝄞</span>
+                      <div class="staff-lines">
+                        <div class="staff-line"></div><div class="staff-line"></div>
+                        <div class="staff-line"></div><div class="staff-line"></div>
+                        <div class="staff-line"></div>
+                      </div>
+                    </div>
+                    <div class="staff-system" style="height: 50px;">
+                      <span class="clef">𝄞</span>
+                      <div class="staff-lines">
+                        <div class="staff-line"></div><div class="staff-line"></div>
+                        <div class="staff-line"></div><div class="staff-line"></div>
+                        <div class="staff-line"></div>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </main>
+          </div>
+        </div>
+      </div>
+      <aside class="wf-notes">
+        <h4>Design notes</h4>
+        <ul>
+          <li><span class="assume">assume</span> The filter sources reflect what's in the v1 data model — own annotations vs. inherited/migrated. Layers UI is deferred but a source filter is achievable now.</li>
+          <li>"Hide all" gets a keyboard shortcut (⌘H) — common operation during performance.</li>
+          <li>Version dropdown shows what differs in each row (added Violin 1, 4 changed). Consistent with notification language.</li>
+          <li><span class="defer">defer</span> Filter by annotation kind (ink only, text only) — useful but not a v1 differentiator.</li>
+        </ul>
+      </aside>
+    </div>
+  </section>
+
+  <!-- ============================================================
+       SCREEN 09 — Version history view
+       ============================================================ -->
+  <section class="wf-screen" data-screen="09">
+    <h2 class="serif">09 · Version history</h2>
+    <p class="caption">Tapping "see full version history" opens a Docs-style split: preview of the part at the selected version on the left, timeline rail on the right. Read-only — viewing past versions doesn't push annotations to them. Every entry says what changed in that version of THIS part (history is per-part, not per-chart).</p>
+    <div class="wf-frame-wrap">
+      <div class="wf-frame">
+        <div class="wf-frame-label">Version history <span class="form-factor">iPad · landscape</span></div>
+        <div class="frame-ipad-l">
+          <div class="app-shell no-sidebar" style="grid-template-columns: 1fr;">
+            <main style="display:flex; flex-direction:column; min-width:0;">
+              <div class="topbar">
+                <div class="crumbs">
+                  <span style="font-size:14px;">‹</span>
+                  <span>Lunar Noon</span><span class="sep">·</span>
+                  <span>Violin 1</span><span class="sep">·</span>
+                  <span class="cur">Version history</span>
+                </div>
+                <div class="grow"></div>
+                <div class="right">
+                  <button class="btn ghost tiny">Open at v3</button>
+                  <span class="sync"><span class="dot"></span>read-only</span>
+                </div>
+              </div>
+              <div class="history-shell">
+                <div class="history-preview">
+                  <div class="label">Showing · Violin 1 at v3</div>
+                  <h2 class="serif">Lunar Noon</h2>
+                  <div style="background: var(--paper-2); border: 1px solid var(--line); padding: 22px 30px; border-radius: var(--r-sm); position: relative;">
+                    <div class="page-title" style="margin-bottom: 16px;">Lunar Noon · Violin 1 · v3</div>
+
+                    <div class="staff-system" style="height: 46px;">
+                      <span class="clef">𝄞</span>
+                      <div class="staff-lines">
+                        <div class="staff-line"></div><div class="staff-line"></div>
+                        <div class="staff-line"></div><div class="staff-line"></div>
+                        <div class="staff-line"></div>
+                      </div>
+                      <div class="measure-box" style="left: 22px; width: 33%;"><span class="m-label">M.15</span></div>
+                      <div class="measure-box changed" style="left: calc(22px + 33%); width: 33%;"><span class="m-label">M.17</span></div>
+                      <div class="measure-box" style="left: calc(22px + 66%); width: calc(34% - 22px);"><span class="m-label">M.19</span></div>
+                    </div>
+                    <div class="staff-system" style="height: 46px;">
+                      <span class="clef">𝄞</span>
+                      <div class="staff-lines">
+                        <div class="staff-line"></div><div class="staff-line"></div>
+                        <div class="staff-line"></div><div class="staff-line"></div>
+                        <div class="staff-line"></div>
+                      </div>
+                      <div class="measure-box" style="left: 22px; width: 33%;"><span class="m-label">M.31</span></div>
+                      <div class="measure-box changed" style="left: calc(22px + 33%); width: 33%;"><span class="m-label">M.34</span></div>
+                      <div class="measure-box changed" style="left: calc(22px + 66%); width: calc(34% - 22px);"><span class="m-label">M.42</span></div>
+                    </div>
+                  </div>
+                </div>
+                <div class="history-rail">
+                  <div class="label">Version history · Violin 1</div>
+
+                  <div class="h-entry cur changed">
+                    <div class="dot-col"><div class="dot"></div><div class="line"></div></div>
+                    <div>
+                      <div class="vlabel">v3 · Final w/ Coda cut <span class="when">2h ago</span></div>
+                      <div class="desc">4 measures changed · 7 annotations migrated forward</div>
+                    </div>
+                  </div>
+                  <div class="h-entry added">
+                    <div class="dot-col"><div class="dot"></div><div class="line"></div></div>
+                    <div>
+                      <div class="vlabel">v2 · Rehearsal A <span class="when">2d ago</span></div>
+                      <div class="desc">added · seeded from Cello v1 · 3 annotations migrated</div>
+                    </div>
+                  </div>
+                  <div class="h-entry">
+                    <div class="dot-col"><div class="dot"></div><div class="line"></div></div>
+                    <div>
+                      <div class="vlabel">v1 · Initial sketch <span class="when">6d ago</span></div>
+                      <div class="desc" style="color: var(--ink-4);">Violin 1 didn't exist yet · chart was cello-only</div>
+                    </div>
+                  </div>
+                  <div style="margin-top: 16px; padding: 10px 12px; font-family: var(--mono); font-size: 10.5px; color: var(--ink-4); border-top: 1px solid var(--line-2);">
+                    history is per-part · scoped to Violin 1
+                  </div>
+                </div>
+              </div>
+            </main>
+          </div>
+        </div>
+      </div>
+      <aside class="wf-notes">
+        <h4>Design notes</h4>
+        <ul>
+          <li><span class="assume">assume</span> Per-part history is the right framing. Showing the whole-chart history would be overwhelming and the player only cares about THEIR part anyway.</li>
+          <li>The preview on the left renders the part at the selected version. Read-only mode is signaled by the topbar pill.</li>
+          <li>"Open at v3" lets the player jump back to the live editing experience at the current version.</li>
+          <li>v1 is a "ghost" entry because the player's part didn't exist yet — explicit, not silenced.</li>
+          <li><span class="defer">defer</span> Side-by-side compare ("v2 vs v3 of this part") — would live as a tertiary action on a history entry.</li>
+        </ul>
+      </aside>
+    </div>
+  </section>
+
+  <!-- ============================================================
+       SCREEN 10 — Laptop layout
+       ============================================================ -->
+  <section class="wf-screen" data-screen="10">
+    <h2 class="serif">10 · Laptop layout</h2>
+    <p class="caption">Same opened-part state, laptop form factor. Sidebar stays. Side toolbar stays (it's been useful at home for keyboard-mouse work too). Keyboard shortcut hints surface on tools and version pill. Page-turn buttons are smaller because cursor reach is tighter — but a "press space for next page" hint replaces the foot-pedal pill.</p>
+    <div class="wf-frame-wrap">
+      <div class="wf-frame">
+        <div class="wf-frame-label">Opened part · resting <span class="form-factor">Laptop · 1280px</span></div>
+        <div class="frame-laptop">
+          <div class="app-shell" style="grid-template-columns: 200px 44px 1fr;">
+            <aside class="sidebar">
+              <div class="brand"><div class="mark">S</div><div class="name serif">Scorva</div></div>
+              <div class="item"><span class="dot"></span>My Parts <span class="badge">3</span></div>
+              <div class="item"><span class="dot"></span>Notifications</div>
+              <div class="group">Ensembles</div>
+              <div class="item"><span class="dot"></span>TAK Ensemble</div>
+              <div class="item sub active">Lunar Noon</div>
+              <div class="item sub">Lichen Songs</div>
+              <div class="item"><span class="dot"></span>St. Mark's Worship</div>
+              <div class="item"><span class="dot"></span>Big Band — Tues</div>
+            </aside>
+            <aside class="toolbar-side">
+              <div class="tool active" title="Ink (P)">✎</div>
+              <div class="tool" title="Text (T)">T</div>
+              <div class="tool" title="Highlight (H)">▬</div>
+              <div class="divider"></div>
+              <div class="tool" title="Select (V)">↖</div>
+              <div class="tool" title="Eraser (E)">⌫</div>
+              <div class="divider"></div>
+              <div class="tool" title="Hide annotations (⌘H)">◐</div>
+            </aside>
+            <main style="display:flex; flex-direction:column; min-width:0;">
+              <div class="toolbar-top">
+                <div class="crumbs">
+                  <span style="font-size:14px;">‹</span>
+                  <span>Lunar Noon</span><span class="sep">·</span>
+                  <span class="cur">Violin 1</span>
+                </div>
+                <div class="group">
+                  <div class="tool-wide active">v3 <span class="caret">▾</span> <span class="kbd" style="background: rgba(255,255,255,0.18); color: rgba(255,255,255,0.7);">⌘V</span></div>
+                </div>
+                <div class="group">
+                  <div class="tool active">✎ <span class="kbd" style="background: rgba(255,255,255,0.18); color: rgba(255,255,255,0.7); margin-left:3px;">P</span></div>
+                  <div class="tool">T</div>
+                  <div class="tool">▬</div>
+                </div>
+                <div class="group">
+                  <div class="tool-wide" title="Show/hide annotations">◐ annotations <span class="caret">▾</span></div>
+                </div>
+                <div class="grow"></div>
+                <div class="right">
+                  <span class="sync"><span class="dot"></span>synced</span>
+                </div>
+              </div>
+
+              <div class="canvas-wrap">
+                <div class="page-area">
+                  <div class="page">
+                    <div class="page-title">Lunar Noon · Violin 1 · v3</div>
+
+                    <div class="staff-system" style="height: 50px;">
+                      <span class="clef">𝄞</span>
+                      <div class="staff-lines">
+                        <div class="staff-line"></div><div class="staff-line"></div>
+                        <div class="staff-line"></div><div class="staff-line"></div>
+                        <div class="staff-line"></div>
+                      </div>
+                      <div class="measure-box" style="left: 22px; width: 25%;"><span class="m-label">M.1</span></div>
+                      <div class="measure-box" style="left: calc(22px + 25%); width: 25%;"><span class="m-label">M.2</span></div>
+                      <div class="measure-box" style="left: calc(22px + 50%); width: 25%;"><span class="m-label">M.3</span></div>
+                      <div class="measure-box" style="left: calc(22px + 75%); width: calc(25% - 22px);"><span class="m-label">M.4</span></div>
+                      <div class="note" style="left:80px; top:14px"></div>
+                      <div class="note" style="left:140px; top:11px"></div>
+                      <div class="note" style="left:220px; top:15px"></div>
+                      <div class="note" style="left:300px; top:9px"></div>
+                      <div class="note" style="left:380px; top:13px"></div>
+                      <div class="note" style="left:440px; top:17px"></div>
+                      <div class="note" style="left:520px; top:11px"></div>
+                      <div class="annot cresc" style="left: 110px; top: 28px;"></div>
+                      <div class="annot" style="left: 200px; top: 36px;">cresc.</div>
+                    </div>
+
+                    <div class="staff-system" style="height: 50px;">
+                      <span class="clef">𝄞</span>
+                      <div class="staff-lines">
+                        <div class="staff-line"></div><div class="staff-line"></div>
+                        <div class="staff-line"></div><div class="staff-line"></div>
+                        <div class="staff-line"></div>
+                      </div>
+                      <div class="measure-box" style="left: 22px; width: 25%;"><span class="m-label">M.5</span></div>
+                      <div class="measure-box" style="left: calc(22px + 25%); width: 25%;"><span class="m-label">M.6</span></div>
+                      <div class="measure-box" style="left: calc(22px + 50%); width: 25%;"><span class="m-label">M.7</span></div>
+                      <div class="measure-box" style="left: calc(22px + 75%); width: calc(25% - 22px);"><span class="m-label">M.8</span></div>
+                      <div class="note" style="left:80px; top:13px"></div>
+                      <div class="note" style="left:160px; top:9px"></div>
+                      <div class="note" style="left:240px; top:14px"></div>
+                      <div class="note" style="left:320px; top:18px"></div>
+                      <div class="note" style="left:400px; top:11px"></div>
+                      <div class="note" style="left:480px; top:15px"></div>
+                      <div class="annot" style="left: 360px; top: -8px; font-size: 13px;">watch tempo</div>
+                    </div>
+
+                    <div class="staff-system" style="height: 50px;">
+                      <span class="clef">𝄞</span>
+                      <div class="staff-lines">
+                        <div class="staff-line"></div><div class="staff-line"></div>
+                        <div class="staff-line"></div><div class="staff-line"></div>
+                        <div class="staff-line"></div>
+                      </div>
+                      <div class="measure-box" style="left: 22px; width: 25%;"><span class="m-label">M.9</span></div>
+                      <div class="measure-box" style="left: calc(22px + 25%); width: 25%;"><span class="m-label">M.10</span></div>
+                      <div class="measure-box" style="left: calc(22px + 50%); width: 25%;"><span class="m-label">M.11</span></div>
+                      <div class="measure-box" style="left: calc(22px + 75%); width: calc(25% - 22px);"><span class="m-label">M.12</span></div>
+                      <div class="note" style="left:80px; top:13px"></div>
+                      <div class="note" style="left:160px; top:9px"></div>
+                      <div class="note" style="left:240px; top:14px"></div>
+                      <div class="note" style="left:320px; top:18px"></div>
+                      <div class="note" style="left:400px; top:11px"></div>
+                      <div class="note" style="left:480px; top:15px"></div>
+                    </div>
+                  </div>
+                </div>
+                <div class="page-controls">
+                  <div class="row">
+                    <div class="page-btn">‹</div>
+                    <span>page 1 of 4</span>
+                    <div class="page-btn">›</div>
+                    <span class="pedal-hint">space · next page</span>
+                  </div>
+                  <div class="row" style="gap: 16px;">
+                    <span style="color: var(--ink-4);">view: single · two-up · scroll</span>
+                    <div class="zoom"><button>−</button><span class="level">100%</span><button>+</button></div>
+                  </div>
+                </div>
+              </div>
+            </main>
+          </div>
+        </div>
+      </div>
+      <aside class="wf-notes">
+        <h4>Design notes</h4>
+        <ul>
+          <li>Sidebar visible on laptop (it's hidden on iPad to give the page more room).</li>
+          <li>Keyboard shortcuts surface on tool tooltips and on hover in the pills (P / T / H / V / E / ⌘H / ⌘V).</li>
+          <li>Foot-pedal hint becomes a "space" hint — same handler, different input.</li>
+          <li><span class="assume">assume</span> Side toolbar stays even though it duplicates the top toolbar — at this width there's room and it gives the player the same affordance regardless of device.</li>
+          <li><span class="defer">defer</span> Compact density preset for laptops with smaller screens.</li>
+        </ul>
+      </aside>
+    </div>
+  </section>
+
+</div>
+
+<script>
+  // Simple screen switcher
+  const nav = document.getElementById('nav');
+  const screens = document.querySelectorAll('.wf-screen');
+  nav.addEventListener('click', (e) => {
+    if (e.target.tagName !== 'BUTTON') return;
+    const target = e.target.dataset.target;
+    nav.querySelectorAll('button').forEach(b => b.classList.toggle('active', b.dataset.target === target));
+    screens.forEach(s => s.classList.toggle('active', s.dataset.screen === target));
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+  });
+</script>
+
+</body>
+</html>
