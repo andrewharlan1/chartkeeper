@@ -12,9 +12,11 @@ interface Props {
   onChange: (ids: string[]) => void;
   /** Called when user creates new instruments inline — provides assignment objects for the API */
   onAssignmentsChange?: (assignments: InstrumentAssignment[]) => void;
+  /** Render in compact mode for tray rows */
+  compact?: boolean;
 }
 
-export function SlotAssignmentPicker({ slots, selectedIds, onChange, onAssignmentsChange }: Props) {
+export function SlotAssignmentPicker({ slots, selectedIds, onChange, onAssignmentsChange, compact }: Props) {
   const [query, setQuery] = useState('');
   const [showDropdown, setShowDropdown] = useState(false);
   const [newNames, setNewNames] = useState<string[]>([]); // locally-created names
@@ -104,6 +106,100 @@ export function SlotAssignmentPicker({ slots, selectedIds, onChange, onAssignmen
     newNames.some(n => n.toLowerCase() === lowerQuery) ||
     suggestions.some(s => s.toLowerCase() === lowerQuery);
   const showCreateOption = lowerQuery && !exactMatch;
+
+  if (compact) {
+    const selectedSlot = selectedIds.length > 0 ? slots.find(s => s.id === selectedIds[0]) : null;
+    const label = selectedSlot
+      ? selectedSlot.name
+      : newNames.length > 0
+        ? newNames[0]
+        : null;
+    return (
+      <div ref={containerRef} style={{ position: 'relative' }}>
+        <button
+          type="button"
+          onClick={() => setShowDropdown(s => !s)}
+          className={'slot-pill' + (label ? '' : ' unassigned')}
+          style={{ fontSize: 11, padding: '4px 8px 4px 6px' }}
+        >
+          {label ? (
+            <>
+              <InstrumentIcon name={label} size={14} />
+              <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{label}</span>
+            </>
+          ) : (
+            <span>assign...</span>
+          )}
+          <span className="caret" style={{ fontSize: 9 }}>&blacktriangledown;</span>
+        </button>
+        {showDropdown && (
+          <div style={{
+            position: 'absolute', left: 0, top: '100%', marginTop: 2, zIndex: 50,
+            background: 'var(--surface-raised, var(--surface))', border: '1px solid var(--border)',
+            borderRadius: 8, boxShadow: '0 4px 12px rgba(0,0,0,0.15)',
+            maxHeight: 200, overflowY: 'auto', width: 200,
+          }}>
+            <div style={{ padding: '6px 8px', borderBottom: '1px solid var(--border)' }}>
+              <input
+                ref={inputRef}
+                value={query}
+                onChange={e => setQuery(e.target.value)}
+                onKeyDown={e => { if (e.key === 'Enter' && showCreateOption) { e.preventDefault(); addNewName(query); } }}
+                placeholder="Search..."
+                autoFocus
+                style={{
+                  width: '100%', background: 'transparent', border: 'none', outline: 'none',
+                  fontSize: 12, color: 'var(--text)', padding: 0,
+                }}
+              />
+            </div>
+            {filteredSlots.map(slot => (
+              <button
+                key={slot.id}
+                type="button"
+                onClick={() => { onChange([slot.id]); setQuery(''); setShowDropdown(false); }}
+                style={{
+                  display: 'flex', alignItems: 'center', gap: 6, width: '100%',
+                  padding: '5px 8px', background: selectedIds.includes(slot.id) ? 'var(--accent-subtle)' : 'transparent',
+                  border: 'none', cursor: 'pointer', color: 'var(--text)', fontSize: 11, fontFamily: 'inherit', textAlign: 'left',
+                }}
+              >
+                <InstrumentIcon name={slot.name} size={14} />
+                {slot.name}
+              </button>
+            ))}
+            {suggestions.map(name => (
+              <button
+                key={`suggest-${name}`}
+                type="button"
+                onClick={() => addNewName(name)}
+                style={{
+                  display: 'flex', alignItems: 'center', gap: 6, width: '100%',
+                  padding: '5px 8px', background: 'transparent',
+                  border: 'none', cursor: 'pointer', color: 'var(--text-muted)', fontSize: 11, fontFamily: 'inherit', textAlign: 'left',
+                }}
+              >
+                + <strong>{name}</strong>
+              </button>
+            ))}
+            {showCreateOption && (
+              <button
+                type="button"
+                onClick={() => addNewName(query)}
+                style={{
+                  display: 'flex', alignItems: 'center', gap: 6, width: '100%',
+                  padding: '5px 8px', background: 'transparent',
+                  border: 'none', cursor: 'pointer', color: 'var(--accent)', fontSize: 11, fontFamily: 'inherit', textAlign: 'left',
+                }}
+              >
+                + Create: <strong>{query.trim()}</strong>
+              </button>
+            )}
+          </div>
+        )}
+      </div>
+    );
+  }
 
   return (
     <div ref={containerRef} style={{ marginTop: 6, position: 'relative' }}>
