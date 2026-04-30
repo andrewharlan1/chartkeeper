@@ -23,8 +23,9 @@ export function Login() {
       // Store token so the workspaces fetch is authenticated
       localStorage.setItem('token', token);
       const { workspaces } = await getWorkspaces();
-      const wsId = workspaces[0]?.id ?? '';
-      setAuth(token, user, wsId);
+      const ws = workspaces[0];
+      const wsId = ws?.id ?? '';
+      setAuth(token, user, wsId, ws?.role);
       navigate('/');
     } catch (err) {
       setError(err instanceof ApiError ? err.message : 'Something went wrong');

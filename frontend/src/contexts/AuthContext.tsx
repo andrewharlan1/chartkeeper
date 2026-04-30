@@ -1,12 +1,13 @@
 import { createContext, useState, useEffect, useRef, ReactNode } from 'react';
-import { User } from '../types';
+import { User, WorkspaceRole } from '../types';
 import { getWorkspaces } from '../api/workspaces';
 
 interface AuthContextValue {
   user: User | null;
   token: string | null;
   workspaceId: string | null;
-  login: (token: string, user: User, workspaceId: string) => void;
+  role: WorkspaceRole;
+  login: (token: string, user: User, workspaceId: string, role?: WorkspaceRole) => void;
   setWorkspaceId: (id: string) => void;
   logout: () => void;
 }
@@ -21,6 +22,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   });
   const [workspaceId, setWorkspaceIdState] = useState<string | null>(
     () => localStorage.getItem('workspaceId'),
+  );
+  const [role, setRole] = useState<WorkspaceRole>(
+    () => (localStorage.getItem('workspaceRole') as WorkspaceRole) || 'member',
   );
 
   useEffect(() => {
@@ -48,6 +52,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       .then(({ workspaces }) => {
         if (workspaces.length > 0) {
           setWorkspaceIdState(workspaces[0].id);
+          if (workspaces[0].role) {
+            setRole(workspaces[0].role);
+            localStorage.setItem('workspaceRole', workspaces[0].role);
+          }
         } else {
           // Token valid but no workspaces — force re-auth
           setToken(null);
@@ -64,10 +72,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       .finally(() => { recovering.current = false; });
   }, [token, workspaceId]);
 
-  function login(t: string, u: User, wsId: string) {
+  function login(t: string, u: User, wsId: string, r: WorkspaceRole = 'member') {
     setToken(t);
     setUser(u);
     setWorkspaceIdState(wsId);
+    setRole(r);
+    localStorage.setItem('workspaceRole', r);
   }
 
   function setWorkspaceId(id: string) {
@@ -78,10 +88,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     setToken(null);
     setUser(null);
     setWorkspaceIdState(null);
+    setRole('member');
+    localStorage.removeItem('workspaceRole');
   }
 
   return (
-    <AuthContext.Provider value={{ user, token, workspaceId, login, setWorkspaceId, logout }}>
+    <AuthContext.Provider value={{ user, token, workspaceId, role, login, setWorkspaceId, logout }}>
       {children}
     </AuthContext.Provider>
   );
