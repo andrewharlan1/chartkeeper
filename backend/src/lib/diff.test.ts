@@ -1,4 +1,4 @@
-import { diffPart, diffVersion, OmrJson } from './diff';
+import { diffPart, diffVersion, OmrJson, OmrSection } from './diff';
 
 function makeMeasure(number: number, pitches: string[], dynamics: string[] = []) {
   return {
@@ -8,7 +8,7 @@ function makeMeasure(number: number, pitches: string[], dynamics: string[] = [])
   };
 }
 
-function makeOmr(measures: ReturnType<typeof makeMeasure>[], sections = []): OmrJson {
+function makeOmr(measures: ReturnType<typeof makeMeasure>[], sections: OmrSection[] = []): OmrJson {
   return { measures, sections, partName: 'trumpet' };
 }
 

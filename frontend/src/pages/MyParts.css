@@ -1,0 +1,198 @@
+/* ── My Parts list (pivot tabs + part rows) ── */
+
+.my-parts-tabs {
+  display: flex;
+  gap: 0;
+  border-bottom: 1px solid var(--border);
+  margin-bottom: 24px;
+}
+.my-parts-tabs button {
+  background: none;
+  border: none;
+  border-bottom: 2px solid transparent;
+  padding: 10px 18px;
+  font-family: var(--mono);
+  font-size: 12px;
+  letter-spacing: 0.04em;
+  color: var(--text-muted);
+  cursor: pointer;
+  transition: color 0.12s, border-color 0.12s;
+}
+.my-parts-tabs button:hover {
+  color: var(--text);
+}
+.my-parts-tabs button.active {
+  color: var(--accent);
+  border-bottom-color: var(--accent);
+  font-weight: 600;
+}
+
+/* Group header */
+.mp-group {
+  margin-bottom: 28px;
+}
+.mp-group-head {
+  font-family: var(--serif);
+  font-size: 16px;
+  font-weight: 500;
+  color: var(--text);
+  margin-bottom: 10px;
+  letter-spacing: -0.01em;
+}
+.mp-group-sub {
+  font-family: var(--mono);
+  font-size: 11px;
+  color: var(--text-faint);
+  margin-left: 8px;
+  font-weight: 400;
+}
+
+/* Part row */
+.mp-row {
+  display: grid;
+  grid-template-columns: 28px 1fr auto auto;
+  gap: 12px;
+  align-items: center;
+  padding: 10px 14px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  margin-bottom: 6px;
+  cursor: pointer;
+  transition: background 0.12s, border-color 0.12s;
+  text-decoration: none;
+  color: inherit;
+}
+.mp-row:hover {
+  background: var(--surface-hover, rgba(0,0,0,0.02));
+  border-color: var(--accent);
+}
+
+.mp-row .mp-icon {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.mp-row .mp-info {
+  min-width: 0;
+}
+.mp-row .mp-name {
+  font-weight: 500;
+  font-size: 14px;
+  color: var(--text);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.mp-row .mp-sub {
+  font-size: 12px;
+  color: var(--text-muted);
+  margin-top: 1px;
+}
+.mp-row .mp-version {
+  font-family: var(--mono);
+  font-size: 11px;
+  padding: 2px 8px;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  color: var(--text-muted);
+  white-space: nowrap;
+}
+.mp-row .mp-badge {
+  font-family: var(--mono);
+  font-size: 10px;
+  padding: 2px 7px;
+  border-radius: 999px;
+  white-space: nowrap;
+}
+.mp-row .mp-badge.updated {
+  background: rgba(200,83,28,0.1);
+  color: var(--accent);
+}
+
+/* Event group section */
+.mp-event-head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 10px;
+}
+.mp-event-name {
+  font-family: var(--serif);
+  font-size: 16px;
+  font-weight: 500;
+  color: var(--text);
+}
+.mp-event-meta {
+  font-family: var(--mono);
+  font-size: 11px;
+  color: var(--text-faint);
+}
+.mp-event-pill {
+  font-family: var(--mono);
+  font-size: 10px;
+  padding: 2px 8px;
+  border-radius: 999px;
+  background: rgba(200,83,28,0.1);
+  color: var(--accent);
+}
+.mp-event-pill.past {
+  background: var(--surface);
+  color: var(--text-faint);
+}
+
+/* Empty state */
+.mp-empty {
+  text-align: center;
+  padding: 48px 24px;
+  color: var(--text-muted);
+  font-size: 14px;
+}
+
+/* Event context bar (in player view) */
+.event-ctx-bar {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 8px 18px;
+  background: rgba(200,83,28,0.06);
+  border-bottom: 1px solid rgba(200,83,28,0.15);
+  font-size: 12px;
+}
+.event-ctx-bar .ecb-pill {
+  font-family: var(--mono);
+  font-size: 10px;
+  padding: 2px 8px;
+  border-radius: 999px;
+  background: rgba(200,83,28,0.12);
+  color: var(--accent);
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+.event-ctx-bar .ecb-name {
+  font-weight: 500;
+  color: var(--text);
+}
+.event-ctx-bar .ecb-pos {
+  font-family: var(--mono);
+  font-size: 11px;
+  color: var(--text-muted);
+}
+.event-ctx-bar .ecb-next {
+  margin-left: auto;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-family: var(--mono);
+  font-size: 11px;
+  color: var(--accent);
+  text-decoration: none;
+  cursor: pointer;
+  background: none;
+  border: none;
+  padding: 4px 10px;
+  border-radius: 6px;
+}
+.event-ctx-bar .ecb-next:hover {
+  background: rgba(200,83,28,0.08);
+}

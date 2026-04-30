@@ -1,18 +1,23 @@
 import { useEffect, useState } from 'react';
-import { useParams, Link } from 'react-router-dom';
+import { useParams, useSearchParams, Link, useNavigate } from 'react-router-dom';
 import { getPart } from '../api/parts';
 import { getVersion } from '../api/versions';
 import { getChart } from '../api/charts';
 import { getAnnotations } from '../api/annotations';
+import { getEvent, EventChart } from '../api/events';
 import { Part, Version, Annotation } from '../types';
 import { Layout } from '../components/Layout';
 import { Button } from '../components/Button';
 import { InstrumentIcon } from '../components/InstrumentIcon';
 import { PdfViewer } from '../components/PdfViewer';
 import './PlayerHistory.css';
+import './MyParts.css';
 
 export function OpenedPartView() {
   const { id: chartId, vId, pId } = useParams<{ id: string; vId: string; pId: string }>();
+  const [searchParams] = useSearchParams();
+  const navigate = useNavigate();
+  const eventId = searchParams.get('event');
 
   const [part, setPart] = useState<Part | null>(null);
   const [version, setVersion] = useState<Version | null>(null);
@@ -20,6 +25,11 @@ export function OpenedPartView() {
   const [annotations, setAnnotations] = useState<Annotation[]>([]);
   const [loading, setLoading] = useState(true);
   const [showBanner, setShowBanner] = useState(false);
+
+  // Event context
+  const [eventName, setEventName] = useState('');
+  const [eventCharts, setEventCharts] = useState<EventChart[]>([]);
+  const [eventPosition, setEventPosition] = useState(0);
 
   useEffect(() => {
     if (!pId || !vId || !chartId) return;
@@ -41,6 +51,18 @@ export function OpenedPartView() {
     }).catch(() => {})
       .finally(() => setLoading(false));
   }, [pId, vId, chartId]);
+
+  // Load event context if navigated from event
+  useEffect(() => {
+    if (!eventId) return;
+    getEvent(eventId).then(({ event, charts }) => {
+      setEventName(event.name);
+      const sorted = [...charts].sort((a, b) => a.sortOrder - b.sortOrder);
+      setEventCharts(sorted);
+      const pos = sorted.findIndex(c => c.chartId === chartId);
+      setEventPosition(pos >= 0 ? pos : 0);
+    }).catch(() => {});
+  }, [eventId, chartId]);
 
   if (loading) return <Layout><p style={{ color: 'var(--text-muted)' }}>Loading...</p></Layout>;
   if (!part || !version) return null;
@@ -91,6 +113,26 @@ export function OpenedPartView() {
                 </span>
               </div>
             </div>
+
+            {/* Event context bar */}
+            {eventId && eventName && eventCharts.length > 0 && (
+              <div className="event-ctx-bar">
+                <span className="ecb-pill">setlist</span>
+                <span className="ecb-name">{eventName}</span>
+                <span className="ecb-pos">{eventPosition + 1} of {eventCharts.length}</span>
+                {eventPosition < eventCharts.length - 1 && (
+                  <button
+                    className="ecb-next"
+                    onClick={() => {
+                      const next = eventCharts[eventPosition + 1];
+                      navigate(`/charts/${next.chartId}?event=${eventId}`);
+                    }}
+                  >
+                    next: {eventCharts[eventPosition + 1].chartName} &rsaquo;
+                  </button>
+                )}
+              </div>
+            )}
 
             {/* Migration banner */}
             {showBanner && migratedCount > 0 && (

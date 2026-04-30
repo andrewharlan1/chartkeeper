@@ -14,6 +14,7 @@ import { PlayerView } from './pages/PlayerView';
 import { OpenedPartView } from './pages/OpenedPartView';
 import { PartHistoryPage } from './pages/PartHistory';
 import { DiffLogPage } from './pages/DiffLog';
+import { NotificationsPage } from './pages/Notifications';
 import { EventDetailPage } from './pages/EventDetail';
 
 function RequireAuth({ children }: { children: JSX.Element }) {
@@ -38,6 +39,7 @@ function AppRoutes() {
       <Route path="/charts/:id/versions/:vId/diff" element={<RequireAuth><DiffLogPage /></RequireAuth>} />
       <Route path="/charts/:id/migration-sources" element={<RequireAuth><MigrationSourcesPage /></RequireAuth>} />
       <Route path="/my-parts" element={<RequireAuth><PlayerView /></RequireAuth>} />
+      <Route path="/notifications" element={<RequireAuth><NotificationsPage /></RequireAuth>} />
       <Route path="*" element={<Navigate to="/" replace />} />
     </Routes>
   );

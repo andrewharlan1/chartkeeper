@@ -1,9 +1,13 @@
 import { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { getMyParts } from '../api/parts';
+import { getMyEvents, MyEvent } from '../api/events';
 import { PlayerPart } from '../types';
 import { Layout } from '../components/Layout';
-import { PdfViewer } from '../components/PdfViewer';
+import { InstrumentIcon } from '../components/InstrumentIcon';
+import './MyParts.css';
+
+type Pivot = 'chart' | 'ensemble' | 'event';
 
 function groupBy<T>(arr: T[], key: (item: T) => string): Map<string, T[]> {
   const map = new Map<string, T[]>();
@@ -15,33 +19,47 @@ function groupBy<T>(arr: T[], key: (item: T) => string): Map<string, T[]> {
   return map;
 }
 
+function PartRow({ p }: { p: PlayerPart }) {
+  return (
+    <Link
+      to={`/charts/${p.chartId}/versions/${p.versionId}/parts/${p.partId}`}
+      className="mp-row"
+    >
+      <div className="mp-icon">
+        <InstrumentIcon name={p.partName} size={20} />
+      </div>
+      <div className="mp-info">
+        <div className="mp-name">{p.partName}</div>
+        <div className="mp-sub">{p.chartName}</div>
+      </div>
+      <span className="mp-version">{p.versionName}</span>
+    </Link>
+  );
+}
+
 export function PlayerView() {
   const [parts, setParts] = useState<PlayerPart[]>([]);
+  const [events, setEvents] = useState<MyEvent[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
-  const [expanded, setExpanded] = useState<Set<string>>(new Set());
+  const [pivot, setPivot] = useState<Pivot>('chart');
 
   useEffect(() => {
-    getMyParts()
-      .then(r => {
-        setParts(r.parts);
-        const ids = new Set<string>(r.parts.map((p: PlayerPart) => p.chartId));
-        setExpanded(ids);
-      })
-      .catch(() => setError('Could not load your parts.'))
+    Promise.all([
+      getMyParts().catch(() => ({ parts: [] as PlayerPart[] })),
+      getMyEvents().catch(() => ({ events: [] as MyEvent[] })),
+    ]).then(([partsRes, eventsRes]) => {
+      setParts(partsRes.parts);
+      setEvents(eventsRes.events);
+    }).catch(() => setError('Could not load your parts.'))
       .finally(() => setLoading(false));
   }, []);
 
-  function toggleChart(chartId: string) {
-    setExpanded(prev => {
-      const next = new Set(prev);
-      if (next.has(chartId)) next.delete(chartId);
-      else next.add(chartId);
-      return next;
-    });
-  }
-
-  if (loading) return <Layout title="My Parts" backTo="/" breadcrumbs={[{ label: 'Home', to: '/' }, { label: 'My Parts' }]}><p style={{ color: 'var(--text-muted)' }}>Loading...</p></Layout>;
+  if (loading) return (
+    <Layout title="My Parts" backTo="/" breadcrumbs={[{ label: 'Home', to: '/' }, { label: 'My Parts' }]}>
+      <p style={{ color: 'var(--text-muted)' }}>Loading...</p>
+    </Layout>
+  );
 
   if (error) return (
     <Layout title="My Parts" backTo="/" breadcrumbs={[{ label: 'Home', to: '/' }, { label: 'My Parts' }]}>
@@ -49,98 +67,160 @@ export function PlayerView() {
     </Layout>
   );
 
-  if (parts.length === 0) return (
-    <Layout title="My Parts" backTo="/" breadcrumbs={[{ label: 'Home', to: '/' }, { label: 'My Parts' }]}>
-      <div style={{ textAlign: 'center', padding: '60px 0', color: 'var(--text-muted)' }}>
-        <p style={{ marginBottom: 8 }}>No parts yet.</p>
-        <p style={{ fontSize: 13 }}>Upload parts to see them here.</p>
-      </div>
-    </Layout>
-  );
-
-  const byEnsemble = groupBy(parts, p => p.ensembleId);
-
   return (
     <Layout title="My Parts" backTo="/" breadcrumbs={[{ label: 'Home', to: '/' }, { label: 'My Parts' }]}>
-      <div style={{ display: 'flex', flexDirection: 'column', gap: 32 }}>
-        {[...byEnsemble.entries()].map(([, ensembleParts]) => {
-          const { ensembleName } = ensembleParts[0];
-          const byChart = groupBy(ensembleParts, p => p.chartId);
+      {/* Pivot tabs */}
+      <div className="my-parts-tabs">
+        <button className={pivot === 'chart' ? 'active' : ''} onClick={() => setPivot('chart')}>
+          By chart
+        </button>
+        <button className={pivot === 'ensemble' ? 'active' : ''} onClick={() => setPivot('ensemble')}>
+          By ensemble
+        </button>
+        <button className={pivot === 'event' ? 'active' : ''} onClick={() => setPivot('event')}>
+          By event
+        </button>
+      </div>
 
-          return (
-            <section key={ensembleName}>
-              <h2 style={{ fontSize: 16, marginBottom: 12, color: 'var(--text-muted)', fontWeight: 500 }}>
-                {ensembleName}
-              </h2>
-              <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
-                {[...byChart.entries()].map(([chartId, chartParts]) => {
-                  const { chartName, versionName, versionId } = chartParts[0];
-                  const isOpen = expanded.has(chartId);
+      {parts.length === 0 ? (
+        <div className="mp-empty">
+          <p>No parts yet.</p>
+          <p style={{ fontSize: 13, marginTop: 6 }}>Parts assigned to you will appear here.</p>
+        </div>
+      ) : (
+        <>
+          {pivot === 'chart' && <ByChartView parts={parts} />}
+          {pivot === 'ensemble' && <ByEnsembleView parts={parts} />}
+          {pivot === 'event' && <ByEventView parts={parts} events={events} />}
+        </>
+      )}
+    </Layout>
+  );
+}
 
+function ByChartView({ parts }: { parts: PlayerPart[] }) {
+  const byChart = groupBy(parts, p => p.chartId);
+  return (
+    <div>
+      {[...byChart.entries()].map(([chartId, chartParts]) => (
+        <div className="mp-group" key={chartId}>
+          <div className="mp-group-head">
+            {chartParts[0].chartName}
+            <span className="mp-group-sub">{chartParts[0].versionName}</span>
+          </div>
+          {chartParts.map(p => <PartRow key={p.partId} p={p} />)}
+        </div>
+      ))}
+    </div>
+  );
+}
+
+function ByEnsembleView({ parts }: { parts: PlayerPart[] }) {
+  const byEnsemble = groupBy(parts, p => p.ensembleId);
+  return (
+    <div>
+      {[...byEnsemble.entries()].map(([ensembleId, ensembleParts]) => {
+        const byChart = groupBy(ensembleParts, p => p.chartId);
+        return (
+          <div className="mp-group" key={ensembleId}>
+            <div className="mp-group-head">{ensembleParts[0].ensembleName}</div>
+            {[...byChart.entries()].map(([chartId, chartParts]) => (
+              <div key={chartId} style={{ marginBottom: 16 }}>
+                <div style={{
+                  fontFamily: 'var(--mono)', fontSize: 11, color: 'var(--text-faint)',
+                  marginBottom: 6, letterSpacing: '0.04em',
+                }}>
+                  {chartParts[0].chartName} &middot; {chartParts[0].versionName}
+                </div>
+                {chartParts.map(p => <PartRow key={p.partId} p={p} />)}
+              </div>
+            ))}
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+function ByEventView({ parts, events }: { parts: PlayerPart[]; events: MyEvent[] }) {
+  if (events.length === 0) {
+    return (
+      <div className="mp-empty">
+        <p>No upcoming events.</p>
+        <p style={{ fontSize: 13, marginTop: 6 }}>Charts in event setlists will appear here grouped by event.</p>
+      </div>
+    );
+  }
+
+  // Build a chart→parts lookup
+  const partsByChart = groupBy(parts, p => p.chartId);
+
+  const now = Date.now();
+  const sortedEvents = [...events].sort((a, b) =>
+    new Date(a.startsAt).getTime() - new Date(b.startsAt).getTime()
+  );
+
+  return (
+    <div>
+      {sortedEvents.map(event => {
+        const past = new Date(event.startsAt).getTime() < now;
+        return (
+          <div className="mp-group" key={event.id}>
+            <div className="mp-event-head">
+              <span className={`mp-event-pill${past ? ' past' : ''}`}>
+                {past ? 'past' : 'upcoming'}
+              </span>
+              <span className="mp-event-name">{event.name}</span>
+              <span className="mp-event-meta">
+                {new Date(event.startsAt).toLocaleDateString()}
+              </span>
+            </div>
+            {event.charts.length === 0 ? (
+              <div style={{ fontSize: 12, color: 'var(--text-faint)', padding: '8px 0' }}>
+                No charts in setlist
+              </div>
+            ) : (
+              event.charts
+                .sort((a, b) => a.sortOrder - b.sortOrder)
+                .map((ec, i) => {
+                  const myParts = partsByChart.get(ec.chartId) || [];
                   return (
-                    <div key={chartId} style={{
-                      background: 'var(--surface)', border: '1px solid var(--border)',
-                      borderRadius: 'var(--radius)', overflow: 'hidden',
-                    }}>
-                      <div
-                        onClick={() => toggleChart(chartId)}
-                        style={{
-                          padding: '12px 18px',
-                          display: 'flex', alignItems: 'center', justifyContent: 'space-between',
-                          cursor: 'pointer',
-                          borderBottom: isOpen ? '1px solid var(--border)' : 'none',
-                          userSelect: 'none',
-                        }}
-                      >
-                        <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-                          <span style={{
-                            fontSize: 13, color: isOpen ? 'var(--accent)' : 'var(--text-muted)',
-                            transition: 'transform 0.15s',
-                            display: 'inline-block',
-                            transform: isOpen ? 'rotate(90deg)' : 'rotate(0deg)',
-                          }}>{'\u25B6'}</span>
-                          <div>
-                            <span style={{ fontWeight: 600, fontSize: 15 }}>
-                              {chartName ?? 'Untitled Chart'}
-                            </span>
-                            <span style={{ marginLeft: 10, fontSize: 12, color: 'var(--text-muted)' }}>
-                              {versionName}
-                            </span>
-                          </div>
-                        </div>
-                        <Link
-                          to={`/charts/${chartId}/versions/${versionId}`}
-                          onClick={e => e.stopPropagation()}
-                          style={{ fontSize: 12, color: 'var(--accent)', whiteSpace: 'nowrap' }}
-                        >
-                          Full version {'\u2192'}
-                        </Link>
+                    <div key={ec.chartId} style={{ marginBottom: 12 }}>
+                      <div style={{
+                        fontFamily: 'var(--mono)', fontSize: 11, color: 'var(--text-faint)',
+                        marginBottom: 4, letterSpacing: '0.04em',
+                      }}>
+                        {i + 1}. {ec.chartName}
                       </div>
-
-                      {isOpen && (
-                        <div style={{ padding: '16px 18px', display: 'flex', flexDirection: 'column', gap: 16 }}>
-                          {chartParts.map(p => (
-                            <div key={p.partId}>
-                              <p style={{ fontWeight: 500, marginBottom: 10, fontSize: 13, color: 'var(--text-muted)' }}>
-                                {p.partName}
-                              </p>
-                              <PdfViewer
-                                url={`/parts/${p.partId}/pdf`}
-                                partId={p.partId}
-                                title={`${p.partName} — ${versionName}`}
-                              />
+                      {myParts.length > 0 ? (
+                        myParts.map(p => (
+                          <Link
+                            key={p.partId}
+                            to={`/charts/${p.chartId}/versions/${p.versionId}/parts/${p.partId}?event=${event.id}`}
+                            className="mp-row"
+                          >
+                            <div className="mp-icon">
+                              <InstrumentIcon name={p.partName} size={20} />
                             </div>
-                          ))}
+                            <div className="mp-info">
+                              <div className="mp-name">{p.partName}</div>
+                              <div className="mp-sub">{p.chartName}</div>
+                            </div>
+                            <span className="mp-version">{p.versionName}</span>
+                          </Link>
+                        ))
+                      ) : (
+                        <div style={{ fontSize: 12, color: 'var(--text-faint)', padding: '4px 14px' }}>
+                          no assigned parts
                         </div>
                       )}
                     </div>
                   );
-                })}
-              </div>
-            </section>
-          );
-        })}
-      </div>
-    </Layout>
+                })
+            )}
+          </div>
+        );
+      })}
+    </div>
   );
 }

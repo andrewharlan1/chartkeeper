@@ -10,9 +10,9 @@ async function clearDb() {
   await db.query(`DELETE FROM version_diffs`);
   await db.query(`DELETE FROM jobs`);
   await db.query(`DELETE FROM parts`);
-  await db.query(`DELETE FROM chart_versions`);
+  await db.query(`DELETE FROM versions`);
   await db.query(`DELETE FROM charts`);
-  await db.query(`DELETE FROM ensemble_members`);
+  await db.query(`DELETE FROM workspace_members`);
   await db.query(`DELETE FROM ensembles`);
   await db.query(`DELETE FROM users`);
 }
