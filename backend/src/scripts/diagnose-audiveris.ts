@@ -5,8 +5,8 @@
  * Usage: cd backend && npx tsx src/scripts/diagnose-audiveris.ts
  */
 import fs from 'fs';
-// parseMusicXml lives in omr-service which is outside backend's module boundary.
-// Import via absolute path so tsx can resolve it.
+// @ts-ignore — parseMusicXml lives in omr-service, outside backend's rootDir.
+// This script is run via tsx (not tsc), so the runtime import works fine.
 import { parseMusicXml } from '/Users/andrewharlan/Desktop/chartkeeper/omr-service/src/audiveris';
 import { diffPart } from '../lib/diff';
 import type { OmrJson } from '../lib/diff';

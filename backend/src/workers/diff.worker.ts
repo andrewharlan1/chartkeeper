@@ -4,16 +4,13 @@ dotenv.config();
 import { eq, and, isNull, sql, desc, ne } from 'drizzle-orm';
 import { claimNextJob, completeJob, failJob } from '../lib/queue';
 import { notifyNewVersion, notifyNewVersionNoDiff } from '../lib/notifications';
-import { computeMeasureMapping, visionResultToPartDiff, ConcurrencyPool } from '../lib/vision-diff';
 import { migrateAnnotationsForVersion } from '../lib/annotation-migration';
-import type { VersionDiffJson } from '../lib/diff';
-import { downloadFile } from '../lib/s3';
+import { diffPart, type VersionDiffJson, type OmrJson } from '../lib/diff';
 import { db, dz } from '../db';
 import { parts, versions, charts, versionDiffs, partSlotAssignments, instrumentSlots } from '../schema';
 
 const POLL_INTERVAL_MS = parseInt(process.env.DIFF_POLL_INTERVAL_MS ?? '5000');
 const MAX_ATTEMPTS     = parseInt(process.env.DIFF_MAX_ATTEMPTS     ?? '3');
-const MAX_CONCURRENCY  = parseInt(process.env.VISION_MAX_CONCURRENCY ?? '5');
 
 interface DiffJobPayload {
   ensembleId:    string;
@@ -138,10 +135,8 @@ async function findPreviousVersionScore(opts: {
 interface DiffPair {
   fromPartId: string;
   fromPartName: string;
-  fromPdfS3Key: string;
   toPartId: string;
   toPartName: string;
-  toPdfS3Key: string;
   slotId: string | null;  // null for score diffs
   slotName: string;       // "Score" for score diffs
 }
@@ -190,10 +185,8 @@ async function processDiffJob(jobId: string, payload: DiffJobPayload): Promise<v
         diffPairs.push({
           fromPartId: prevScore.id,
           fromPartName: prevScore.name,
-          fromPdfS3Key: prevScore.pdfS3Key,
           toPartId: toPart.id,
           toPartName: toPart.name,
-          toPdfS3Key: toPart.pdfS3Key!,
           slotId: null,
           slotName: 'Score',
         });
@@ -221,10 +214,8 @@ async function processDiffJob(jobId: string, payload: DiffJobPayload): Promise<v
         diffPairs.push({
           fromPartId: prevPart.id,
           fromPartName: prevPart.name,
-          fromPdfS3Key: prevPart.pdfS3Key,
           toPartId: toPart.id,
           toPartName: toPart.name,
-          toPdfS3Key: toPart.pdfS3Key!,
           slotId: assignment.slotId,
           slotName: assignment.slotName,
         });
@@ -241,46 +232,49 @@ async function processDiffJob(jobId: string, payload: DiffJobPayload): Promise<v
     return;
   }
 
-  // Run Vision diff for all pairs in parallel, capped by pool
-  const pool = new ConcurrencyPool(MAX_CONCURRENCY);
-  const partDiffResults = await Promise.all(
-    diffPairs.map(pair => pool.run(async () => {
-      try {
-        const [oldPdf, newPdf] = await Promise.all([
-          downloadFile(pair.fromPdfS3Key),
-          downloadFile(pair.toPdfS3Key),
-        ]);
-
-        const result = await computeMeasureMapping(oldPdf, newPdf, pair.slotName, {
-          directorHint,
-          partId:        pair.toPartId,
-          fromVersionId,
-          toVersionId,
-        });
-
-        console.log(
-          `[diff.worker] ${pair.slotName} (${pair.toPartName}): confidence=${result.overallConfidence.toFixed(2)}, ` +
-          `changed=${result.changedMeasures.length}, inserted=${result.insertedMeasures.length}, ` +
-          `deleted=${result.deletedMeasures.length}, latency=${result.processingMs}ms`
-        );
-
-        return {
-          ...pair,
-          partDiff:    visionResultToPartDiff(result),
-          ok:          true,
-        };
-      } catch (err) {
-        const msg = err instanceof Error ? err.message : String(err);
-        console.error(`[diff.worker] Vision diff failed for ${pair.slotName} (${pair.toPartName}):`, msg);
-        return { ...pair, partDiff: null, ok: false };
-      }
-    }))
-  );
-
-  // Build version diff JSON — include all successful instrument diffs
+  // Run LCS diff for each pair using OmrJson stored on the parts
   const diffParts: VersionDiffJson['parts'] = {};
-  for (const r of partDiffResults) {
-    if (r.ok && r.partDiff) diffParts[r.slotName] = r.partDiff;
+  const partDiffResults: Array<DiffPair & { partDiff: ReturnType<typeof diffPart> | null; ok: boolean }> = [];
+
+  for (const pair of diffPairs) {
+    try {
+      // Load OmrJson from both parts
+      const [fromOmrRows, toOmrRows] = await Promise.all([
+        dz.select({ omrJson: parts.omrJson }).from(parts).where(eq(parts.id, pair.fromPartId)),
+        dz.select({ omrJson: parts.omrJson }).from(parts).where(eq(parts.id, pair.toPartId)),
+      ]);
+
+      const fromOmr = fromOmrRows[0]?.omrJson as OmrJson | null;
+      const toOmr = toOmrRows[0]?.omrJson as OmrJson | null;
+
+      if (!fromOmr || !toOmr) {
+        console.warn(`[diff.worker] Missing OmrJson for ${pair.slotName} (${pair.toPartName}) — skipping`);
+        partDiffResults.push({ ...pair, partDiff: null, ok: false });
+        continue;
+      }
+
+      const start = Date.now();
+      const partDiff = diffPart(fromOmr, toOmr);
+      const elapsed = Date.now() - start;
+
+      const allChanged = [
+        ...partDiff.changedMeasures,
+        ...partDiff.structuralChanges.insertedMeasures,
+      ];
+
+      console.log(
+        `[diff.worker] ${pair.slotName} (${pair.toPartName}): ` +
+        `changed=${allChanged.length}, inserted=${partDiff.structuralChanges.insertedMeasures.length}, ` +
+        `deleted=${partDiff.structuralChanges.deletedMeasures.length}, latency=${elapsed}ms`
+      );
+
+      diffParts[pair.slotName] = partDiff;
+      partDiffResults.push({ ...pair, partDiff, ok: true });
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      console.error(`[diff.worker] LCS diff failed for ${pair.slotName} (${pair.toPartName}):`, msg);
+      partDiffResults.push({ ...pair, partDiff: null, ok: false });
+    }
   }
 
   if (Object.keys(diffParts).length === 0) {

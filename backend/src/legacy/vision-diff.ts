@@ -1,7 +1,7 @@
 import Anthropic from '@anthropic-ai/sdk';
 import { db } from '../db';
 import { VISION_DIFF_PROMPT_V1, VISION_DIFF_PROMPT_VERSION, VISION_DIFF_SYSTEM_PROMPT } from './vision-prompt';
-import type { PartDiff, MeasureBounds } from './diff';
+import type { PartDiff, MeasureBounds } from '../lib/diff';
 
 // ── Config ────────────────────────────────────────────────────────────────────
 

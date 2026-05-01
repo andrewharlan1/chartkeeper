@@ -6,7 +6,6 @@ import { claimNextJob, completeJob, failJob, enqueueJob } from '../lib/queue';
 import { uploadFile, downloadFile } from '../lib/s3';
 import { db, dz } from '../db';
 import { parts, versions, charts } from '../schema';
-import { extractMeasureLayout } from '../lib/vision-measure-layout';
 import { annotatePdfWithMeasures } from '../lib/annotate-pdf';
 
 const OMR_SERVICE_URL = process.env.OMR_SERVICE_URL ?? 'http://localhost:3001';
@@ -15,8 +14,8 @@ const MAX_ATTEMPTS = parseInt(process.env.OMR_MAX_ATTEMPTS ?? '3');
 
 // OMR_ENGINE controls how the pipeline resolves parts:
 //   'audiveris' — call the omr-service (Audiveris wrapper) — requires omr-service running
-//   'vision'    — use Claude Vision to extract measure layout (page per measure)
 //   'none'      — skip OMR entirely; mark parts complete with empty omr_json
+//   'vision'    — LEGACY, quarantined — code moved to legacy/vision-measure-layout.ts
 const OMR_ENGINE = (process.env.OMR_ENGINE ?? 'audiveris') as 'audiveris' | 'vision' | 'none';
 
 interface OmrJobPayload {
@@ -60,36 +59,10 @@ async function processOmrJob(jobId: string, payload: OmrJobPayload): Promise<voi
   }
 
   if (OMR_ENGINE === 'vision') {
-    await dz.update(parts)
-      .set({ omrStatus: 'processing', updatedAt: new Date() })
-      .where(eq(parts.id, partId));
-
-    const pdfBuffer = await downloadFile(pdfS3Key);
-    const omrJson = await extractMeasureLayout(pdfBuffer, instrument);
-
-    // Generate annotated PDF with boxes around each measure
-    try {
-      const annotatedPdf = await annotatePdfWithMeasures(pdfBuffer, omrJson);
-      const debugPdfKey = pdfS3Key.replace(/\.pdf$/i, '_measures.pdf');
-      await uploadFile(debugPdfKey, annotatedPdf, 'application/pdf');
-      console.log(`[omr.worker] Part ${partId} (${instrument}) — annotated PDF uploaded: ${debugPdfKey}`);
-    } catch (err) {
-      console.error(`[omr.worker] Part ${partId} — annotated PDF failed:`, err instanceof Error ? err.message : err);
-    }
-
-    await dz.update(parts)
-      .set({
-        omrStatus: 'complete',
-        omrJson: omrJson,
-        omrEngine: 'vision',
-        updatedAt: new Date(),
-      })
-      .where(eq(parts.id, partId));
-
-    await completeJob(jobId);
-    console.log(`[omr.worker] Part ${partId} (${instrument}) — DONE — ${omrJson.measures.length} measures extracted, boxes drawn`);
-    await maybeEnqueueDiff(ensembleId, versionId);
-    return;
+    throw new Error(
+      'OMR_ENGINE=vision is no longer supported. Vision code has been quarantined to legacy/. ' +
+      'Use OMR_ENGINE=audiveris (default) or OMR_ENGINE=none.'
+    );
   }
 
   // ── Audiveris path ───────────────────────────────────────────────────────────

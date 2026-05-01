@@ -1,6 +1,6 @@
 import Anthropic from '@anthropic-ai/sdk';
-import type { OmrJson, OmrMeasure } from './diff';
-import { annotatePdfWithMeasures } from './annotate-pdf';
+import type { OmrJson, OmrMeasure } from '../lib/diff';
+import { annotatePdfWithMeasures } from '../lib/annotate-pdf';
 
 const MODEL = process.env.VISION_MODEL_PRIMARY ?? 'claude-sonnet-4-6';
 const MAX_RETRIES = 3;
