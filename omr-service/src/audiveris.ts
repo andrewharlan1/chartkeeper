@@ -7,7 +7,7 @@ import AdmZip from 'adm-zip';
 
 const execFileAsync = promisify(execFile);
 
-const AUDIVERIS_PATH = process.env.AUDIVERIS_PATH ?? 'audiveris';
+const AUDIVERIS_PATH = process.env.AUDIVERIS_PATH ?? '/Applications/Audiveris.app/Contents/MacOS/Audiveris';
 const WORK_DIR = process.env.OMR_WORK_DIR ?? '/tmp/chartkeeper-omr';
 const JAVA_HOME = process.env.JAVA_HOME;
 
@@ -119,6 +119,97 @@ function toArray<T>(v: T | T[] | undefined): T[] {
 function num(v: unknown, fallback = 0): number {
   const n = Number(v);
   return isNaN(n) ? fallback : n;
+}
+
+// ── Note extraction helpers ──────────────────────────────────────────────────
+
+/** Map MusicXML <type> values to compact duration labels used by OmrNote. */
+const DURATION_TYPE_MAP: Record<string, string> = {
+  'whole': 'whole', 'half': 'half', 'quarter': 'q', 'eighth': '8th',
+  '16th': '16th', '32nd': '32nd', '64th': '64th', '128th': '128th',
+  'breve': 'breve', 'long': 'long',
+};
+
+/**
+ * Extract notes and dynamics from a raw MusicXML <measure> element.
+ * Notes without <pitch> (rests, unpitched percussion) are skipped.
+ * Beat position is computed from cumulative <duration> values using the
+ * current divisions-per-quarter setting.
+ */
+function extractNotesAndDynamics(
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  rawMeasure: Record<string, any>,
+  divisions: number,
+): { notes: OmrNote[]; dynamics: OmrDynamic[] } {
+  const notes: OmrNote[] = [];
+  const dynamics: OmrDynamic[] = [];
+
+  // ── Notes ──────────────────────────────────────────────────────────────────
+  const rawNotes = toArray(rawMeasure.note);
+  let cumulativeDuration = 0;
+
+  for (const n of rawNotes) {
+    // Skip chord tones (they share the beat of the preceding note)
+    const isChord = n.chord !== undefined;
+
+    const pitch = n.pitch;
+    if (!pitch) {
+      // Rest or unpitched — still advances the beat position
+      if (!isChord) cumulativeDuration += num(n.duration);
+      continue;
+    }
+
+    const step = pitch.step;
+    const octave = num(pitch.octave);
+    const alter = num(pitch.alter); // -1 = flat, 1 = sharp
+    if (!step || octave === 0) {
+      if (!isChord) cumulativeDuration += num(n.duration);
+      continue;
+    }
+
+    // Build pitch string: e.g. "C#5", "Bb3", "D4"
+    let pitchStr = String(step);
+    if (alter === 1) pitchStr += '#';
+    else if (alter === -1) pitchStr += 'b';
+    else if (alter === 2) pitchStr += '##';
+    else if (alter === -2) pitchStr += 'bb';
+    pitchStr += octave;
+
+    // Beat: 1-based, computed from cumulative duration
+    const beat = divisions > 0
+      ? 1 + (cumulativeDuration / divisions)
+      : 1;
+
+    // Duration type
+    const durType = DURATION_TYPE_MAP[String(n.type)] ?? String(n.type ?? 'q');
+
+    notes.push({ pitch: pitchStr, beat, duration: durType });
+
+    if (!isChord) cumulativeDuration += num(n.duration);
+  }
+
+  // ── Dynamics ───────────────────────────────────────────────────────────────
+  const rawDirections = toArray(rawMeasure.direction);
+  for (const dir of rawDirections) {
+    const dirType = dir?.['direction-type'];
+    if (!dirType) continue;
+    const dirTypes = Array.isArray(dirType) ? dirType : [dirType];
+    for (const dt of dirTypes) {
+      const dyn = dt?.dynamics;
+      if (!dyn || typeof dyn !== 'object') continue;
+      // The dynamics element contains child elements named after the marking:
+      // <dynamics><ff/></dynamics> → key "ff" exists
+      for (const key of Object.keys(dyn)) {
+        if (key.startsWith('@_') || key === '#text') continue;
+        const beat = divisions > 0
+          ? 1 + (num(dir?.['@_default-x']) / divisions) // approximate
+          : 1;
+        dynamics.push({ type: key, beat: Math.max(1, beat) });
+      }
+    }
+  }
+
+  return { notes, dynamics };
 }
 
 // ── MusicXML parser ───────────────────────────────────────────────────────────
@@ -262,6 +353,8 @@ export function parseMusicXml(xml: string, partName: string): OmrResult['omrJson
   let phantomsToSkip = 0;
   // Tracks the current staff-distance for multi-staff systems (0 = single staff)
   let currentStaffDist = 0;
+  // MusicXML divisions per quarter note — updated when <attributes><divisions> appears
+  let currentDivisions = 1;
 
   for (const raw of rawMeasures) {
     const measureNum = num(raw['@_number'], 0);
@@ -344,18 +437,23 @@ export function parseMusicXml(xml: string, partName: string): OmrResult['omrJson
       h: totalH / printableHeight,
     };
 
-    // ── Multi-measure rest detection ───────────────────────────────────────
+    // ── Attributes: track divisions and detect multi-measure rests ─────────
     let multiRestCount = 1;
     const attrsList = toArray(raw.attributes);
     for (const a of attrsList) {
+      const divVal = num(a?.divisions);
+      if (divVal > 0) currentDivisions = divVal;
       const mr = a?.['measure-style']?.['multiple-rest'];
-      if (mr) { multiRestCount = num(mr, 1); break; }
+      if (mr) { multiRestCount = num(mr, 1); }
     }
+
+    // ── Extract notes and dynamics from this measure ──────────────────────
+    const { notes, dynamics } = extractNotesAndDynamics(raw, currentDivisions);
 
     // Push the primary (or only) measure
     if (!isImplicit && measureNum > 0) {
       measures.push({
-        number: measureNum, notes: [], dynamics: [], bounds,
+        number: measureNum, notes, dynamics, bounds,
         ...(multiRestCount > 1 ? { multiRestCount } : {}),
       });
     }

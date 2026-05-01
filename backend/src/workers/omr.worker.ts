@@ -17,7 +17,7 @@ const MAX_ATTEMPTS = parseInt(process.env.OMR_MAX_ATTEMPTS ?? '3');
 //   'audiveris' — call the omr-service (Audiveris wrapper) — requires omr-service running
 //   'vision'    — use Claude Vision to extract measure layout (page per measure)
 //   'none'      — skip OMR entirely; mark parts complete with empty omr_json
-const OMR_ENGINE = (process.env.OMR_ENGINE ?? 'vision') as 'audiveris' | 'vision' | 'none';
+const OMR_ENGINE = (process.env.OMR_ENGINE ?? 'audiveris') as 'audiveris' | 'vision' | 'none';
 
 interface OmrJobPayload {
   partId: string;
