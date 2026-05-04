@@ -25,6 +25,21 @@ interface HighlightRect { x: number; y: number; w: number; h: number; color: str
 interface PageOverlay { strokes: Stroke[]; highlights: HighlightRect[] }
 type Tool = 'pointer' | 'pen' | 'highlight';
 
+/** Compute a 0–1 normalized bounding box from stroke points. */
+function computeInkBBox(strokes: Stroke[]): { x: number; y: number; width: number; height: number } {
+  let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+  for (const s of strokes) {
+    for (const p of s.points) {
+      if (p.x < minX) minX = p.x;
+      if (p.y < minY) minY = p.y;
+      if (p.x > maxX) maxX = p.x;
+      if (p.y > maxY) maxY = p.y;
+    }
+  }
+  if (!isFinite(minX)) return { x: 0, y: 0, width: 0, height: 0 };
+  return { x: minX, y: minY, width: maxX - minX, height: maxY - minY };
+}
+
 interface ViewerProps {
   url: string;
   partId?: string;
@@ -701,7 +716,7 @@ function FullscreenViewer({
         const existingId = pageAnnotationIds.current.get(pg);
         const contentJson = {
           strokes: overlay.strokes,
-          highlights: overlay.highlights,
+          boundingBox: computeInkBBox(overlay.strokes),
         } as Record<string, unknown>;
         const shouldUpgrade =
           existingId &&
@@ -759,7 +774,7 @@ function FullscreenViewer({
         for (const [measureNum, data] of groups.entries()) {
           if (data.strokes.length === 0 && data.highlights.length === 0) continue;
           const existingId = measureAnnotationIdsRef.current.get(measureNum);
-          const contentJson = { strokes: data.strokes, highlights: data.highlights };
+          const contentJson = { strokes: data.strokes, boundingBox: computeInkBBox(data.strokes) };
 
           if (existingId) {
             await updateAnnotation(existingId, { contentJson });
@@ -783,10 +798,9 @@ function FullscreenViewer({
 
         // Handle any untagged strokes (drawn outside measure boxes) as page-anchored
         const untaggedStrokes = overlay.strokes.filter(s => s.measure == null);
-        const untaggedHighlights = overlay.highlights.filter(h => h.measure == null);
-        if (untaggedStrokes.length > 0 || untaggedHighlights.length > 0) {
+        if (untaggedStrokes.length > 0) {
           const existingId = pageAnnotationIds.current.get(pg);
-          const contentJson = { strokes: untaggedStrokes, highlights: untaggedHighlights };
+          const contentJson = { strokes: untaggedStrokes, boundingBox: computeInkBBox(untaggedStrokes) };
           if (existingId && pageAnnotationAnchors.current.get(pg) === 'page') {
             await updateAnnotation(existingId, { contentJson });
           } else {
