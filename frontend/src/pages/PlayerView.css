@@ -1,0 +1,749 @@
+/* ── Player View — Resting State (Artboard 01) ──────────────────────────
+   Full-bleed immersive view. No app shell chrome.
+   Warm paper canvas, serif title, diff banner, Ask/Tools pills.
+   ──────────────────────────────────────────────────────────────────────── */
+
+/* Container: fills viewport */
+.pv {
+  position: fixed;
+  inset: 0;
+  background: var(--paper);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  z-index: 100;
+}
+
+/* ── Diff banner (top gold bar) ── */
+.pv-diff-banner {
+  height: 32px;
+  background: var(--mod-bg);
+  display: flex;
+  align-items: center;
+  padding: 0 14px;
+  gap: 8px;
+  font-size: 11px;
+  border-bottom: 1px solid rgba(181, 130, 0, 0.25);
+  flex-shrink: 0;
+}
+.pv-diff-banner .pv-db-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 999px;
+  background: var(--mod);
+}
+.pv-diff-banner .pv-db-version {
+  font-weight: 600;
+  color: var(--ink);
+}
+.pv-diff-banner .pv-db-text {
+  color: var(--ink-2);
+}
+.pv-diff-banner .pv-db-grow {
+  flex: 1;
+}
+.pv-diff-banner .pv-db-cta {
+  color: var(--accent-2, #a04421);
+  font-weight: 500;
+  cursor: pointer;
+  background: none;
+  border: none;
+  font: inherit;
+  font-size: 11px;
+  font-weight: 500;
+}
+.pv-diff-banner .pv-db-cta:hover {
+  color: var(--accent);
+}
+.pv-diff-banner .pv-db-dismiss {
+  color: var(--ink-3);
+  cursor: pointer;
+  background: none;
+  border: none;
+  font: inherit;
+  font-size: 14px;
+  padding: 0 2px;
+  line-height: 1;
+}
+.pv-diff-banner .pv-db-dismiss:hover {
+  color: var(--ink);
+}
+
+/* ── Pills (top-right floating) ── */
+.pv-pills {
+  position: absolute;
+  top: 44px;
+  right: 14px;
+  display: flex;
+  gap: 8px;
+  z-index: 5;
+}
+.pv-pill {
+  height: 32px;
+  padding: 0 14px;
+  border-radius: 999px;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 12px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: transform 0.12s ease, background 0.15s ease, border-color 0.15s ease;
+  border: 1.2px solid transparent;
+  font-family: var(--sans);
+  text-decoration: none;
+}
+.pv-pill:hover {
+  transform: translateY(-0.5px);
+}
+.pv-pill.ask {
+  background: var(--paper);
+  border-color: var(--ink);
+  color: var(--ink);
+}
+.pv-pill.ask:hover {
+  background: var(--card);
+}
+.pv-pill.ask .pv-pill-glyph {
+  color: var(--accent);
+  display: inline-flex;
+}
+.pv-pill.tools {
+  background: var(--ink);
+  color: var(--paper);
+  border-color: var(--ink);
+}
+.pv-pill.tools:hover {
+  background: #2a2e37;
+}
+.pv-pill .pv-pill-label {
+  letter-spacing: -0.005em;
+}
+.pv-pill .pv-pill-kbd {
+  font-family: var(--mono);
+  font-size: 9.5px;
+  padding: 1px 5px;
+  border-radius: 3px;
+  background: rgba(0, 0, 0, 0.06);
+  color: var(--ink-3);
+}
+.pv-pill.tools .pv-pill-kbd {
+  background: rgba(255, 255, 255, 0.12);
+  color: rgba(255, 255, 255, 0.7);
+}
+
+/* ── Back button (top-left floating) ── */
+.pv-back {
+  position: absolute;
+  top: 44px;
+  left: 14px;
+  z-index: 5;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  color: var(--ink-3);
+  text-decoration: none;
+  padding: 6px 12px;
+  border-radius: 999px;
+  transition: background 0.12s, color 0.12s;
+}
+.pv-back:hover {
+  background: var(--paper-2);
+  color: var(--ink);
+}
+
+/* ── Title block (centered) ── */
+.pv-title-block {
+  text-align: center;
+  padding: 14px 0 0;
+  margin-top: 40px;
+  flex-shrink: 0;
+}
+.pv-title-block h1 {
+  font-family: var(--serif);
+  font-weight: 500;
+  font-size: 19px;
+  letter-spacing: -0.01em;
+  margin: 0;
+  color: var(--ink);
+}
+.pv-title-block .pv-meta {
+  margin-top: 4px;
+  font-family: var(--mono);
+  font-size: 9.5px;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: var(--ink-4);
+}
+
+/* When diff banner is dismissed, reduce top margin */
+.pv-title-block.no-banner {
+  margin-top: 56px;
+}
+
+/* ── Main content area (PDF viewer) ── */
+.pv-content {
+  flex: 1;
+  position: relative;
+  overflow: auto;
+  padding: 0 5.5%;
+}
+
+/* ── Footer ── */
+.pv-footer {
+  position: absolute;
+  bottom: 12px;
+  left: 18px;
+  right: 18px;
+  display: flex;
+  justify-content: space-between;
+  font-family: var(--mono);
+  font-size: 9.5px;
+  letter-spacing: 0.14em;
+  color: var(--ink-4);
+  text-transform: uppercase;
+  z-index: 2;
+  pointer-events: none;
+}
+
+/* ── Page-turn hint zones ── */
+.pv-turnzone {
+  position: absolute;
+  top: 30%;
+  bottom: 14%;
+  width: 36px;
+  border: 0.7px dashed var(--line);
+  border-radius: 6px;
+  opacity: 0;
+  transition: opacity 0.2s;
+  z-index: 3;
+  cursor: pointer;
+}
+.pv:hover .pv-turnzone {
+  opacity: 0.55;
+}
+.pv-turnzone.left {
+  left: 6px;
+}
+.pv-turnzone.right {
+  right: 6px;
+}
+.pv-turnzone:hover {
+  opacity: 1 !important;
+  background: rgba(0, 0, 0, 0.02);
+}
+
+/* ── Diff measure marks (bracket indicators above the score) ── */
+.pv-diff-marks {
+  position: absolute;
+  left: 5.5%;
+  right: 5.5%;
+  top: 0;
+  pointer-events: none;
+  z-index: 4;
+}
+.pv-diff-mark {
+  position: absolute;
+  top: -6px;
+  color: var(--mod, #8a6300);
+}
+.pv-diff-mark .pv-dm-label {
+  font-family: var(--mono);
+  font-size: 9px;
+  font-weight: 500;
+  letter-spacing: 0.04em;
+  position: absolute;
+  bottom: 9px;
+  left: 50%;
+  transform: translateX(-50%);
+  white-space: nowrap;
+}
+.pv-diff-mark .pv-dm-tick {
+  width: 2px;
+  height: 8px;
+  background: var(--mod);
+  border-radius: 1px;
+  margin: 0 auto;
+}
+.pv-diff-mark.range {
+  height: 8px;
+}
+.pv-diff-mark.range .pv-dm-bracket {
+  position: relative;
+  height: 8px;
+}
+.pv-diff-mark.range .pv-dm-bracket::before,
+.pv-diff-mark.range .pv-dm-bracket::after {
+  content: "";
+  position: absolute;
+  bottom: 0;
+  width: 1.5px;
+  height: 7px;
+  background: var(--mod);
+  border-radius: 1px;
+}
+.pv-diff-mark.range .pv-dm-bracket::before {
+  left: 0;
+}
+.pv-diff-mark.range .pv-dm-bracket::after {
+  right: 0;
+}
+.pv-diff-mark.range .pv-dm-bracket .pv-dm-bar {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  height: 1.5px;
+  background: var(--mod);
+  border-radius: 1px;
+}
+
+/* ── Event context bar (setlist navigation) ── */
+.pv-event-bar {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 8px 18px;
+  background: rgba(200, 83, 28, 0.06);
+  border-bottom: 1px solid rgba(200, 83, 28, 0.15);
+  font-size: 12px;
+  flex-shrink: 0;
+}
+.pv-event-bar .pv-eb-pill {
+  font-family: var(--mono);
+  font-size: 10px;
+  padding: 2px 8px;
+  border-radius: 999px;
+  background: rgba(200, 83, 28, 0.12);
+  color: var(--accent);
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+.pv-event-bar .pv-eb-name {
+  font-weight: 500;
+  color: var(--ink);
+}
+.pv-event-bar .pv-eb-pos {
+  font-family: var(--mono);
+  font-size: 11px;
+  color: var(--ink-3);
+}
+.pv-event-bar .pv-eb-next {
+  margin-left: auto;
+  font-family: var(--mono);
+  font-size: 11px;
+  color: var(--accent);
+  cursor: pointer;
+  background: none;
+  border: none;
+  padding: 4px 10px;
+  border-radius: 6px;
+  font: inherit;
+  font-family: var(--mono);
+  font-size: 11px;
+  color: var(--accent);
+}
+.pv-event-bar .pv-eb-next:hover {
+  background: rgba(200, 83, 28, 0.08);
+}
+
+/* ── Migration banner ── */
+.pv-mig-banner {
+  display: flex;
+  align-items: flex-start;
+  gap: 14px;
+  padding: 12px 18px;
+  background: var(--ok-soft);
+  border-bottom: 1px solid rgba(47, 141, 87, 0.2);
+  flex-shrink: 0;
+}
+.pv-mig-banner .pv-mb-icon {
+  width: 28px;
+  height: 28px;
+  border-radius: 999px;
+  background: rgba(47, 141, 87, 0.1);
+  border: 1.5px solid rgba(47, 141, 87, 0.5);
+  color: rgba(47, 141, 87, 0.8);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+.pv-mig-banner .pv-mb-body {
+  flex: 1;
+}
+.pv-mig-banner .pv-mb-title {
+  font-weight: 500;
+  font-size: 13px;
+  color: var(--ink);
+  margin-bottom: 2px;
+}
+.pv-mig-banner .pv-mb-sub {
+  font-size: 12px;
+  color: var(--ink-2);
+}
+.pv-mig-banner .pv-mb-actions {
+  display: flex;
+  gap: 6px;
+  margin-top: 8px;
+}
+.pv-mig-banner .pv-mb-actions button {
+  height: 26px;
+  padding: 0 12px;
+  border-radius: 6px;
+  font: inherit;
+  font-size: 11px;
+  cursor: pointer;
+  border: 1px solid var(--line);
+  background: var(--card);
+  color: var(--ink);
+}
+.pv-mig-banner .pv-mb-actions button:hover {
+  background: var(--paper);
+}
+.pv-mig-banner .pv-mb-actions button.primary {
+  background: var(--ok);
+  color: white;
+  border-color: var(--ok);
+}
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   REVEALED STATE — Annotation Mode (Artboard 02)
+   Top bar + left rail + bottom strip. Triggered by clicking "Tools" pill.
+   ═══════════════════════════════════════════════════════════════════════════ */
+
+/* When revealed, hide the resting pills and back button */
+.pv.revealed .pv-pills,
+.pv.revealed .pv-back,
+.pv.revealed .pv-title-block,
+.pv.revealed .pv-footer,
+.pv.revealed .pv-turnzone {
+  display: none;
+}
+
+/* ── Top bar ── */
+.pv-topbar {
+  position: relative;
+  height: 44px;
+  background: var(--card-2);
+  border-bottom: 1px solid var(--line-2);
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 0 14px;
+  z-index: 6;
+  flex-shrink: 0;
+}
+.pv-crumbs {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  color: var(--ink-3);
+}
+.pv-crumbs .pv-sep {
+  color: var(--ink-4);
+}
+.pv-crumbs .pv-cur {
+  color: var(--ink);
+  font-weight: 500;
+}
+.pv-crumbs a {
+  color: var(--ink-3);
+  text-decoration: none;
+}
+.pv-crumbs a:hover {
+  color: var(--ink);
+}
+.pv-ver-pill {
+  height: 22px;
+  padding: 0 10px;
+  border-radius: 999px;
+  border: 1px solid var(--line);
+  background: var(--card);
+  font-family: var(--mono);
+  font-size: 10.5px;
+  color: var(--ink);
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+.pv-ver-pill .pv-vp-dot {
+  width: 5px;
+  height: 5px;
+  border-radius: 999px;
+  background: var(--accent);
+}
+.pv-topbar .pv-tb-grow {
+  flex: 1;
+}
+.pv-topbar .pv-tb-group {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding-left: 12px;
+  margin-left: 4px;
+  border-left: 1px solid var(--line-2);
+}
+.pv-topbar .pv-tb-group .pv-tb-lbl {
+  font-family: var(--mono);
+  font-size: 9.5px;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--ink-4);
+  margin-right: 4px;
+}
+.pv-tbtn {
+  height: 24px;
+  padding: 0 10px;
+  border-radius: 6px;
+  border: 1px solid var(--line);
+  background: var(--card);
+  color: var(--ink);
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 11.5px;
+  cursor: pointer;
+  font-family: inherit;
+}
+.pv-tbtn:hover {
+  background: var(--paper);
+}
+.pv-tbtn.on {
+  background: var(--accent);
+  color: white;
+  border-color: var(--accent);
+}
+.pv-topbar .pv-tb-close {
+  height: 24px;
+  padding: 0 12px;
+  border-radius: 999px;
+  border: 1px solid var(--ink);
+  background: var(--ink);
+  color: var(--paper);
+  font-size: 11.5px;
+  cursor: pointer;
+  font-family: inherit;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+.pv-topbar .pv-tb-close:hover {
+  background: #2a2e37;
+}
+
+/* ── Slim diff strip (under topbar when revealed) ── */
+.pv-strip {
+  position: relative;
+  height: 26px;
+  background: var(--mod-bg, #fdf3d2);
+  display: flex;
+  align-items: center;
+  padding: 0 14px;
+  gap: 8px;
+  font-size: 10.5px;
+  color: var(--ink-2);
+  z-index: 5;
+  border-bottom: 1px solid rgba(181, 130, 0, 0.18);
+  flex-shrink: 0;
+}
+.pv-strip .pv-st-dot {
+  width: 5px;
+  height: 5px;
+  border-radius: 999px;
+  background: var(--mod);
+}
+.pv-strip .pv-st-grow {
+  flex: 1;
+}
+.pv-strip .pv-st-cta {
+  color: var(--accent-2, #a04421);
+  font-weight: 500;
+  cursor: pointer;
+  background: none;
+  border: none;
+  font: inherit;
+  font-size: 10.5px;
+}
+
+/* ── Left side rail ── */
+.pv-rail {
+  position: absolute;
+  left: 0;
+  top: 0;
+  bottom: 44px;
+  width: 52px;
+  background: var(--card-2);
+  border-right: 1px solid var(--line-2);
+  z-index: 5;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  padding: 10px 0;
+}
+.pv-rail .pv-tool {
+  width: 36px;
+  height: 36px;
+  border-radius: 8px;
+  border: 1px solid transparent;
+  background: transparent;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--ink-2);
+  cursor: pointer;
+  font-family: inherit;
+  font-size: 11px;
+}
+.pv-rail .pv-tool:hover {
+  background: var(--paper);
+  border-color: var(--line);
+}
+.pv-rail .pv-tool.on {
+  background: var(--accent);
+  color: white;
+  border-color: var(--accent);
+}
+.pv-rail .pv-rail-div {
+  width: 24px;
+  height: 1px;
+  background: var(--line-2);
+  margin: 4px 0;
+}
+.pv-rail .pv-swatch {
+  width: 18px;
+  height: 18px;
+  border-radius: 999px;
+  border: 1.5px solid var(--paper);
+  box-shadow: 0 0 0 1px var(--line);
+  cursor: pointer;
+}
+.pv-rail .pv-swatch.on {
+  box-shadow: 0 0 0 1.5px var(--ink);
+}
+.pv-rail .pv-rail-pg {
+  margin-top: auto;
+  text-align: center;
+  font-family: var(--mono);
+  color: var(--ink-3);
+  line-height: 1.2;
+}
+.pv-rail .pv-rail-pg .pv-pg-n {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--ink);
+  display: block;
+}
+.pv-rail .pv-rail-pg .pv-pg-d {
+  font-size: 9px;
+  display: block;
+}
+
+/* ── Bottom strip ── */
+.pv-footstrip {
+  position: absolute;
+  left: 52px;
+  right: 0;
+  bottom: 0;
+  height: 44px;
+  background: var(--card-2);
+  border-top: 1px solid var(--line-2);
+  display: flex;
+  align-items: center;
+  padding: 0 14px;
+  gap: 12px;
+  z-index: 5;
+}
+.pv-thumbs {
+  display: flex;
+  gap: 6px;
+}
+.pv-thumb {
+  width: 26px;
+  height: 32px;
+  border-radius: 3px;
+  border: 1px solid var(--line);
+  background: var(--card);
+  display: flex;
+  align-items: flex-end;
+  justify-content: center;
+  padding-bottom: 2px;
+  font-family: var(--mono);
+  font-size: 8px;
+  color: var(--ink-4);
+  cursor: pointer;
+  position: relative;
+}
+.pv-thumb.on {
+  border-color: var(--accent);
+  box-shadow: inset 0 0 0 1px var(--accent);
+  color: var(--ink);
+  font-weight: 600;
+}
+.pv-footstrip .pv-fs-nav {
+  margin-left: auto;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--ink-2);
+  font-size: 11px;
+}
+.pv-footstrip .pv-fs-nav button {
+  width: 28px;
+  height: 24px;
+  border-radius: 4px;
+  border: 1px solid var(--line);
+  background: var(--card);
+  cursor: pointer;
+  font-family: inherit;
+  color: var(--ink);
+  font-size: 12px;
+}
+.pv-footstrip .pv-fs-nav button:hover {
+  background: var(--paper);
+}
+.pv-footstrip .pv-fs-zoom {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-family: var(--mono);
+  font-size: 10px;
+  color: var(--ink-3);
+}
+.pv-footstrip .pv-fs-zoom .pv-zoom-track {
+  width: 56px;
+  height: 2px;
+  background: var(--line);
+  border-radius: 999px;
+  position: relative;
+}
+.pv-footstrip .pv-fs-zoom .pv-zoom-track::after {
+  content: "";
+  position: absolute;
+  left: 40%;
+  width: 8px;
+  height: 8px;
+  border-radius: 999px;
+  background: var(--accent);
+  top: -3px;
+}
+
+/* ── Content area shift when revealed ── */
+.pv-revealed-body {
+  flex: 1;
+  position: relative;
+  overflow: hidden;
+}
+.pv-revealed-content {
+  position: absolute;
+  left: 52px;
+  right: 0;
+  top: 0;
+  bottom: 44px;
+  overflow: auto;
+  padding: 0;
+}
