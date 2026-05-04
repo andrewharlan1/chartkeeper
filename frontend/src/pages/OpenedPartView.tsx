@@ -29,10 +29,13 @@ export function OpenedPartView() {
 
   // View mode
   const [revealed, setRevealed] = useState(false);
+  const [askOpen, setAskOpen] = useState(false);
+  const [askQuery, setAskQuery] = useState('');
   const [activeTool, setActiveTool] = useState<ToolId>('pen');
   const [activeColor, setActiveColor] = useState(SWATCHES[0]);
   const [currentPage, setCurrentPage] = useState(1);
   const [totalPages] = useState(1); // PdfViewer will eventually report this
+  const [zoom, setZoom] = useState(100); // 50–200
 
   // Banner state
   const [showDiffBanner, setShowDiffBanner] = useState(false);
@@ -80,13 +83,29 @@ export function OpenedPartView() {
     }).catch(() => {});
   }, [eventId, chartId]);
 
-  // Keyboard shortcut: T to toggle tools, / for Ask (placeholder)
+  // Keyboard shortcuts
   const handleKeyDown = useCallback((e: KeyboardEvent) => {
+    // Escape closes Ask palette
+    if (e.key === 'Escape' && askOpen) {
+      setAskOpen(false);
+      setAskQuery('');
+      return;
+    }
     if (e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement) return;
     if (e.key === 't' || e.key === 'T') {
       setRevealed(r => !r);
+    } else if (e.key === '/') {
+      e.preventDefault();
+      setAskOpen(true);
+    } else if (e.key === '=' || e.key === '+') {
+      setZoom(z => Math.min(200, z + 10));
+    } else if (e.key === '-') {
+      setZoom(z => Math.max(50, z - 10));
+    } else if (e.key === '0' && (e.metaKey || e.ctrlKey)) {
+      e.preventDefault();
+      setZoom(100);
     }
-  }, []);
+  }, [askOpen]);
 
   useEffect(() => {
     document.addEventListener('keydown', handleKeyDown);
@@ -109,6 +128,38 @@ export function OpenedPartView() {
   const diffSummary = diffData
     ? `${diffData.changedMeasures.length} measure${diffData.changedMeasures.length !== 1 ? 's' : ''} changed`
     : '';
+
+  // ── Ask palette overlay (shared across both modes) ──
+  const askPalette = askOpen && (
+    <>
+      <div className="pv-scrim" onClick={() => { setAskOpen(false); setAskQuery(''); }} />
+      <div className="pv-palette">
+        <div className="pv-pal-row input">
+          <span className="pv-pal-icon">
+            <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinejoin="round">
+              <path d="M 3 3 H 13 A 1.6 1.6 0 0 1 14.6 4.6 V 9.5 A 1.6 1.6 0 0 1 13 11.1 H 7.6 L 5 14 L 5.7 11.1 H 3 A 1.6 1.6 0 0 1 1.4 9.5 V 4.6 A 1.6 1.6 0 0 1 3 3 Z" />
+              <line x1="4.5" y1="6.3" x2="11.4" y2="6.3" strokeWidth="1.1" strokeLinecap="round" />
+              <line x1="4.5" y1="8.5" x2="9.5" y2="8.5" strokeWidth="1.1" strokeLinecap="round" />
+            </svg>
+          </span>
+          <input
+            className="pv-pal-input"
+            placeholder="Add crescendo at bar 12..."
+            value={askQuery}
+            onChange={e => setAskQuery(e.target.value)}
+            autoFocus
+          />
+          <span className="pv-pal-esc">esc</span>
+        </div>
+        <div className="pv-pal-foot">
+          <span className="pv-pal-hint">
+            <kbd>Enter</kbd> to submit &middot; <kbd>Esc</kbd> to close
+          </span>
+          <span className="pv-pal-grow" />
+        </div>
+      </div>
+    </>
+  );
 
   // ── Revealed (annotation mode) ──
   if (revealed) {
@@ -212,11 +263,13 @@ export function OpenedPartView() {
 
           {/* PDF content area */}
           <div className="pv-revealed-content">
-            <PdfViewer
-              url={`/parts/${pId}/pdf`}
-              partId={pId!}
-              title={`${part.name} — ${version.name}`}
-            />
+            <div style={{ transform: `scale(${zoom / 100})`, transformOrigin: 'top center', transition: 'transform 0.15s ease' }}>
+              <PdfViewer
+                url={`/parts/${pId}/pdf`}
+                partId={pId!}
+                title={`${part.name} — ${version.name}`}
+              />
+            </div>
           </div>
 
           {/* Bottom strip */}
@@ -238,11 +291,24 @@ export function OpenedPartView() {
               <button onClick={() => setCurrentPage(p => Math.min(totalPages, p + 1))}>&rsaquo;</button>
             </div>
             <div className="pv-fs-zoom">
-              <span>100%</span>
-              <div className="pv-zoom-track" />
+              <button onClick={() => setZoom(z => Math.max(50, z - 10))}>−</button>
+              <input
+                type="range"
+                min={50}
+                max={200}
+                step={10}
+                value={zoom}
+                onChange={e => setZoom(Number(e.target.value))}
+                className="pv-zoom-slider"
+              />
+              <button onClick={() => setZoom(z => Math.min(200, z + 10))}>+</button>
+              <span className="pv-zoom-pct">{zoom}%</span>
             </div>
           </div>
         </div>
+
+        {/* Ask palette overlay */}
+        {askPalette}
       </div>
     );
   }
@@ -320,7 +386,7 @@ export function OpenedPartView() {
 
       {/* Pills: Ask + Tools */}
       <div className="pv-pills">
-        <button className="pv-pill ask">
+        <button className="pv-pill ask" onClick={() => setAskOpen(true)}>
           <span className="pv-pill-glyph">
             <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinejoin="round">
               <path d="M 3 3 H 13 A 1.6 1.6 0 0 1 14.6 4.6 V 9.5 A 1.6 1.6 0 0 1 13 11.1 H 7.6 L 5 14 L 5.7 11.1 H 3 A 1.6 1.6 0 0 1 1.4 9.5 V 4.6 A 1.6 1.6 0 0 1 3 3 Z" />
@@ -351,11 +417,13 @@ export function OpenedPartView() {
 
       {/* Main content: PDF viewer */}
       <div className="pv-content">
-        <PdfViewer
-          url={`/parts/${pId}/pdf`}
-          partId={pId!}
-          title={`${part.name} — ${version.name}`}
-        />
+        <div style={{ transform: `scale(${zoom / 100})`, transformOrigin: 'top center', transition: 'transform 0.15s ease' }}>
+          <PdfViewer
+            url={`/parts/${pId}/pdf`}
+            partId={pId!}
+            title={`${part.name} — ${version.name}`}
+          />
+        </div>
       </div>
 
       {/* Footer */}
@@ -375,6 +443,9 @@ export function OpenedPartView() {
         title="Next page"
         onClick={() => setCurrentPage(p => Math.min(totalPages, p + 1))}
       />
+
+      {/* Ask palette overlay */}
+      {askPalette}
     </div>
   );
 }
