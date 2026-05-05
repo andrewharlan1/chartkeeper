@@ -143,7 +143,7 @@ export function InlinePdfRenderer({
   useEffect(() => {
     if (!partId) return;
     Promise.all([
-      getAnnotations(partId),
+      getAnnotations(partId).catch(() => ({ annotations: [] as any[] })),
       getMeasureLayout(partId).catch(() => ({ measureLayout: [] })),
     ]).then(([r, { measureLayout: ml }]) => {
       setMeasureLayout(ml);
