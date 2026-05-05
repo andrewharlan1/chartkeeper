@@ -192,7 +192,7 @@
   font-weight: 500;
   font-size: 12px;
   cursor: pointer;
-  max-width: 100%;
+  max-width: 200px;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
