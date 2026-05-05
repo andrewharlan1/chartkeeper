@@ -2,7 +2,7 @@ import { Router, Request, Response } from 'express';
 import { z } from 'zod';
 import { eq, and, isNull, sql } from 'drizzle-orm';
 import { dz } from '../db';
-import { ensembles, workspaces } from '../schema';
+import { ensembles, workspaces, charts, versions, parts, annotations, partSlotAssignments, instrumentSlots } from '../schema';
 import { requireAuth } from '../middleware/auth';
 import {
   requireWorkspaceMember,
@@ -137,4 +137,172 @@ ensemblesRouter.delete('/:id', async (req: Request, res: Response): Promise<void
     .where(eq(ensembles.id, req.params.id));
 
   res.json({ deleted: true });
+});
+
+// GET /ensembles/:id/migration-candidates?partId=...
+// Returns parts in the ensemble with migratable annotation counts, for the cross-instrument migration picker.
+ensemblesRouter.get('/:id/migration-candidates', async (req: Request, res: Response): Promise<void> => {
+  const ensembleId = req.params.id;
+  const destPartId = req.query.partId as string | undefined;
+  if (!destPartId) {
+    res.status(400).json({ error: 'partId query parameter is required' });
+    return;
+  }
+
+  try {
+    await requireEnsembleMember(ensembleId, req.user!.id);
+  } catch (err) {
+    handleError(err, res);
+    return;
+  }
+
+  // Resolve destination part's instrument slot IDs
+  const destSlotRows = await dz.select({ instrumentSlotId: partSlotAssignments.instrumentSlotId })
+    .from(partSlotAssignments)
+    .where(eq(partSlotAssignments.partId, destPartId));
+  const destSlotIds = new Set(destSlotRows.map(r => r.instrumentSlotId));
+
+  // Get all parts in the ensemble (across all charts/versions), excluding destination
+  const allParts = await dz.select({
+    partId: parts.id,
+    partName: parts.name,
+    versionId: versions.id,
+    versionName: versions.name,
+    versionSortOrder: versions.sortOrder,
+    chartId: charts.id,
+  })
+    .from(parts)
+    .innerJoin(versions, eq(versions.id, parts.versionId))
+    .innerJoin(charts, eq(charts.id, versions.chartId))
+    .where(and(
+      eq(charts.ensembleId, ensembleId),
+      isNull(parts.deletedAt),
+      isNull(versions.deletedAt),
+      isNull(charts.deletedAt),
+    ));
+
+  // Filter out the destination part itself
+  const candidateParts = allParts.filter(p => p.partId !== destPartId);
+
+  // Batch-load slot assignments for all candidate parts
+  const candidatePartIds = candidateParts.map(p => p.partId);
+  const slotAssignments = candidatePartIds.length > 0
+    ? await dz.select({
+        partId: partSlotAssignments.partId,
+        instrumentSlotId: partSlotAssignments.instrumentSlotId,
+      })
+        .from(partSlotAssignments)
+        .where(sql`${partSlotAssignments.partId} IN (${sql.join(candidatePartIds.map(id => sql`${id}`), sql`,`)})`)
+    : [];
+
+  // Build partId → slotIds map
+  const partSlotMap = new Map<string, string[]>();
+  for (const sa of slotAssignments) {
+    const arr = partSlotMap.get(sa.partId) ?? [];
+    arr.push(sa.instrumentSlotId);
+    partSlotMap.set(sa.partId, arr);
+  }
+
+  // Count migratable annotations per part (wide-reading: no owner filter)
+  const annotationCounts = candidatePartIds.length > 0
+    ? await dz.select({
+        partId: annotations.partId,
+        count: sql<number>`count(*)`,
+      })
+        .from(annotations)
+        .where(and(
+          sql`${annotations.partId} IN (${sql.join(candidatePartIds.map(id => sql`${id}`), sql`,`)})`,
+          isNull(annotations.deletedAt),
+          eq(annotations.migratable, true),
+        ))
+        .groupBy(annotations.partId)
+    : [];
+
+  const countMap = new Map<string, number>();
+  for (const row of annotationCounts) {
+    countMap.set(row.partId, Number(row.count));
+  }
+
+  // Find the most recent version per chart
+  const maxSortOrderPerChart = new Map<string, number>();
+  for (const p of candidateParts) {
+    const cur = maxSortOrderPerChart.get(p.chartId) ?? -1;
+    if (p.versionSortOrder > cur) maxSortOrderPerChart.set(p.chartId, p.versionSortOrder);
+  }
+
+  // Group by part → versions
+  interface VersionEntry {
+    versionId: string;
+    versionLabel: string;
+    annotationCount: number;
+    isMostRecent: boolean;
+  }
+  interface CandidateEntry {
+    partId: string;
+    partName: string;
+    instrumentSlotIds: string[];
+    isSameInstrument: boolean;
+    versions: VersionEntry[];
+  }
+
+  // Group candidate parts by partId (a part only belongs to one version, so each entry is unique)
+  const candidateMap = new Map<string, CandidateEntry>();
+  for (const p of candidateParts) {
+    const slotIds = partSlotMap.get(p.partId) ?? [];
+    const isSameInstrument = slotIds.some(sid => destSlotIds.has(sid));
+    const annCount = countMap.get(p.partId) ?? 0;
+    const isMostRecent = p.versionSortOrder === maxSortOrderPerChart.get(p.chartId);
+
+    // Group by part name + version chain to aggregate versions under one candidate
+    // Key: partName to match cross-version grouping
+    const key = `${p.partName}::${p.chartId}`;
+    const existing = candidateMap.get(key);
+    if (existing) {
+      existing.versions.push({
+        versionId: p.versionId,
+        versionLabel: p.versionName,
+        annotationCount: annCount,
+        isMostRecent,
+      });
+      // Merge slot IDs (union)
+      for (const sid of slotIds) {
+        if (!existing.instrumentSlotIds.includes(sid)) existing.instrumentSlotIds.push(sid);
+      }
+      existing.isSameInstrument = existing.isSameInstrument || isSameInstrument;
+    } else {
+      candidateMap.set(key, {
+        partId: p.partId,
+        partName: p.partName,
+        instrumentSlotIds: slotIds,
+        isSameInstrument,
+        versions: [{
+          versionId: p.versionId,
+          versionLabel: p.versionName,
+          annotationCount: annCount,
+          isMostRecent,
+        }],
+      });
+    }
+  }
+
+  // Sort versions within each candidate (most recent first)
+  const candidates = Array.from(candidateMap.values());
+  for (const c of candidates) {
+    c.versions.sort((a, b) => {
+      // Most recent first
+      const aRecent = a.isMostRecent ? 1 : 0;
+      const bRecent = b.isMostRecent ? 1 : 0;
+      return bRecent - aRecent;
+    });
+  }
+
+  // Sort candidates: same instrument first, then by annotation count
+  candidates.sort((a, b) => {
+    if (a.isSameInstrument !== b.isSameInstrument) return a.isSameInstrument ? -1 : 1;
+    const aTotal = a.versions.reduce((sum, v) => sum + v.annotationCount, 0);
+    const bTotal = b.versions.reduce((sum, v) => sum + v.annotationCount, 0);
+    return bTotal - aTotal;
+  });
+
+  res.json({ candidates });
 });
