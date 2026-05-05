@@ -298,6 +298,37 @@ versionsRouter.post('/:id/migrate', async (req: Request, res: Response): Promise
   res.json({ results });
 });
 
+// POST /versions/:id/enqueue-cross-migration
+// Enqueues a background migration job. Called after parts have been uploaded.
+versionsRouter.post('/:id/enqueue-cross-migration', async (req: Request, res: Response): Promise<void> => {
+  const ensembleId = await getVersionEnsembleId(req.params.id);
+  if (!ensembleId) { res.status(404).json({ error: 'Version not found' }); return; }
+
+  try {
+    await requireEnsembleMember(ensembleId, req.user!.id);
+  } catch (err) {
+    handleError(err, res);
+    return;
+  }
+
+  const parsed = z.object({
+    sources: z.array(z.object({
+      sourcePartId: z.string().uuid(),
+      sourceVersionId: z.string().uuid(),
+      targetPartId: z.string().uuid(),
+    })).min(1),
+  }).safeParse(req.body);
+  if (!parsed.success) { res.status(400).json({ error: parsed.error.flatten() }); return; }
+
+  const jobId = await enqueueJob('migration', {
+    versionId: req.params.id,
+    userId: req.user!.id,
+    sources: parsed.data.sources,
+  });
+
+  res.status(202).json({ jobId });
+});
+
 // GET /versions/:id/migration-status
 // Returns job status for cross-instrument migration jobs targeting this version
 versionsRouter.get('/:id/migration-status', async (req: Request, res: Response): Promise<void> => {

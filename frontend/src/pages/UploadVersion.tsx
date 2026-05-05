@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { useParams, useNavigate, Link } from 'react-router-dom';
-import { createVersion, getVersions } from '../api/versions';
+import { createVersion, getVersions, enqueueCrossMigration } from '../api/versions';
 import { uploadPart, migrateFrom, InstrumentAssignment } from '../api/parts';
 import { getChart, getChartAnnotationSources, AnnotationSourceVersion, getChartVersionInstruments } from '../api/charts';
 import { getEnsemble } from '../api/ensembles';
@@ -13,6 +13,8 @@ import { SlotAssignmentPicker } from '../components/SlotAssignmentPicker';
 import { ContentKindIcon, KIND_LABELS } from '../components/ContentKindIcon';
 import { InstrumentIcon } from '../components/InstrumentIcon';
 import { PublishConfirmModal } from '../components/PublishConfirmModal';
+import { MigrationSourcesCard } from '../components/MigrationSourcesCard';
+import { SelectedSource } from '../components/MigrationSourcePicker';
 import { ApiError } from '../api/client';
 import './Upload.css';
 
@@ -68,6 +70,9 @@ export function UploadVersion() {
   const [annotationSources, setAnnotationSources] = useState<AnnotationSourceVersion[]>([]);
   const [existingVersions, setExistingVersions] = useState<Version[]>([]);
   const [carryForwardInstruments, setCarryForwardInstruments] = useState<string[]>([]);
+
+  // Cross-instrument migration sources (version-level)
+  const [crossMigrationSources, setCrossMigrationSources] = useState<SelectedSource[]>([]);
 
   // Target mode: new version or add to current
   const [target, setTarget] = useState<TargetMode>('new');
@@ -248,6 +253,24 @@ export function UploadVersion() {
         }
       }
 
+      // Enqueue cross-instrument migration if sources selected
+      if (crossMigrationSources.length > 0 && target === 'new') {
+        try {
+          // For now, use the first uploaded annotatable part as target
+          // TODO: support per-source target mapping in picker
+          const firstAnnotatablePart = entries.find(e => ANNOTATABLE_KINDS.includes(e.kind));
+          if (firstAnnotatablePart) {
+            await enqueueCrossMigration(versionId, crossMigrationSources.map(s => ({
+              sourcePartId: s.sourcePartId,
+              sourceVersionId: s.sourceVersionId,
+              targetPartId: firstAnnotatablePart.id,
+            })));
+          }
+        } catch {
+          console.warn('[UploadVersion] Cross-instrument migration enqueue failed');
+        }
+      }
+
       // Show publish confirm modal instead of navigating
       setPublishResult({
         versionName: vName,
@@ -331,6 +354,18 @@ export function UploadVersion() {
                   : `composer changes \u00b7 players get ${nextVersionLabel} migration banner`
                 }
               </span>
+            </div>
+          )}
+
+          {/* Cross-instrument migration sources (version-level) */}
+          {target === 'new' && ensembleId && entries.length > 0 && entries.some(e => ANNOTATABLE_KINDS.includes(e.kind)) && (
+            <div style={{ padding: '0 18px' }}>
+              <MigrationSourcesCard
+                ensembleId={ensembleId}
+                targetPartId={entries[0]?.id || ''}
+                sources={crossMigrationSources}
+                onChange={setCrossMigrationSources}
+              />
             </div>
           )}
 

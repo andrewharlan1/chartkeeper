@@ -110,3 +110,10 @@ export interface MigrationStatusResponse {
 export function getMigrationStatus(versionId: string): Promise<MigrationStatusResponse> {
   return api.get(`/versions/${versionId}/migration-status`);
 }
+
+export function enqueueCrossMigration(
+  versionId: string,
+  sources: { sourcePartId: string; sourceVersionId: string; targetPartId: string }[],
+): Promise<{ jobId: string }> {
+  return api.post(`/versions/${versionId}/enqueue-cross-migration`, { sources });
+}
