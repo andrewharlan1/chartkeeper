@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { useParams, Link } from 'react-router-dom';
-import { getParts, getPartDiffs, SlotDiff } from '../api/parts';
+import { getParts, getPartDiffs, SlotDiff, NoteOperation } from '../api/parts';
 import { getVersion } from '../api/versions';
 import { getChart } from '../api/charts';
 import { Part } from '../types';
@@ -117,6 +117,7 @@ function DiffCardView({
   const allDescriptions: Record<string, string> = {};
   const changedSet = new Set<number>();
   let sourceLabel = '';
+  const noteOps: NoteOperation[] = [];
 
   for (const d of diffs) {
     for (const m of d.changedMeasures) changedSet.add(m);
@@ -124,6 +125,17 @@ function DiffCardView({
     if (!sourceLabel && d.sourceVersionName) {
       sourceLabel = d.sourceVersionName;
     }
+    if (d.noteOperations) {
+      noteOps.push(...d.noteOperations);
+    }
+  }
+
+  // Group note operations by measure
+  const noteOpsByMeasure = new Map<number, NoteOperation[]>();
+  for (const op of noteOps) {
+    const arr = noteOpsByMeasure.get(op.measure) || [];
+    arr.push(op);
+    noteOpsByMeasure.set(op.measure, arr);
   }
 
   const changedMeasures = [...changedSet].sort((a, b) => a - b);
@@ -228,13 +240,33 @@ function DiffCardView({
             );
           }
 
+          const measureNoteOps = row.measure !== undefined ? noteOpsByMeasure.get(row.measure) : undefined;
           return (
-            <div key={i} className={`diff-row ${row.kind || ''}`}>
-              <span className="dr-measure">
-                {row.measure !== undefined ? `m.${row.measure}` : ''}
-              </span>
-              <span className="dr-sigil">{row.sigil}</span>
-              <span>{row.text}</span>
+            <div key={i}>
+              <div className={`diff-row ${row.kind || ''}`}>
+                <span className="dr-measure">
+                  {row.measure !== undefined ? `m.${row.measure}` : ''}
+                </span>
+                <span className="dr-sigil">{row.sigil}</span>
+                <span>{row.text}</span>
+              </div>
+              {measureNoteOps && measureNoteOps.length > 0 && (
+                <div style={{ padding: '2px 18px 6px 86px' }}>
+                  {measureNoteOps.map((op, j) => (
+                    <div key={j} style={{
+                      fontSize: 11,
+                      fontFamily: 'var(--mono)',
+                      color: 'var(--ink-3)',
+                      padding: '1px 0',
+                    }}>
+                      <span style={{ color: op.operation.includes('del') ? 'var(--rem)' : op.operation.includes('ins') ? 'var(--add)' : 'var(--mod)', marginRight: 6 }}>
+                        {op.operation}
+                      </span>
+                      {op.description}
+                    </div>
+                  ))}
+                </div>
+              )}
             </div>
           );
         })}

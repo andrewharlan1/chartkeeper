@@ -39,6 +39,14 @@ export function uploadPart(data: {
   return multipartRequest('/parts', form);
 }
 
+export function updatePart(id: string, data: {
+  name?: string;
+  slotIds?: string[];
+  instrumentAssignments?: InstrumentAssignment[];
+}): Promise<{ part: Part }> {
+  return api.patch(`/parts/${id}`, data);
+}
+
 export function deletePart(id: string): Promise<{ deleted: boolean }> {
   return api.delete(`/parts/${id}`);
 }
@@ -49,6 +57,12 @@ export function getMeasureLayout(partId: string): Promise<{ measureLayout: Measu
 
 export function getMyParts(): Promise<{ parts: PlayerPart[] }> {
   return api.get('/player/my-parts');
+}
+
+export interface NoteOperation {
+  measure: number;
+  operation: string;
+  description: string;
 }
 
 export interface SlotDiff {
@@ -62,6 +76,7 @@ export interface SlotDiff {
   changedMeasureBounds: Record<string, { x: number; y: number; w: number; h: number; page: number }>;
   changelog: string;
   computedAt: string | null;
+  noteOperations?: NoteOperation[];
 }
 
 export interface PartDiffResponse {

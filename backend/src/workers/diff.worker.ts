@@ -6,11 +6,68 @@ import { claimNextJob, completeJob, failJob } from '../lib/queue';
 import { notifyNewVersion, notifyNewVersionNoDiff } from '../lib/notifications';
 import { migrateAnnotationsForVersion } from '../lib/annotation-migration';
 import { diffPart, type VersionDiffJson, type OmrJson } from '../lib/diff';
+import { downloadFile } from '../lib/s3';
 import { db, dz } from '../db';
 import { parts, versions, charts, versionDiffs, partSlotAssignments, instrumentSlots } from '../schema';
 
+const MUSICDIFF_URL = process.env.MUSICDIFF_URL || 'http://localhost:8484';
+
 const POLL_INTERVAL_MS = parseInt(process.env.DIFF_POLL_INTERVAL_MS ?? '5000');
 const MAX_ATTEMPTS     = parseInt(process.env.DIFF_MAX_ATTEMPTS     ?? '3');
+
+/**
+ * Call musicdiff sidecar for note-level diff detail.
+ * Returns null if sidecar is unavailable or parts lack MusicXML.
+ */
+interface MusicdiffResult {
+  changedMeasures: number[];
+  insertedMeasures: number[];
+  deletedMeasures: number[];
+  noteOperations: Array<{
+    measure: number;
+    operation: string;
+    description: string;
+  }>;
+}
+
+async function callMusicdiff(
+  fromMxlKey: string | null,
+  toMxlKey: string | null
+): Promise<MusicdiffResult | null> {
+  if (!fromMxlKey || !toMxlKey) return null;
+
+  try {
+    const [fromBuf, toBuf] = await Promise.all([
+      downloadFile(fromMxlKey),
+      downloadFile(toMxlKey),
+    ]);
+
+    const form = new FormData();
+    form.append('old', new Blob([new Uint8Array(fromBuf)], { type: 'application/xml' }), 'old.musicxml');
+    form.append('new', new Blob([new Uint8Array(toBuf)], { type: 'application/xml' }), 'new.musicxml');
+
+    const response = await fetch(`${MUSICDIFF_URL}/diff`, {
+      method: 'POST',
+      body: form,
+    });
+
+    if (!response.ok) {
+      console.warn(`[diff.worker] musicdiff sidecar returned ${response.status}`);
+      return null;
+    }
+
+    return await response.json() as MusicdiffResult;
+  } catch (err) {
+    // Sidecar not running or other error — graceful fallback
+    const msg = err instanceof Error ? err.message : String(err);
+    if (msg.includes('ECONNREFUSED') || msg.includes('fetch failed')) {
+      // Silent — sidecar not running
+    } else {
+      console.warn(`[diff.worker] musicdiff call failed: ${msg}`);
+    }
+    return null;
+  }
+}
 
 interface DiffJobPayload {
   ensembleId:    string;
@@ -234,22 +291,24 @@ async function processDiffJob(jobId: string, payload: DiffJobPayload): Promise<v
 
   // Run LCS diff for each pair using OmrJson stored on the parts
   const diffParts: VersionDiffJson['parts'] = {};
-  const partDiffResults: Array<DiffPair & { partDiff: ReturnType<typeof diffPart> | null; ok: boolean }> = [];
+  const partDiffResults: Array<DiffPair & { partDiff: ReturnType<typeof diffPart> | null; musicdiff: MusicdiffResult | null; ok: boolean }> = [];
 
   for (const pair of diffPairs) {
     try {
-      // Load OmrJson from both parts
-      const [fromOmrRows, toOmrRows] = await Promise.all([
-        dz.select({ omrJson: parts.omrJson }).from(parts).where(eq(parts.id, pair.fromPartId)),
-        dz.select({ omrJson: parts.omrJson }).from(parts).where(eq(parts.id, pair.toPartId)),
+      // Load OmrJson and MusicXML keys from both parts
+      const [fromRows, toRows] = await Promise.all([
+        dz.select({ omrJson: parts.omrJson, mxlKey: parts.audiverisMxlS3Key }).from(parts).where(eq(parts.id, pair.fromPartId)),
+        dz.select({ omrJson: parts.omrJson, mxlKey: parts.audiverisMxlS3Key }).from(parts).where(eq(parts.id, pair.toPartId)),
       ]);
 
-      const fromOmr = fromOmrRows[0]?.omrJson as OmrJson | null;
-      const toOmr = toOmrRows[0]?.omrJson as OmrJson | null;
+      const fromOmr = fromRows[0]?.omrJson as OmrJson | null;
+      const toOmr = toRows[0]?.omrJson as OmrJson | null;
+      const fromMxlKey = fromRows[0]?.mxlKey ?? null;
+      const toMxlKey = toRows[0]?.mxlKey ?? null;
 
       if (!fromOmr || !toOmr) {
         console.warn(`[diff.worker] Missing OmrJson for ${pair.slotName} (${pair.toPartName}) — skipping`);
-        partDiffResults.push({ ...pair, partDiff: null, ok: false });
+        partDiffResults.push({ ...pair, partDiff: null, musicdiff: null, ok: false });
         continue;
       }
 
@@ -268,12 +327,24 @@ async function processDiffJob(jobId: string, payload: DiffJobPayload): Promise<v
         `deleted=${partDiff.structuralChanges.deletedMeasures.length}, latency=${elapsed}ms`
       );
 
+      // Call musicdiff sidecar for note-level detail (non-blocking)
+      let musicdiffResult: MusicdiffResult | null = null;
+      if (fromMxlKey && toMxlKey) {
+        musicdiffResult = await callMusicdiff(fromMxlKey, toMxlKey);
+        if (musicdiffResult) {
+          console.log(
+            `[diff.worker] musicdiff ${pair.slotName}: ` +
+            `${musicdiffResult.noteOperations.length} note operations`
+          );
+        }
+      }
+
       diffParts[pair.slotName] = partDiff;
-      partDiffResults.push({ ...pair, partDiff, ok: true });
+      partDiffResults.push({ ...pair, partDiff, musicdiff: musicdiffResult, ok: true });
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
       console.error(`[diff.worker] LCS diff failed for ${pair.slotName} (${pair.toPartName}):`, msg);
-      partDiffResults.push({ ...pair, partDiff: null, ok: false });
+      partDiffResults.push({ ...pair, partDiff: null, musicdiff: null, ok: false });
     }
   }
 
@@ -291,11 +362,14 @@ async function processDiffJob(jobId: string, payload: DiffJobPayload): Promise<v
   // Store one version_diffs row per (part, slot) pair
   for (const r of partDiffResults) {
     if (!r.ok || !r.partDiff) continue;
+    const storedDiff = r.musicdiff
+      ? { ...r.partDiff, musicdiff: r.musicdiff }
+      : r.partDiff;
     await dz.insert(versionDiffs).values({
       fromPartId: r.fromPartId,
       toPartId: r.toPartId,
       slotId: r.slotId,
-      diffJson: r.partDiff,
+      diffJson: storedDiff,
     });
   }
 
