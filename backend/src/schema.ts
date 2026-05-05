@@ -10,6 +10,7 @@ import {
   unique,
   index,
 } from 'drizzle-orm/pg-core';
+import { sql } from 'drizzle-orm';
 
 const timestamps = {
   createdAt: timestamp('created_at').notNull().defaultNow(),
@@ -32,6 +33,10 @@ export const annotationKindEnum = pgEnum('annotation_kind', [
   'text',
   'highlight',
   'shape',  // schema only; not creatable through v1 UI
+]);
+export const migrationSourceKindEnum = pgEnum('migration_source_kind', [
+  'same_instrument',
+  'cross_instrument',
 ]);
 export const workspaceRoleEnum = pgEnum('workspace_role', [
   'owner',
@@ -265,6 +270,9 @@ export const annotations = pgTable(
 
     // Migration metadata
     migratedFromAnnotationId: uuid('migrated_from_annotation_id').references((): any => annotations.id),
+    migrationSourceKind: migrationSourceKindEnum('migration_source_kind'),
+    needsReview: boolean('needs_review').notNull().default(false),
+    migratable: boolean('migratable').notNull().default(true),
 
     ...timestamps,
   },
@@ -272,6 +280,8 @@ export const annotations = pgTable(
     partIdx: index('annotations_part_idx').on(t.partId),
     ownerIdx: index('annotations_owner_idx').on(t.ownerUserId),
     activeIdx: index('annotations_active_idx').on(t.partId, t.deletedAt),
+    needsReviewIdx: index('annotations_needs_review_idx').on(t.partId).where(sql`needs_review = TRUE`),
+    migratableIdx: index('annotations_migratable_idx').on(t.partId, t.migratable).where(sql`deleted_at IS NULL`),
   }),
 );
 
