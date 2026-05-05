@@ -7,6 +7,7 @@ import { requireAuth } from '../middleware/auth';
 import { requireEnsembleMember, requireEnsembleAdmin } from '../lib/ensembleAuth';
 import { getChartEnsembleId } from './charts';
 import { getAnnotationSources, migratePartAnnotations } from '../lib/annotation-migration';
+import { enqueueJob } from '../lib/queue';
 
 export const versionsRouter = Router();
 versionsRouter.use(requireAuth);
@@ -65,6 +66,10 @@ versionsRouter.post('/', async (req: Request, res: Response): Promise<void> => {
     name: z.string().min(1),
     notes: z.string().optional(),
     seededFromVersionId: z.string().uuid().optional(),
+    migrationSources: z.array(z.object({
+      partId: z.string().uuid(),
+      versionId: z.string().uuid(),
+    })).optional(),
   }).safeParse(req.body);
   if (!parsed.success) {
     res.status(400).json({ error: parsed.error.flatten() });
@@ -99,6 +104,15 @@ versionsRouter.post('/', async (req: Request, res: Response): Promise<void> => {
     sortOrder: Number(next),
     isCurrent: true,
   }).returning();
+
+  // Enqueue migration job if sources were specified
+  if (parsed.data.migrationSources && parsed.data.migrationSources.length > 0) {
+    await enqueueJob('migration', {
+      versionId: ver.id,
+      userId: req.user!.id,
+      sources: parsed.data.migrationSources,
+    });
+  }
 
   res.status(201).json({ version: ver });
 });
