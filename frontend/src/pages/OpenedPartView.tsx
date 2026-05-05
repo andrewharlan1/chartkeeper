@@ -1,4 +1,4 @@
-import { useEffect, useState, useCallback } from 'react';
+import { useEffect, useState, useCallback, useRef } from 'react';
 import { useParams, useSearchParams, Link, useNavigate } from 'react-router-dom';
 import { getPart } from '../api/parts';
 import { getPartDiff, PartDiffData } from '../api/parts';
@@ -8,9 +8,17 @@ import { getAnnotations } from '../api/annotations';
 import { getEvent, EventChart } from '../api/events';
 import { Part, Version, MeasureBounds, Annotation } from '../types';
 import { InlinePdfRenderer } from '../components/InlinePdfRenderer';
+import { useAnnotationMode, AnnotationMode } from '../hooks/useAnnotationMode';
 import './PlayerView.css';
 
 type ToolId = 'pen' | 'highlight' | 'text' | 'eraser';
+
+const TOOL_TO_MODE: Record<ToolId, AnnotationMode> = {
+  pen: 'ink', highlight: 'highlight', text: 'text', eraser: 'erase',
+};
+const MODE_TO_TOOL: Partial<Record<AnnotationMode, ToolId>> = {
+  ink: 'pen', highlight: 'highlight', text: 'text', erase: 'eraser',
+};
 
 const SWATCHES = ['#2c5fa0', '#c8531c', '#1a1d24', '#2f8d57', '#7c3aed'];
 
@@ -27,12 +35,13 @@ export function OpenedPartView() {
   const [diffData, setDiffData] = useState<PartDiffData | null>(null);
   const [loading, setLoading] = useState(true);
 
+  // Annotation state — single source of truth
+  const annState = useAnnotationMode();
+
   // View mode
   const [revealed, setRevealed] = useState(false);
   const [askOpen, setAskOpen] = useState(false);
   const [askQuery, setAskQuery] = useState('');
-  const [activeTool, setActiveTool] = useState<ToolId>('pen');
-  const [activeColor, setActiveColor] = useState(SWATCHES[0]);
   const [currentPage, setCurrentPage] = useState(1);
   const [totalPages, setTotalPages] = useState(1);
   const [zoom, setZoom] = useState(100); // 50–200
@@ -40,9 +49,42 @@ export function OpenedPartView() {
   const [annotationsVisible, setAnnotationsVisible] = useState(true);
   const [notesOpen, setNotesOpen] = useState(false);
 
+  // Derived: active tool and color from annotation state
+  const activeTool: ToolId = MODE_TO_TOOL[annState.mode] ?? 'pen';
+  const activeColor = annState.inkColor;
+
+  const setActiveTool = useCallback((tool: ToolId) => {
+    annState.setMode(TOOL_TO_MODE[tool]);
+  }, [annState]);
+
+  const setActiveColor = useCallback((color: string) => {
+    annState.setInkColor(color);
+  }, [annState]);
+
+  // Compute the effective annotation mode: read when in resting state, tool mode when revealed
+  const effectiveAnnotationMode: AnnotationMode = revealed ? annState.mode : 'read';
+
+  // When entering edit mode, activate the current tool; when leaving, go to read
+  const toggleRevealed = useCallback((next: boolean) => {
+    setRevealed(next);
+    if (next) {
+      // Entering edit mode — activate the current tool (default to ink/pen)
+      if (annState.mode === 'read') annState.setMode('ink');
+    } else {
+      annState.setMode('read');
+    }
+  }, [annState]);
+
   // Banner state
   const [showDiffBanner, setShowDiffBanner] = useState(false);
   const [showMigBanner, setShowMigBanner] = useState(false);
+  const [diffBannerCollapsed, setDiffBannerCollapsed] = useState(false);
+
+  // Auto-hide chrome (resting state only)
+  const [chromeVisible, setChromeVisible] = useState(true);
+  const idleTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const drawingRef = useRef(false); // true when pointer is down on canvas
+  const diffBannerTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // Event context
   const [eventName, setEventName] = useState('');
@@ -86,6 +128,53 @@ export function OpenedPartView() {
     }).catch(() => {});
   }, [eventId, chartId]);
 
+  // ── Auto-hide chrome (resting state) ──────────────────────────────────
+  const resetIdleTimer = useCallback(() => {
+    if (drawingRef.current) return; // don't reset while drawing
+    setChromeVisible(true);
+    if (idleTimerRef.current) clearTimeout(idleTimerRef.current);
+    idleTimerRef.current = setTimeout(() => setChromeVisible(false), 3000);
+  }, []);
+
+  useEffect(() => {
+    if (revealed) {
+      // In edit mode, chrome is always visible (managed by rail/topbar)
+      setChromeVisible(true);
+      if (idleTimerRef.current) clearTimeout(idleTimerRef.current);
+      return;
+    }
+    // Start idle timer for resting state
+    resetIdleTimer();
+    const onActivity = () => resetIdleTimer();
+    document.addEventListener('mousemove', onActivity);
+    document.addEventListener('keydown', onActivity);
+    document.addEventListener('touchstart', onActivity);
+    return () => {
+      document.removeEventListener('mousemove', onActivity);
+      document.removeEventListener('keydown', onActivity);
+      document.removeEventListener('touchstart', onActivity);
+      if (idleTimerRef.current) clearTimeout(idleTimerRef.current);
+    };
+  }, [revealed, resetIdleTimer]);
+
+  // Pause idle timer during active drawing
+  const handlePointerDown = useCallback(() => {
+    drawingRef.current = true;
+    if (idleTimerRef.current) clearTimeout(idleTimerRef.current);
+  }, []);
+  const handlePointerUp = useCallback(() => {
+    drawingRef.current = false;
+    resetIdleTimer();
+  }, [resetIdleTimer]);
+
+  // ── Diff banner → collapsed badge after 5 seconds ────────────────────
+  useEffect(() => {
+    if (showDiffBanner && !diffBannerCollapsed) {
+      diffBannerTimerRef.current = setTimeout(() => setDiffBannerCollapsed(true), 5000);
+      return () => { if (diffBannerTimerRef.current) clearTimeout(diffBannerTimerRef.current); };
+    }
+  }, [showDiffBanner, diffBannerCollapsed]);
+
   // Keyboard shortcuts
   const handleKeyDown = useCallback((e: KeyboardEvent) => {
     // Escape closes Ask palette
@@ -95,8 +184,24 @@ export function OpenedPartView() {
       return;
     }
     if (e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement) return;
+    // Cmd/Ctrl zoom (prevent browser zoom)
+    if ((e.metaKey || e.ctrlKey) && (e.key === '=' || e.key === '+')) {
+      e.preventDefault();
+      setZoom(z => Math.min(200, z + 10));
+      return;
+    }
+    if ((e.metaKey || e.ctrlKey) && e.key === '-') {
+      e.preventDefault();
+      setZoom(z => Math.max(50, z - 10));
+      return;
+    }
+    if ((e.metaKey || e.ctrlKey) && e.key === '0') {
+      e.preventDefault();
+      setZoom(100);
+      return;
+    }
     if (e.key === 't' || e.key === 'T') {
-      setRevealed(r => !r);
+      toggleRevealed(!revealed);
     } else if (e.key === '/') {
       e.preventDefault();
       setAskOpen(true);
@@ -104,15 +209,12 @@ export function OpenedPartView() {
       setZoom(z => Math.min(200, z + 10));
     } else if (e.key === '-') {
       setZoom(z => Math.max(50, z - 10));
-    } else if (e.key === '0' && (e.metaKey || e.ctrlKey)) {
-      e.preventDefault();
-      setZoom(100);
     } else if (e.key === 'ArrowRight' || e.key === 'ArrowDown') {
       setCurrentPage(p => Math.min(totalPages, p + 1));
     } else if (e.key === 'ArrowLeft' || e.key === 'ArrowUp') {
       setCurrentPage(p => Math.max(1, p - 1));
     }
-  }, [askOpen, totalPages]);
+  }, [askOpen, totalPages, revealed, toggleRevealed]);
 
   useEffect(() => {
     document.addEventListener('keydown', handleKeyDown);
@@ -189,6 +291,18 @@ export function OpenedPartView() {
       changedMeasureBounds={numericBounds}
       notesOpen={notesOpen}
       onPageCount={setTotalPages}
+      onZoomChange={setZoom}
+      annotationMode={effectiveAnnotationMode}
+      inkColor={annState.inkColor}
+      onInkColorChange={annState.setInkColor}
+      textColor={annState.textColor}
+      onTextColorChange={annState.setTextColor}
+      highlightColor={annState.highlightColor}
+      onHighlightColorChange={annState.setHighlightColor}
+      fontSize={annState.fontSize}
+      fontFamily={annState.fontFamily}
+      selectedAnnotationId={annState.selectedAnnotationId}
+      onSelectionChange={annState.setSelectedAnnotationId}
     />
   ) : null;
 
@@ -211,7 +325,7 @@ export function OpenedPartView() {
           <div className="pv-tb-group">
             <span className="pv-tb-lbl">mode</span>
             <button className="pv-tbtn on">Edit</button>
-            <button className="pv-tbtn" onClick={() => setRevealed(false)}>View</button>
+            <button className="pv-tbtn" onClick={() => toggleRevealed(false)}>View</button>
           </div>
           <div className="pv-tb-group">
             <button
@@ -235,7 +349,7 @@ export function OpenedPartView() {
               Notes
             </button>
           </div>
-          <button className="pv-tb-close" onClick={() => setRevealed(false)}>
+          <button className="pv-tb-close" onClick={() => toggleRevealed(false)}>
             Done
           </button>
         </div>
@@ -360,120 +474,147 @@ export function OpenedPartView() {
     );
   }
 
+  // Shortened version name for badge
+  const badgeLabel = diffData
+    ? `${diffData.comparedToVersionName || 'prev'} · ${diffData.changedMeasures.length}\u2193`
+    : '';
+
   // ── Resting state ──
   return (
-    <div className="pv">
-      {/* Diff banner */}
-      {showDiffBanner && diffData && (
-        <div className="pv-diff-banner">
-          <span className="pv-db-dot" />
-          <span className="pv-db-version">{diffData.comparedToVersionName || 'New version'}</span>
-          <span className="pv-db-text">{diffSummary}</span>
-          <span className="pv-db-grow" />
-          <button
-            className="pv-db-cta"
-            onClick={() => navigate(`/charts/${chartId}/versions/${vId}/diff`)}
-          >
-            View changes
-          </button>
-          <button className="pv-db-dismiss" onClick={() => setShowDiffBanner(false)}>
-            &times;
-          </button>
-        </div>
-      )}
-
-      {/* Event context bar */}
-      {eventId && eventName && eventCharts.length > 0 && (
-        <div className="pv-event-bar">
-          <span className="pv-eb-pill">setlist</span>
-          <span className="pv-eb-name">{eventName}</span>
-          <span className="pv-eb-pos">{eventPosition + 1} of {eventCharts.length}</span>
-          {eventPosition < eventCharts.length - 1 && (
+    <div
+      className="pv"
+      onPointerDown={handlePointerDown}
+      onPointerUp={handlePointerUp}
+    >
+      {/* ── Auto-hide chrome wrapper (top) ── */}
+      <div className={`pv-chrome${chromeVisible ? '' : ' hidden'}`}>
+        {/* Diff banner (full) — shown until collapsed or dismissed */}
+        {showDiffBanner && diffData && !diffBannerCollapsed && (
+          <div className="pv-diff-banner">
+            <span className="pv-db-dot" />
+            <span className="pv-db-version">{diffData.comparedToVersionName || 'New version'}</span>
+            <span className="pv-db-text">{diffSummary}</span>
+            <span className="pv-db-grow" />
             <button
-              className="pv-eb-next"
-              onClick={() => {
-                const next = eventCharts[eventPosition + 1];
-                navigate(`/charts/${next.chartId}?event=${eventId}`);
-              }}
+              className="pv-db-cta"
+              onClick={() => navigate(`/charts/${chartId}/versions/${vId}/diff`)}
             >
-              next: {eventCharts[eventPosition + 1].chartName} &rsaquo;
+              View changes
             </button>
-          )}
+            <button className="pv-db-dismiss" onClick={() => setShowDiffBanner(false)}>
+              &times;
+            </button>
+          </div>
+        )}
+
+        {/* Event context bar */}
+        {eventId && eventName && eventCharts.length > 0 && (
+          <div className="pv-event-bar">
+            <span className="pv-eb-pill">setlist</span>
+            <span className="pv-eb-name">{eventName}</span>
+            <span className="pv-eb-pos">{eventPosition + 1} of {eventCharts.length}</span>
+            {eventPosition < eventCharts.length - 1 && (
+              <button
+                className="pv-eb-next"
+                onClick={() => {
+                  const next = eventCharts[eventPosition + 1];
+                  navigate(`/charts/${next.chartId}?event=${eventId}`);
+                }}
+              >
+                next: {eventCharts[eventPosition + 1].chartName} &rsaquo;
+              </button>
+            )}
+          </div>
+        )}
+
+        {/* Migration banner */}
+        {showMigBanner && migratedCount > 0 && (
+          <div className="pv-mig-banner">
+            <div className="pv-mb-icon">
+              <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5">
+                <path d="M3 8 a5 5 0 0 1 10 0" />
+                <path d="M13 8 L15 6 M13 8 L11 6" strokeLinecap="round" />
+              </svg>
+            </div>
+            <div className="pv-mb-body">
+              <div className="pv-mb-title">
+                {migratedCount} annotation{migratedCount !== 1 ? 's' : ''} migrated
+              </div>
+              <div className="pv-mb-sub">
+                Director&rsquo;s proposal. You have final say.
+              </div>
+              <div className="pv-mb-actions">
+                <button className="primary" onClick={() => setShowMigBanner(false)}>Keep all</button>
+                <button onClick={() => setShowMigBanner(false)}>Dismiss</button>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* Back button */}
+        <Link className="pv-back" to={`/charts/${chartId}/versions/${vId}`}>
+          &lsaquo; {chartName}
+        </Link>
+
+        {/* Title overlay (floating, centered) */}
+        <div className="pv-title-overlay">
+          <h1>{chartName}</h1>
+          <div className="pv-meta">{part.name} &middot; {version.name}</div>
         </div>
+
+        {/* Pills: Ask + Tools */}
+        <div className="pv-pills">
+          <button className="pv-pill ask" onClick={() => setAskOpen(true)}>
+            <span className="pv-pill-glyph">
+              <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinejoin="round">
+                <path d="M 3 3 H 13 A 1.6 1.6 0 0 1 14.6 4.6 V 9.5 A 1.6 1.6 0 0 1 13 11.1 H 7.6 L 5 14 L 5.7 11.1 H 3 A 1.6 1.6 0 0 1 1.4 9.5 V 4.6 A 1.6 1.6 0 0 1 3 3 Z" />
+                <line x1="4.5" y1="6.3" x2="11.4" y2="6.3" strokeWidth="1.1" strokeLinecap="round" />
+                <line x1="4.5" y1="8.5" x2="9.5" y2="8.5" strokeWidth="1.1" strokeLinecap="round" />
+              </svg>
+            </span>
+            <span className="pv-pill-label">Ask</span>
+            <span className="pv-pill-kbd">/</span>
+          </button>
+          <button className="pv-pill tools" onClick={() => toggleRevealed(true)}>
+            <span className="pv-pill-glyph">
+              <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinejoin="round" strokeLinecap="round">
+                <path d="M 11 2.5 L 13.5 5 L 5 13.5 L 2 14 L 2.5 11 Z" />
+                <line x1="9.5" y1="4" x2="12" y2="6.5" />
+              </svg>
+            </span>
+            <span className="pv-pill-label">Tools</span>
+            <span className="pv-pill-kbd">T</span>
+          </button>
+        </div>
+      </div>
+      {/* ── End auto-hide chrome (top) ── */}
+
+      {/* Diff badge pill (collapsed banner — always visible, outside chrome wrapper) */}
+      {showDiffBanner && diffData && diffBannerCollapsed && (
+        <button
+          className="pv-diff-badge"
+          onClick={() => setDiffBannerCollapsed(false)}
+          title="Expand diff banner"
+        >
+          <span className="pv-dbb-dot" />
+          <span>{badgeLabel}</span>
+        </button>
       )}
 
-      {/* Migration banner */}
-      {showMigBanner && migratedCount > 0 && (
-        <div className="pv-mig-banner">
-          <div className="pv-mb-icon">
-            <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5">
-              <path d="M3 8 a5 5 0 0 1 10 0" />
-              <path d="M13 8 L15 6 M13 8 L11 6" strokeLinecap="round" />
-            </svg>
-          </div>
-          <div className="pv-mb-body">
-            <div className="pv-mb-title">
-              {migratedCount} annotation{migratedCount !== 1 ? 's' : ''} migrated
-            </div>
-            <div className="pv-mb-sub">
-              Director's proposal. You have final say.
-            </div>
-            <div className="pv-mb-actions">
-              <button className="primary" onClick={() => setShowMigBanner(false)}>Keep all</button>
-              <button onClick={() => setShowMigBanner(false)}>Dismiss</button>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* Back button */}
-      <Link className="pv-back" to={`/charts/${chartId}/versions/${vId}`}>
-        &lsaquo; {chartName}
-      </Link>
-
-      {/* Pills: Ask + Tools */}
-      <div className="pv-pills">
-        <button className="pv-pill ask" onClick={() => setAskOpen(true)}>
-          <span className="pv-pill-glyph">
-            <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinejoin="round">
-              <path d="M 3 3 H 13 A 1.6 1.6 0 0 1 14.6 4.6 V 9.5 A 1.6 1.6 0 0 1 13 11.1 H 7.6 L 5 14 L 5.7 11.1 H 3 A 1.6 1.6 0 0 1 1.4 9.5 V 4.6 A 1.6 1.6 0 0 1 3 3 Z" />
-              <line x1="4.5" y1="6.3" x2="11.4" y2="6.3" strokeWidth="1.1" strokeLinecap="round" />
-              <line x1="4.5" y1="8.5" x2="9.5" y2="8.5" strokeWidth="1.1" strokeLinecap="round" />
-            </svg>
-          </span>
-          <span className="pv-pill-label">Ask</span>
-          <span className="pv-pill-kbd">/</span>
-        </button>
-        <button className="pv-pill tools" onClick={() => setRevealed(true)}>
-          <span className="pv-pill-glyph">
-            <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinejoin="round" strokeLinecap="round">
-              <path d="M 11 2.5 L 13.5 5 L 5 13.5 L 2 14 L 2.5 11 Z" />
-              <line x1="9.5" y1="4" x2="12" y2="6.5" />
-            </svg>
-          </span>
-          <span className="pv-pill-label">Tools</span>
-          <span className="pv-pill-kbd">T</span>
-        </button>
-      </div>
-
-      {/* Title block */}
-      <div className={`pv-title-block${!showDiffBanner ? ' no-banner' : ''}`}>
-        <h1>{chartName}</h1>
-        <div className="pv-meta">{part.name} &middot; {version.name}</div>
-      </div>
-
-      {/* Main content: inline PDF renderer fills the space */}
+      {/* Main content: inline PDF renderer fills the viewport */}
       <div className="pv-content">
         {pdfRenderer}
       </div>
 
-      {/* Footer */}
-      <div className="pv-footer">
-        <span>page {currentPage} of {totalPages}</span>
-        <span>{part.name}</span>
+      {/* ── Auto-hide chrome wrapper (bottom) ── */}
+      <div className={`pv-chrome${chromeVisible ? '' : ' hidden'}`}>
+        <div className="pv-footer">
+          <span>page {currentPage} of {totalPages}</span>
+          <span>{part.name}</span>
+        </div>
       </div>
 
-      {/* Page-turn zones */}
+      {/* Page-turn zones (always active, outside chrome wrapper) */}
       <div
         className="pv-turnzone left"
         title="Previous page"

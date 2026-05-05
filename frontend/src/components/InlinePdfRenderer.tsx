@@ -3,15 +3,12 @@ import * as pdfjsLib from 'pdfjs-dist';
 import type { PDFDocumentProxy } from 'pdfjs-dist';
 import { getAnnotations } from '../api/annotations';
 import { getMeasureLayout } from '../api/parts';
-import { MeasureBounds, MeasureLayoutItem } from '../types';
-import { AnnotationToolbar } from './annotations/AnnotationToolbar';
+import { MeasureBounds, MeasureLayoutItem, FontFamily } from '../types';
 import { AnnotationLayer } from './annotations/AnnotationLayer';
-import { useAnnotationMode } from '../hooks/useAnnotationMode';
-import { SaveStatus } from './annotations/SaveStatusIndicator';
+import { AnnotationMode } from '../hooks/useAnnotationMode';
 import { DiffHighlightLayer } from './annotations/DiffHighlightLayer';
 import { DiffBadge } from './annotations/DiffBadge';
 import { NotePanel } from './NotePanel';
-import { useToast } from './Toast';
 
 // @ts-expect-error vite url import
 import workerUrl from 'pdfjs-dist/build/pdf.worker.min.mjs?url';
@@ -51,6 +48,19 @@ export interface InlinePdfRendererProps {
   notesOpen?: boolean;
   onPageCount?: (n: number) => void;
   onPageRendered?: (page: number) => void;
+  onZoomChange?: (zoom: number) => void;
+  // Annotation state — owned by parent
+  annotationMode: AnnotationMode;
+  inkColor: string;
+  onInkColorChange: (color: string) => void;
+  textColor: string;
+  onTextColorChange: (color: string) => void;
+  highlightColor: string;
+  onHighlightColorChange: (color: string) => void;
+  fontSize: number;
+  fontFamily: FontFamily;
+  selectedAnnotationId: string | null;
+  onSelectionChange: (id: string | null) => void;
 }
 
 // ── Component ─────────────────────────────────────────────────────────────────
@@ -68,14 +78,19 @@ export function InlinePdfRenderer({
   notesOpen,
   onPageCount,
   onPageRendered,
+  onZoomChange,
+  annotationMode,
+  inkColor,
+  onInkColorChange,
+  textColor,
+  onTextColorChange,
+  highlightColor,
+  onHighlightColorChange,
+  fontSize,
+  fontFamily,
+  selectedAnnotationId,
+  onSelectionChange,
 }: InlinePdfRendererProps) {
-  const { showToast } = useToast();
-  const annotationMode = useAnnotationMode();
-  const [annSaveStatus, setAnnSaveStatus] = useState<SaveStatus>('idle');
-  const [canUndo, setCanUndo] = useState(false);
-  const [canRedo, setCanRedo] = useState(false);
-  const [selectedAnnotationKind, setSelectedAnnotationKind] = useState<'ink' | 'text' | 'highlight' | null>(null);
-  const annLayerRef = useRef<{ undo: () => void; redo: () => void } | null>(null);
 
   const pdfDocRef = useRef<PDFDocumentProxy | null>(null);
   const pdfCanvasRef = useRef<HTMLCanvasElement>(null);
@@ -88,16 +103,6 @@ export function InlinePdfRenderer({
   const [canvasDims, setCanvasDims] = useState<{ w: number; h: number }>({ w: 0, h: 0 });
   const [showAnnotations, setShowAnnotations] = useState(true);
   const showAnnotationsRef = useRef(true);
-
-  // Guard: prevent switching to drawing modes when annotations are hidden
-  const guardedSetMode = useCallback((newMode: typeof annotationMode.mode) => {
-    if (!showAnnotationsRef.current && newMode !== 'read') {
-      showToast('Annotations are hidden. Tap the eye icon to show them.');
-      return;
-    }
-    annotationMode.setMode(newMode);
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [showToast]);
 
   const measureAnnotationIdsRef = useRef<Map<number, string>>(new Map());
   const [diffInfo, setDiffInfo] = useState<{ count: number; comparedToVersionName: string; changelog: string } | null>(null);
@@ -256,7 +261,7 @@ export function InlinePdfRenderer({
     }
 
     // Measure boxes (edit mode)
-    if (annotationMode.mode !== 'read' && measureLayout.length > 0) {
+    if (annotationMode !== 'read' && measureLayout.length > 0) {
       const MBOX_COLORS = [
         { fill: 'rgba(147,197,253,0.13)', border: 'rgba(96,165,250,0.45)' },
         { fill: 'rgba(167,243,208,0.13)', border: 'rgba(52,211,153,0.45)' },
@@ -326,7 +331,7 @@ export function InlinePdfRenderer({
       }
       ctx.stroke();
     }
-  }, [showDiffHighlights, changedMeasureBounds, annotationMode.mode, measureLayout]);
+  }, [showDiffHighlights, changedMeasureBounds, annotationMode, measureLayout]);
 
   // ── Render PDF page ─────────────────────────────────────────────────────────
   useEffect(() => {
@@ -410,6 +415,47 @@ export function InlinePdfRenderer({
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [loading, zoomPercent]);
 
+  // ── Pinch-to-zoom on touch devices ────────────────────────────────────
+  useEffect(() => {
+    const container = containerRef.current;
+    if (!container || !onZoomChange) return;
+    let startDist = 0;
+    let startZoom = zoomPercent;
+
+    const getDistance = (touches: TouchList) => {
+      const dx = touches[0].clientX - touches[1].clientX;
+      const dy = touches[0].clientY - touches[1].clientY;
+      return Math.sqrt(dx * dx + dy * dy);
+    };
+
+    const onTouchStart = (e: TouchEvent) => {
+      if (e.touches.length === 2) {
+        startDist = getDistance(e.touches);
+        startZoom = zoomPercent;
+      }
+    };
+    const onTouchMove = (e: TouchEvent) => {
+      if (e.touches.length === 2 && startDist > 0) {
+        e.preventDefault();
+        const dist = getDistance(e.touches);
+        const ratio = dist / startDist;
+        const newZoom = Math.round(Math.min(200, Math.max(50, startZoom * ratio)));
+        onZoomChange(newZoom);
+      }
+    };
+    const onTouchEnd = () => { startDist = 0; };
+
+    container.addEventListener('touchstart', onTouchStart, { passive: true });
+    container.addEventListener('touchmove', onTouchMove, { passive: false });
+    container.addEventListener('touchend', onTouchEnd);
+    return () => {
+      container.removeEventListener('touchstart', onTouchStart);
+      container.removeEventListener('touchmove', onTouchMove);
+      container.removeEventListener('touchend', onTouchEnd);
+    };
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [loading, zoomPercent, onZoomChange]);
+
   // Get current user ID for notes panel
   const currentUserId = (() => {
     try { return JSON.parse(atob(localStorage.getItem('token')?.split('.')[1] ?? '')).sub; }
@@ -433,30 +479,6 @@ export function InlinePdfRenderer({
             info={diffInfo}
             highlightsEnabled={diffHighlightsEnabled}
             onToggleHighlights={() => setDiffHighlightsEnabled(v => !v)}
-          />
-        )}
-
-        {/* Annotation toolbar */}
-        {partId && showAnnotations && (
-          <AnnotationToolbar
-            mode={annotationMode.mode}
-            onModeChange={guardedSetMode}
-            inkColor={annotationMode.inkColor}
-            onInkColorChange={annotationMode.setInkColor}
-            textColor={annotationMode.textColor}
-            onTextColorChange={annotationMode.setTextColor}
-            highlightColor={annotationMode.highlightColor}
-            onHighlightColorChange={annotationMode.setHighlightColor}
-            fontSize={annotationMode.fontSize}
-            onFontSizeChange={annotationMode.setFontSize}
-            fontFamily={annotationMode.fontFamily}
-            onFontFamilyChange={annotationMode.setFontFamily}
-            saveStatus={annSaveStatus}
-            canUndo={canUndo}
-            canRedo={canRedo}
-            onUndo={() => annLayerRef.current?.undo()}
-            onRedo={() => annLayerRef.current?.redo()}
-            selectedAnnotationKind={selectedAnnotationKind}
           />
         )}
 
@@ -508,24 +530,18 @@ export function InlinePdfRenderer({
                 measureLayout={measureLayout}
                 canvasWidth={canvasDims.w}
                 canvasHeight={canvasDims.h}
-                mode={annotationMode.mode}
-                inkColor={annotationMode.inkColor}
-                highlightColor={annotationMode.highlightColor}
-                textColor={annotationMode.textColor}
-                fontSize={annotationMode.fontSize}
-                fontFamily={annotationMode.fontFamily}
-                selectedAnnotationId={annotationMode.selectedAnnotationId}
-                onSelectionChange={annotationMode.setSelectedAnnotationId}
-                onSelectedKindChange={setSelectedAnnotationKind}
-                onSaveStatusChange={setAnnSaveStatus}
-                onHistoryChange={(cu, cr, undo, redo) => {
-                  setCanUndo(cu);
-                  setCanRedo(cr);
-                  annLayerRef.current = { undo, redo };
-                }}
-                onInkColorChange={annotationMode.setInkColor}
-                onTextColorChange={annotationMode.setTextColor}
-                onHighlightColorChange={annotationMode.setHighlightColor}
+                mode={annotationMode}
+                inkColor={inkColor}
+                highlightColor={highlightColor}
+                textColor={textColor}
+                fontSize={fontSize}
+                fontFamily={fontFamily}
+                selectedAnnotationId={selectedAnnotationId}
+                onSelectionChange={onSelectionChange}
+                onSaveStatusChange={() => {}}
+                onInkColorChange={onInkColorChange}
+                onTextColorChange={onTextColorChange}
+                onHighlightColorChange={onHighlightColorChange}
               />
             )}
           </div>
