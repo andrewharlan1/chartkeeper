@@ -6,7 +6,7 @@ import { getVersion } from '../api/versions';
 import { getChart } from '../api/charts';
 import { getAnnotations } from '../api/annotations';
 import { getEvent, EventChart } from '../api/events';
-import { Part, Version, Annotation } from '../types';
+import { Part, Version, Annotation, MeasureBounds } from '../types';
 import { PdfViewer } from '../components/PdfViewer';
 import './PlayerView.css';
 
@@ -128,6 +128,18 @@ export function OpenedPartView() {
   const diffSummary = diffData
     ? `${diffData.changedMeasures.length} measure${diffData.changedMeasures.length !== 1 ? 's' : ''} changed`
     : '';
+
+  // Transform string-keyed bounds to number-keyed for PdfViewer
+  const numericBounds: Record<number, MeasureBounds> | undefined = diffData?.changedMeasureBounds
+    ? Object.fromEntries(
+        Object.entries(diffData.changedMeasureBounds).map(([k, v]) => [Number(k), v])
+      )
+    : undefined;
+  const changeDescs: Record<number, string> | undefined = diffData?.changeDescriptions
+    ? Object.fromEntries(
+        Object.entries(diffData.changeDescriptions).map(([k, v]) => [Number(k), v])
+      )
+    : undefined;
 
   // ── Ask palette overlay (shared across both modes) ──
   const askPalette = askOpen && (
@@ -267,7 +279,10 @@ export function OpenedPartView() {
               <PdfViewer
                 url={`/parts/${pId}/pdf`}
                 partId={pId!}
+                versionId={vId}
                 title={`${part.name} — ${version.name}`}
+                changedMeasureBounds={numericBounds}
+                changeDescriptions={changeDescs}
               />
             </div>
           </div>
