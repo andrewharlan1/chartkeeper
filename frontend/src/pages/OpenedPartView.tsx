@@ -8,6 +8,7 @@ import { getAnnotations } from '../api/annotations';
 import { getEvent, EventChart } from '../api/events';
 import { Part, Version, MeasureBounds, Annotation } from '../types';
 import { InlinePdfRenderer } from '../components/InlinePdfRenderer';
+import { MigrationProgressBadge } from '../components/MigrationProgressBadge';
 import { useAnnotationMode, AnnotationMode } from '../hooks/useAnnotationMode';
 import './PlayerView.css';
 
@@ -339,6 +340,17 @@ export function OpenedPartView() {
               <span className="pv-vp-dot" />
               {version.name}
             </span>
+            {vId && (
+              <MigrationProgressBadge
+                versionId={vId}
+                onComplete={() => {
+                  // Auto-reload annotations when migration completes
+                  if (pId) {
+                    getAnnotations(pId).then(res => setAnnotations(res.annotations)).catch(() => {});
+                  }
+                }}
+              />
+            )}
             <span className="pv-tb-grow" />
             <div className="pv-tb-group">
               <span className="pv-tb-lbl">mode</span>
