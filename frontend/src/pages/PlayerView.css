@@ -153,33 +153,32 @@
   color: var(--ink);
 }
 
-/* ── Title block (centered) ── */
-.pv-title-block {
+/* ── Title overlay (floating, part of auto-hide chrome) ── */
+.pv-title-overlay {
+  position: absolute;
+  top: 44px;
+  left: 50%;
+  transform: translateX(-50%);
   text-align: center;
-  padding: 14px 0 0;
-  margin-top: 40px;
-  flex-shrink: 0;
+  z-index: 5;
+  pointer-events: none;
 }
-.pv-title-block h1 {
+.pv-title-overlay h1 {
   font-family: var(--serif);
   font-weight: 500;
-  font-size: 19px;
+  font-size: 16px;
   letter-spacing: -0.01em;
   margin: 0;
   color: var(--ink);
+  white-space: nowrap;
 }
-.pv-title-block .pv-meta {
-  margin-top: 4px;
+.pv-title-overlay .pv-meta {
+  margin-top: 2px;
   font-family: var(--mono);
-  font-size: 9.5px;
-  letter-spacing: 0.16em;
+  font-size: 9px;
+  letter-spacing: 0.14em;
   text-transform: uppercase;
   color: var(--ink-4);
-}
-
-/* When diff banner is dismissed, reduce top margin */
-.pv-title-block.no-banner {
-  margin-top: 56px;
 }
 
 /* ── Main content area (PDF viewer) ── */
@@ -187,10 +186,10 @@
   flex: 1;
   position: relative;
   overflow: auto;
-  padding: 0 5.5%;
+  padding: 0;
 }
 
-/* ── Footer ── */
+/* ── Footer (auto-hide via .pv-chrome wrapper) ── */
 .pv-footer {
   position: absolute;
   bottom: 12px;
@@ -879,6 +878,50 @@
 @keyframes pv-blip {
   0%, 100% { transform: scale(0.6); opacity: 0.5; }
   50% { transform: scale(1); opacity: 1; }
+}
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   AUTO-HIDE CHROME — Resting State
+   Chrome fades out after 3 seconds of cursor inactivity.
+   ═══════════════════════════════════════════════════════════════════════════ */
+
+/* Chrome wrapper — contains all auto-hideable elements */
+.pv-chrome {
+  transition: opacity 200ms ease;
+}
+.pv-chrome.hidden {
+  opacity: 0;
+  pointer-events: none;
+}
+
+/* ── Diff badge pill (collapsed banner) ── */
+.pv-diff-badge {
+  position: absolute;
+  top: 8px;
+  right: 14px;
+  z-index: 6;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 26px;
+  padding: 0 10px;
+  border-radius: 999px;
+  background: var(--mod-bg, #fdf3d2);
+  border: 1px solid rgba(181, 130, 0, 0.25);
+  font-size: 10.5px;
+  font-family: var(--mono);
+  color: var(--ink-2);
+  cursor: pointer;
+  transition: transform 0.12s ease;
+}
+.pv-diff-badge:hover {
+  transform: translateY(-0.5px);
+}
+.pv-diff-badge .pv-dbb-dot {
+  width: 5px;
+  height: 5px;
+  border-radius: 999px;
+  background: var(--mod);
 }
 
 /* ── Content area shift when revealed ── */
