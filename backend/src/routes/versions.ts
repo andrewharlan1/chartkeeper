@@ -1,7 +1,7 @@
 import { Router, Request, Response } from 'express';
 import { z } from 'zod';
 import { eq, and, isNull, sql } from 'drizzle-orm';
-import { dz } from '../db';
+import { db, dz } from '../db';
 import { versions, charts, parts, annotations } from '../schema';
 import { requireAuth } from '../middleware/auth';
 import { requireEnsembleMember, requireEnsembleAdmin } from '../lib/ensembleAuth';
@@ -295,4 +295,60 @@ versionsRouter.post('/:id/migrate', async (req: Request, res: Response): Promise
   );
 
   res.json({ results });
+});
+
+// GET /versions/:id/migration-status
+// Returns job status for cross-instrument migration jobs targeting this version
+versionsRouter.get('/:id/migration-status', async (req: Request, res: Response): Promise<void> => {
+  const ensembleId = await getVersionEnsembleId(req.params.id);
+  if (!ensembleId) { res.status(404).json({ error: 'Version not found' }); return; }
+
+  try {
+    await requireEnsembleMember(ensembleId, req.user!.id);
+  } catch (err) {
+    handleError(err, res);
+    return;
+  }
+
+  const result = await db.query<{
+    id: string;
+    status: string;
+    payload: { sources: { partId: string; versionId: string }[]; userId: string };
+    last_error: string | null;
+    created_at: string;
+    updated_at: string;
+  }>(
+    `SELECT id, status, payload, last_error, created_at, updated_at
+     FROM jobs
+     WHERE type = 'migration' AND payload->>'versionId' = $1
+     ORDER BY created_at DESC
+     LIMIT 10`,
+    [req.params.id]
+  );
+
+  if (result.rows.length === 0) {
+    res.json({ status: 'none', jobs: [] });
+    return;
+  }
+
+  // Derive overall status from individual jobs
+  const statuses = result.rows.map(r => r.status);
+  let overall: string;
+  if (statuses.every(s => s === 'complete')) overall = 'complete';
+  else if (statuses.some(s => s === 'processing')) overall = 'processing';
+  else if (statuses.some(s => s === 'pending')) overall = 'pending';
+  else if (statuses.some(s => s === 'failed') && statuses.some(s => s === 'complete')) overall = 'partial';
+  else overall = 'failed';
+
+  res.json({
+    status: overall,
+    jobs: result.rows.map(r => ({
+      id: r.id,
+      status: r.status,
+      sources: r.payload.sources,
+      error: r.last_error,
+      createdAt: r.created_at,
+      updatedAt: r.updated_at,
+    })),
+  });
 });
