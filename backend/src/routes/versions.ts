@@ -250,7 +250,7 @@ versionsRouter.get('/:id/flagged-count', async (req: Request, res: Response): Pr
       eq(parts.versionId, req.params.id),
       isNull(parts.deletedAt),
       isNull(annotations.deletedAt),
-      sql`${annotations.contentJson}->>'_needsReview' = 'true'`,
+      sql`(${annotations.contentJson}->>'_needsReview' = 'true' OR ${annotations.needsReview} = TRUE)`,
     ));
 
   res.json({ flaggedCount: Number(count) });
