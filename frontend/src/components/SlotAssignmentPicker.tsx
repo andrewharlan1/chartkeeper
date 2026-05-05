@@ -35,14 +35,16 @@ export function SlotAssignmentPicker({ slots, selectedIds, onChange, onAssignmen
   }, []);
 
   // Notify parent of assignments whenever selection changes
+  const onAssignmentsChangeRef = useRef(onAssignmentsChange);
+  onAssignmentsChangeRef.current = onAssignmentsChange;
   useEffect(() => {
-    if (!onAssignmentsChange) return;
+    if (!onAssignmentsChangeRef.current) return;
     const assignments: InstrumentAssignment[] = [
       ...selectedIds.map(id => ({ existingSlotId: id })),
       ...newNames.map(name => ({ newInstrumentName: name })),
     ];
-    onAssignmentsChange(assignments);
-  }, [selectedIds, newNames, onAssignmentsChange]);
+    onAssignmentsChangeRef.current(assignments);
+  }, [selectedIds, newNames]);
 
   function toggle(slotId: string) {
     if (selectedIds.includes(slotId)) {
@@ -130,7 +132,7 @@ export function SlotAssignmentPicker({ slots, selectedIds, onChange, onAssignmen
           ) : (
             <span>assign...</span>
           )}
-          <span className="caret" style={{ fontSize: 9 }}>&blacktriangledown;</span>
+          <span className="caret" style={{ fontSize: 9 }}>▼</span>
         </button>
         {showDropdown && (
           <div style={{

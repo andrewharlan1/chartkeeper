@@ -26,7 +26,7 @@ export function PublishConfirmModal({
         </div>
         <h2>{versionName} is live</h2>
         <p className="pc-summary">
-          Published &middot; here's what changed
+          Published · here's what changed
         </p>
 
         {stats.length > 0 && (

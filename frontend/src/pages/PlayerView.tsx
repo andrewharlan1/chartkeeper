@@ -130,7 +130,7 @@ function ByEnsembleView({ parts }: { parts: PlayerPart[] }) {
                   fontFamily: 'var(--mono)', fontSize: 11, color: 'var(--text-faint)',
                   marginBottom: 6, letterSpacing: '0.04em',
                 }}>
-                  {chartParts[0].chartName} &middot; {chartParts[0].versionName}
+                  {chartParts[0].chartName} · {chartParts[0].versionName}
                 </div>
                 {chartParts.map(p => <PartRow key={p.partId} p={p} />)}
               </div>

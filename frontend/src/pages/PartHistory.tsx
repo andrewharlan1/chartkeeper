@@ -105,7 +105,7 @@ export function PartHistoryPage() {
         {/* Preview pane */}
         <div className="history-preview">
           <div className="hp-label">
-            Showing &middot; {part.name} at {currentVersionName}
+            Showing · {part.name} at {currentVersionName}
           </div>
           <h2>{chartName}</h2>
           <div style={{
@@ -125,14 +125,14 @@ export function PartHistoryPage() {
               textAlign: 'center', fontFamily: 'var(--mono)', fontSize: 10,
               color: 'var(--text-faint)', marginTop: 'auto',
             }}>
-              page 1 &middot; {part.name.toLowerCase().replace(/ /g, '')}.pdf
+              page 1 · {part.name.toLowerCase().replace(/ /g, '')}.pdf
             </div>
           </div>
         </div>
 
         {/* History rail */}
         <div className="history-rail">
-          <div className="hr-title">Version history &middot; {part.name}</div>
+          <div className="hr-title">Version history · {part.name}</div>
 
           {entries.map((entry, i) => (
             <div
@@ -153,7 +153,7 @@ export function PartHistoryPage() {
                 <div>
                   <span className="he-vlabel">{entry.versionName}</span>
                   <span className="he-when">
-                    &middot; {new Date(entry.createdAt).toLocaleDateString()}
+                    · {new Date(entry.createdAt).toLocaleDateString()}
                   </span>
                 </div>
                 <div className="he-desc">{entry.description}</div>
@@ -173,7 +173,7 @@ export function PartHistoryPage() {
             fontFamily: 'var(--mono)', fontSize: 11, color: 'var(--text-faint)',
             borderTop: '1px solid var(--border)',
           }}>
-            history is per-part &middot; scoped to {part.name}
+            history is per-part · scoped to {part.name}
           </div>
         </div>
       </div>

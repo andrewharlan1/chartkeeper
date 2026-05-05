@@ -184,7 +184,7 @@ function UnassignedPartTile({ partView, slots, onAssign, onDelete }: {
           className="pt-edit-btn pt-delete-btn"
           title="Delete part"
           onClick={(e) => { e.stopPropagation(); onDelete(partId, partView.fileName); }}
-        >&times;</button>
+        >×</button>
         <span className="pt-status" style={{ color: 'var(--accent)' }}>unassigned</span>
       </header>
       <div style={{ padding: '10px 12px' }}>
@@ -272,7 +272,7 @@ function LayoutB({ parts, chartId, versionId, slots, onAssign, onRename, onDelet
               {score.part && (
                 <>
                   <span>{KIND_LABELS[score.part.kind as keyof typeof KIND_LABELS] || score.part.kind}</span>
-                  <span className="dot">&middot;</span>
+                  <span className="dot">·</span>
                 </>
               )}
               <span>{score.statusText}</span>
@@ -318,7 +318,7 @@ function LayoutB({ parts, chartId, versionId, slots, onAssign, onRename, onDelet
                   e.stopPropagation();
                   if (p.part) onDelete(p.part.partId, p.instrumentName);
                 }}
-              >&times;</button>
+              >×</button>
               <span className={'pt-status ' + (p.isChanged ? 'is-changed' : '')}>
                 {p.statusText}
               </span>
@@ -401,7 +401,7 @@ function LayoutC({ parts, chartId, versionId, slots: _slots, onAssign: _onAssign
       {/* Full page score area */}
       <div className="score-led-hero">
         <div className="sl-bar">
-          <span className="l">Score &middot; Conductor's view</span>
+          <span className="l">Score · Conductor's view</span>
           <Link to={(() => { const s = parts.find(p => p.isScore && p.part); return s?.part ? `/charts/${chartId}/versions/${versionId}/parts/${s.part.partId}` : `/charts/${chartId}/versions/${versionId}`; })()} style={{ fontSize: 12, color: 'var(--accent)' }}>
             Open
           </Link>

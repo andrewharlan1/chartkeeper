@@ -63,7 +63,7 @@ export function MigrationSourcesPage() {
       ]}
     >
       <div className="mig-review-head">
-        <div className="mr-step">Step 2 of 2 &middot; upload &rarr; migrate &rarr; publish</div>
+        <div className="mr-step">Step 2 of 2 · upload → migrate → publish</div>
         <h1>Configure migrations</h1>
         <p>
           Each new part can pull annotations from a source. Defaults shown.
@@ -99,7 +99,7 @@ export function MigrationSourcesPage() {
                         <div key={sp.partId} className={'mr-source-opt' + (isMatch ? ' selected' : '')}>
                           <InstrumentIcon name={sp.instrumentIcon} size={14} />
                           <span style={{ fontWeight: isMatch ? 500 : 400, color: isMatch ? 'var(--text)' : 'var(--text-muted)' }}>
-                            {sp.instrumentName} &middot; {v.versionName}
+                            {sp.instrumentName} · {v.versionName}
                           </span>
                           <span className="mr-opt-meta">{sp.annotationCount} ann.</span>
                           {isMatch && !sourceResult && (
@@ -138,7 +138,7 @@ export function MigrationSourcesPage() {
 
       <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end' }}>
         <Link to={`/charts/${chartId}/upload`}>
-          <Button variant="secondary">&lsaquo; Back to upload</Button>
+          <Button variant="secondary">‹ Back to upload</Button>
         </Link>
       </div>
     </Layout>

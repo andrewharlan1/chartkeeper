@@ -207,7 +207,7 @@ function DiffCardView({
         <InstrumentIcon name={part.name} size={18} />
         <span className="dc-title">{part.name}</span>
         <span className="dc-summary">
-          &middot; <strong>{totalChanged} measure{totalChanged !== 1 ? 's' : ''} changed</strong>
+          · <strong>{totalChanged} measure{totalChanged !== 1 ? 's' : ''} changed</strong>
           {sourceLabel && <> from {sourceLabel}</>}
         </span>
         <div className="dc-anchors">
@@ -234,8 +234,8 @@ function DiffCardView({
                 className="diff-row dr-collapse"
                 onClick={() => onToggleCollapse(row.collapseKey!)}
               >
-                &hellip; {row.collapsedCount} unchanged measures collapsed &middot;{' '}
-                <span style={{ color: 'var(--accent)', marginLeft: 4 }}>show all &rsaquo;</span>
+                … {row.collapsedCount} unchanged measures collapsed ·{' '}
+                <span style={{ color: 'var(--accent)', marginLeft: 4 }}>show all ›</span>
               </div>
             );
           }

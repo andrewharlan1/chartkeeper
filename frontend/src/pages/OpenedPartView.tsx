@@ -269,7 +269,7 @@ export function OpenedPartView() {
         </div>
         <div className="pv-pal-foot">
           <span className="pv-pal-hint">
-            <kbd>Enter</kbd> to submit &middot; <kbd>Esc</kbd> to close
+            <kbd>Enter</kbd> to submit · <kbd>Esc</kbd> to close
           </span>
           <span className="pv-pal-grow" />
         </div>
@@ -458,9 +458,9 @@ export function OpenedPartView() {
               ))}
             </div>
             <div className="pv-fs-nav">
-              <button onClick={() => setCurrentPage(p => Math.max(1, p - 1))}>&lsaquo;</button>
+              <button onClick={() => setCurrentPage(p => Math.max(1, p - 1))}>‹</button>
               <span>pg {currentPage}</span>
-              <button onClick={() => setCurrentPage(p => Math.min(totalPages, p + 1))}>&rsaquo;</button>
+              <button onClick={() => setCurrentPage(p => Math.min(totalPages, p + 1))}>›</button>
             </div>
             <div className="pv-fs-zoom">
               <button onClick={() => setZoom(z => Math.max(25, z - 25))}>−</button>
@@ -498,7 +498,7 @@ export function OpenedPartView() {
                   View changes
                 </button>
                 <button className="pv-db-dismiss" onClick={() => setShowDiffBanner(false)}>
-                  &times;
+                  ×
                 </button>
               </div>
             )}
@@ -517,7 +517,7 @@ export function OpenedPartView() {
                       navigate(`/charts/${next.chartId}?event=${eventId}`);
                     }}
                   >
-                    next: {eventCharts[eventPosition + 1].chartName} &rsaquo;
+                    next: {eventCharts[eventPosition + 1].chartName} ›
                   </button>
                 )}
               </div>
@@ -537,7 +537,7 @@ export function OpenedPartView() {
                     {migratedCount} annotation{migratedCount !== 1 ? 's' : ''} migrated
                   </div>
                   <div className="pv-mb-sub">
-                    Director&rsquo;s proposal. You have final say.
+                    Director's proposal. You have final say.
                   </div>
                   <div className="pv-mb-actions">
                     <button className="primary" onClick={() => setShowMigBanner(false)}>Keep all</button>
@@ -549,13 +549,13 @@ export function OpenedPartView() {
 
             {/* Back button */}
             <Link className="pv-back" to={`/charts/${chartId}/versions/${vId}`}>
-              &lsaquo; {chartName}
+              ‹ {chartName}
             </Link>
 
             {/* Title overlay (floating, centered) */}
             <div className="pv-title-overlay">
               <h1>{chartName}</h1>
-              <div className="pv-meta">{part.name} &middot; {version.name}</div>
+              <div className="pv-meta">{part.name} · {version.name}</div>
             </div>
 
             {/* Pills: Ask + Tools */}

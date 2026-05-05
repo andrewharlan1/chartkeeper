@@ -296,7 +296,7 @@ export function UploadVersion() {
               {uploading ? `Uploading ${entries.length} file${entries.length !== 1 ? 's' : ''}...` : 'Upload'}
             </div>
             <div className="ut-meta">
-              {entries.length} FILE{entries.length !== 1 ? 'S' : ''} &middot;{' '}
+              {entries.length} FILE{entries.length !== 1 ? 'S' : ''} ·{' '}
               {target === 'current'
                 ? `ADD TO ${currentVersion?.name?.toUpperCase() || 'CURRENT'}`
                 : `WILL CREATE ${nextVersionLabel.toUpperCase()}`
@@ -346,7 +346,7 @@ export function UploadVersion() {
                 ))}
               </div>
               <div className="stp-meta">
-                <div className="stp-eyebrow">Detected &middot; conductor's score</div>
+                <div className="stp-eyebrow">Detected · conductor's score</div>
                 <h4>{entry.file?.name || entry.name}</h4>
                 <p style={{ fontSize: 12.5, color: 'var(--text-muted)', marginBottom: 4 }}>
                   {entry.file ? `${(entry.file.size / (1024 * 1024)).toFixed(2)} MB` : ''}
@@ -381,7 +381,7 @@ export function UploadVersion() {
                 </div>
 
                 {/* Arrow */}
-                <div className="ut-arrow">&rarr;</div>
+                <div className="ut-arrow">→</div>
 
                 {/* Slot assignment */}
                 <div>
@@ -430,7 +430,7 @@ export function UploadVersion() {
                       </select>
                     );
                   })() : (
-                    <span style={{ fontSize: 11, color: 'var(--text-faint)' }}>&mdash;</span>
+                    <span style={{ fontSize: 11, color: 'var(--text-faint)' }}>—</span>
                   )}
                 </div>
 
@@ -457,7 +457,7 @@ export function UploadVersion() {
                       color: 'var(--text-faint)', cursor: 'pointer',
                       fontSize: 16, padding: '0 4px',
                     }}
-                  >&times;</button>
+                  >×</button>
                 </div>
               </div>
             ))}
@@ -499,7 +499,7 @@ export function UploadVersion() {
           {annotationSources.length > 0 && entries.some(e => showMigration(e.kind)) && (
             <div style={{ padding: '8px 18px', borderTop: '1px dashed var(--border)', fontSize: 12 }}>
               <Link to={`/charts/${chartId}/migration-sources`} style={{ color: 'var(--accent)' }}>
-                Review migrations separately &rarr;
+                Review migrations separately →
               </Link>
             </div>
           )}

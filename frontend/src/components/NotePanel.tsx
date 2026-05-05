@@ -99,7 +99,7 @@ export function NotePanel({
                       onClick={() => handleDelete(a.id)}
                       disabled={deleting === a.id}
                       style={{ background: 'none', border: 'none', color: 'var(--ink-4, #444)', cursor: 'pointer', fontSize: 15, padding: 0, lineHeight: 1 }}
-                    >&times;</button>
+                    >×</button>
                   )}
                 </div>
               </div>
