@@ -32,3 +32,10 @@ export function updateAnnotation(
 export function deleteAnnotation(annotationId: string): Promise<{ deleted: boolean }> {
   return api.delete(`/annotations/${annotationId}`);
 }
+
+export function setAnnotationMigratable(
+  annotationId: string,
+  migratable: boolean,
+): Promise<{ annotation: Annotation }> {
+  return api.patch(`/annotations/${annotationId}/migratable`, { migratable });
+}

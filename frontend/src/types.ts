@@ -158,6 +158,8 @@ export interface HighlightContent {
 
 export type ContentJson = InkContent | TextContent | HighlightContent | Record<string, unknown>;
 
+export type MigrationSourceKind = 'same_instrument' | 'cross_instrument';
+
 export interface Annotation {
   id: string;
   partId: string;
@@ -170,6 +172,14 @@ export interface Annotation {
   scope: AnnotationScope;
   layerId: string | null;
   migratedFromAnnotationId: string | null;
+  migrationSourceKind: MigrationSourceKind | null;
+  needsReview: boolean;
+  migratable: boolean;
+  sourceAnnotationId: string | null;
+  sourceVersionId: string | null;
+  sourcePartName?: string;
+  sourceVersionLabel?: string;
+  sourceAuthorName?: string;
   createdAt: string;
   updatedAt: string;
 }

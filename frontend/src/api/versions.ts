@@ -14,6 +14,7 @@ export function createVersion(data: {
   name: string;
   notes?: string;
   seededFromVersionId?: string;
+  migrationSources?: { sourcePartId: string; sourceVersionId: string; targetPartId: string }[];
 }): Promise<{ version: Version }> {
   return api.post('/versions', data);
 }
@@ -68,4 +69,44 @@ export function migrateAnnotations(
   migrations: { targetPartId: string; sourcePartId: string }[],
 ): Promise<{ results: MigrationResult[] }> {
   return api.post(`/versions/${versionId}/migrate`, { migrations });
+}
+
+// ── Cross-instrument migration ──────────────────────────────────────────
+
+export interface MigrationCandidate {
+  partId: string;
+  partName: string;
+  instrumentSlotIds: string[];
+  isSameInstrument: boolean;
+  versions: {
+    versionId: string;
+    versionLabel: string;
+    annotationCount: number;
+    isMostRecent: boolean;
+  }[];
+}
+
+export function getMigrationCandidates(
+  ensembleId: string,
+  partId: string,
+): Promise<{ candidates: MigrationCandidate[] }> {
+  return api.get(`/ensembles/${ensembleId}/migration-candidates?partId=${partId}`);
+}
+
+export interface MigrationStatusJob {
+  id: string;
+  status: 'pending' | 'processing' | 'complete' | 'failed';
+  sources: { sourcePartId: string; sourceVersionId: string; targetPartId: string }[];
+  error: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface MigrationStatusResponse {
+  status: 'none' | 'pending' | 'processing' | 'complete' | 'partial' | 'failed';
+  jobs: MigrationStatusJob[];
+}
+
+export function getMigrationStatus(versionId: string): Promise<MigrationStatusResponse> {
+  return api.get(`/versions/${versionId}/migration-status`);
 }
