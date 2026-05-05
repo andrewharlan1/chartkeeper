@@ -158,6 +158,29 @@ annotationsRouter.patch('/:id', async (req: Request, res: Response): Promise<voi
   res.json({ annotation: updated });
 });
 
+// PATCH /annotations/:id/migratable (owner-only privacy opt-out toggle)
+annotationsRouter.patch('/:id/migratable', async (req: Request, res: Response): Promise<void> => {
+  const parsed = z.object({ migratable: z.boolean() }).safeParse(req.body);
+  if (!parsed.success) { res.status(400).json({ error: parsed.error.flatten() }); return; }
+
+  const [existing] = await dz.select({ ownerUserId: annotations.ownerUserId })
+    .from(annotations)
+    .where(and(eq(annotations.id, req.params.id), isNull(annotations.deletedAt)));
+
+  if (!existing) { res.status(404).json({ error: 'Annotation not found' }); return; }
+  if (existing.ownerUserId !== req.user!.id) {
+    res.status(403).json({ error: 'Only the annotation owner can change migratable status' });
+    return;
+  }
+
+  const [updated] = await dz.update(annotations)
+    .set({ migratable: parsed.data.migratable, updatedAt: new Date() })
+    .where(eq(annotations.id, req.params.id))
+    .returning();
+
+  res.json({ annotation: updated });
+});
+
 // DELETE /annotations/:id (soft delete, own annotations only)
 annotationsRouter.delete('/:id', async (req: Request, res: Response): Promise<void> => {
   const [existing] = await dz.select({ ownerUserId: annotations.ownerUserId })
