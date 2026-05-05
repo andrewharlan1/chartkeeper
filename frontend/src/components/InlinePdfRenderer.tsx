@@ -335,6 +335,11 @@ export function InlinePdfRenderer({
     }
   }, [showDiffHighlights, changedMeasureBounds, annotationMode, measureLayout]);
 
+  // Keep a ref to the latest redrawCanvas so the PDF render effect can call it
+  // without re-firing every time overlay deps change.
+  const redrawRef = useRef(redrawCanvas);
+  redrawRef.current = redrawCanvas;
+
   // ── Render PDF page ─────────────────────────────────────────────────────────
   useEffect(() => {
     if (loading || !pdfDocRef.current) return;
@@ -363,7 +368,7 @@ export function InlinePdfRenderer({
         setCanvasDims({ w: vp.width, h: vp.height });
 
         await page.render({ canvasContext: pdfC.getContext('2d')!, viewport: vp }).promise;
-        redrawCanvas(currentPage, drawC);
+        redrawRef.current(currentPage, drawC);
         onPageRendered?.(currentPage);
       } catch (err) {
         console.error('[InlinePdfRenderer] page render error:', err);
@@ -373,7 +378,14 @@ export function InlinePdfRenderer({
     };
     render();
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [currentPage, zoomPercent, loading, redrawCanvas]);
+  }, [currentPage, zoomPercent, loading]);
+
+  // Redraw overlay canvas when overlay-specific deps change (without re-rendering PDF)
+  useEffect(() => {
+    const drawC = drawCanvasRef.current;
+    if (!drawC || loading) return;
+    redrawCanvas(currentPageRef.current, drawC);
+  }, [redrawCanvas, loading]);
 
   // Re-render on container resize
   useEffect(() => {
@@ -402,7 +414,7 @@ export function InlinePdfRenderer({
             drawC.height = vp.height;
             setCanvasDims({ w: vp.width, h: vp.height });
             await page.render({ canvasContext: pdfC.getContext('2d')!, viewport: vp }).promise;
-            redrawCanvas(currentPageRef.current, drawC);
+            redrawRef.current(currentPageRef.current, drawC);
           } catch (err) {
             console.error('[InlinePdfRenderer] resize render error:', err);
           } finally {

@@ -1,4 +1,4 @@
-import { useEffect, useState, useCallback, useRef } from 'react';
+import { useEffect, useState, useCallback, useRef, useMemo } from 'react';
 import { useParams, useSearchParams, Link, useNavigate } from 'react-router-dom';
 import { getPart } from '../api/parts';
 import { getPartDiff, PartDiffData } from '../api/parts';
@@ -239,12 +239,14 @@ export function OpenedPartView() {
     ? `${diffData.changedMeasures.length} measure${diffData.changedMeasures.length !== 1 ? 's' : ''} changed`
     : '';
 
-  // Transform string-keyed bounds to number-keyed for the renderer
-  const numericBounds: Record<number, MeasureBounds> | undefined = diffData?.changedMeasureBounds
-    ? Object.fromEntries(
-        Object.entries(diffData.changedMeasureBounds).map(([k, v]) => [Number(k), v])
-      )
-    : undefined;
+  // Transform string-keyed bounds to number-keyed for the renderer (memoised to
+  // keep a stable reference — InlinePdfRenderer's redrawCanvas depends on it).
+  const numericBounds = useMemo<Record<number, MeasureBounds> | undefined>(() => {
+    if (!diffData?.changedMeasureBounds) return undefined;
+    return Object.fromEntries(
+      Object.entries(diffData.changedMeasureBounds).map(([k, v]) => [Number(k), v])
+    );
+  }, [diffData]);
 
   // ── Ask palette overlay (shared across both modes) ──
   const askPalette = askOpen && (
