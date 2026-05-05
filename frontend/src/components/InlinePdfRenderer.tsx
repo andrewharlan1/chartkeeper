@@ -261,8 +261,9 @@ export function InlinePdfRenderer({
       }
     }
 
-    // Measure boxes (edit mode)
-    if (annotationMode !== 'read' && measureLayout.length > 0) {
+    // Measure boxes (debug only — append ?debug-measures to URL)
+    const debugMeasures = new URLSearchParams(window.location.search).has('debug-measures');
+    if (debugMeasures && annotationMode !== 'read' && measureLayout.length > 0) {
       const MBOX_COLORS = [
         { fill: 'rgba(147,197,253,0.13)', border: 'rgba(96,165,250,0.45)' },
         { fill: 'rgba(167,243,208,0.13)', border: 'rgba(52,211,153,0.45)' },
