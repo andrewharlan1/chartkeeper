@@ -6,8 +6,8 @@ import { getVersion } from '../api/versions';
 import { getChart } from '../api/charts';
 import { getAnnotations } from '../api/annotations';
 import { getEvent, EventChart } from '../api/events';
-import { Part, Version, Annotation, MeasureBounds } from '../types';
-import { PdfViewer } from '../components/PdfViewer';
+import { Part, Version, MeasureBounds, Annotation } from '../types';
+import { InlinePdfRenderer } from '../components/InlinePdfRenderer';
 import './PlayerView.css';
 
 type ToolId = 'pen' | 'highlight' | 'text' | 'eraser';
@@ -34,8 +34,11 @@ export function OpenedPartView() {
   const [activeTool, setActiveTool] = useState<ToolId>('pen');
   const [activeColor, setActiveColor] = useState(SWATCHES[0]);
   const [currentPage, setCurrentPage] = useState(1);
-  const [totalPages] = useState(1); // PdfViewer will eventually report this
+  const [totalPages, setTotalPages] = useState(1);
   const [zoom, setZoom] = useState(100); // 50–200
+  const [darkScore, setDarkScore] = useState(false);
+  const [annotationsVisible, setAnnotationsVisible] = useState(true);
+  const [notesOpen, setNotesOpen] = useState(false);
 
   // Banner state
   const [showDiffBanner, setShowDiffBanner] = useState(false);
@@ -104,8 +107,12 @@ export function OpenedPartView() {
     } else if (e.key === '0' && (e.metaKey || e.ctrlKey)) {
       e.preventDefault();
       setZoom(100);
+    } else if (e.key === 'ArrowRight' || e.key === 'ArrowDown') {
+      setCurrentPage(p => Math.min(totalPages, p + 1));
+    } else if (e.key === 'ArrowLeft' || e.key === 'ArrowUp') {
+      setCurrentPage(p => Math.max(1, p - 1));
     }
-  }, [askOpen]);
+  }, [askOpen, totalPages]);
 
   useEffect(() => {
     document.addEventListener('keydown', handleKeyDown);
@@ -129,15 +136,10 @@ export function OpenedPartView() {
     ? `${diffData.changedMeasures.length} measure${diffData.changedMeasures.length !== 1 ? 's' : ''} changed`
     : '';
 
-  // Transform string-keyed bounds to number-keyed for PdfViewer
+  // Transform string-keyed bounds to number-keyed for the renderer
   const numericBounds: Record<number, MeasureBounds> | undefined = diffData?.changedMeasureBounds
     ? Object.fromEntries(
         Object.entries(diffData.changedMeasureBounds).map(([k, v]) => [Number(k), v])
-      )
-    : undefined;
-  const changeDescs: Record<number, string> | undefined = diffData?.changeDescriptions
-    ? Object.fromEntries(
-        Object.entries(diffData.changeDescriptions).map(([k, v]) => [Number(k), v])
       )
     : undefined;
 
@@ -173,6 +175,23 @@ export function OpenedPartView() {
     </>
   );
 
+  // The InlinePdfRenderer is shared between both modes
+  const pdfRenderer = pId ? (
+    <InlinePdfRenderer
+      partId={pId}
+      pdfUrl={`/parts/${pId}/pdf`}
+      currentPage={currentPage}
+      zoomPercent={zoom}
+      darkScore={darkScore}
+      annotationsVisible={annotationsVisible}
+      showDiffHighlights={true}
+      versionId={vId}
+      changedMeasureBounds={numericBounds}
+      notesOpen={notesOpen}
+      onPageCount={setTotalPages}
+    />
+  ) : null;
+
   // ── Revealed (annotation mode) ──
   if (revealed) {
     return (
@@ -193,6 +212,28 @@ export function OpenedPartView() {
             <span className="pv-tb-lbl">mode</span>
             <button className="pv-tbtn on">Edit</button>
             <button className="pv-tbtn" onClick={() => setRevealed(false)}>View</button>
+          </div>
+          <div className="pv-tb-group">
+            <button
+              className={`pv-tbtn${darkScore ? ' on' : ''}`}
+              onClick={() => setDarkScore(v => !v)}
+              title={darkScore ? 'Light score' : 'Dark score'}
+            >
+              {darkScore ? 'Light' : 'Dark'}
+            </button>
+            <button
+              className={`pv-tbtn${!annotationsVisible ? ' on' : ''}`}
+              onClick={() => setAnnotationsVisible(v => !v)}
+              title={annotationsVisible ? 'Hide annotations' : 'Show annotations'}
+            >
+              {annotationsVisible ? 'Hide ann.' : 'Show ann.'}
+            </button>
+            <button
+              className={`pv-tbtn${notesOpen ? ' on' : ''}`}
+              onClick={() => setNotesOpen(v => !v)}
+            >
+              Notes
+            </button>
           </div>
           <button className="pv-tb-close" onClick={() => setRevealed(false)}>
             Done
@@ -273,18 +314,9 @@ export function OpenedPartView() {
             </div>
           </div>
 
-          {/* PDF content area */}
+          {/* PDF content area — InlinePdfRenderer fills this */}
           <div className="pv-revealed-content">
-            <div style={{ transform: `scale(${zoom / 100})`, transformOrigin: 'top center', transition: 'transform 0.15s ease' }}>
-              <PdfViewer
-                url={`/parts/${pId}/pdf`}
-                partId={pId!}
-                versionId={vId}
-                title={`${part.name} — ${version.name}`}
-                changedMeasureBounds={numericBounds}
-                changeDescriptions={changeDescs}
-              />
-            </div>
+            {pdfRenderer}
           </div>
 
           {/* Bottom strip */}
@@ -430,20 +462,14 @@ export function OpenedPartView() {
         <div className="pv-meta">{part.name} &middot; {version.name}</div>
       </div>
 
-      {/* Main content: PDF viewer */}
+      {/* Main content: inline PDF renderer fills the space */}
       <div className="pv-content">
-        <div style={{ transform: `scale(${zoom / 100})`, transformOrigin: 'top center', transition: 'transform 0.15s ease' }}>
-          <PdfViewer
-            url={`/parts/${pId}/pdf`}
-            partId={pId!}
-            title={`${part.name} — ${version.name}`}
-          />
-        </div>
+        {pdfRenderer}
       </div>
 
       {/* Footer */}
       <div className="pv-footer">
-        <span>page {currentPage}</span>
+        <span>page {currentPage} of {totalPages}</span>
         <span>{part.name}</span>
       </div>
 
