@@ -67,8 +67,9 @@ versionsRouter.post('/', async (req: Request, res: Response): Promise<void> => {
     notes: z.string().optional(),
     seededFromVersionId: z.string().uuid().optional(),
     migrationSources: z.array(z.object({
-      partId: z.string().uuid(),
-      versionId: z.string().uuid(),
+      sourcePartId: z.string().uuid(),
+      sourceVersionId: z.string().uuid(),
+      targetPartId: z.string().uuid(),
     })).optional(),
   }).safeParse(req.body);
   if (!parsed.success) {
