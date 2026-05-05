@@ -439,6 +439,65 @@ partsRouter.get('/:id/debug-pdf', async (req: Request, res: Response): Promise<v
   }
 });
 
+// PATCH /parts/:id — update part name and/or slot assignments
+partsRouter.patch('/:id', async (req: Request, res: Response): Promise<void> => {
+  const part = await getPartWithEnsemble(req.params.id);
+  if (!part) { res.status(404).json({ error: 'Part not found' }); return; }
+
+  try {
+    await requireEnsembleAdmin(part.ensembleId, req.user!.id);
+  } catch (err) {
+    handleError(err, res);
+    return;
+  }
+
+  const parsed = z.object({
+    name: z.string().trim().min(1).optional(),
+    slotIds: z.array(z.string().uuid()).optional(),
+    instrumentAssignments: z.array(z.union([
+      z.object({ existingSlotId: z.string().uuid() }),
+      z.object({ newInstrumentName: z.string().min(1) }),
+    ])).optional(),
+  }).safeParse(req.body);
+  if (!parsed.success) { res.status(400).json({ error: parsed.error.flatten() }); return; }
+
+  const { name, slotIds, instrumentAssignments } = parsed.data;
+
+  // Resolve slot IDs
+  let resolvedSlotIds: string[] | undefined;
+  if (instrumentAssignments && instrumentAssignments.length > 0) {
+    resolvedSlotIds = await resolveInstrumentAssignments(part.ensembleId, instrumentAssignments);
+  } else if (slotIds) {
+    resolvedSlotIds = slotIds;
+  }
+
+  // Update part name if provided
+  if (name) {
+    await dz.update(parts)
+      .set({ name, updatedAt: new Date() })
+      .where(eq(parts.id, req.params.id));
+  }
+
+  // Update slot assignments if provided
+  if (resolvedSlotIds !== undefined) {
+    // Remove existing assignments
+    await dz.delete(partSlotAssignments)
+      .where(eq(partSlotAssignments.partId, req.params.id));
+
+    // Insert new assignments
+    if (resolvedSlotIds.length > 0) {
+      await dz.insert(partSlotAssignments).values(
+        resolvedSlotIds.map(slotId => ({ partId: req.params.id, instrumentSlotId: slotId }))
+      );
+    }
+  }
+
+  // Re-fetch updated part
+  const updated = await getPartWithEnsemble(req.params.id);
+  const { omrJson: _, ensembleId: __, ...safePart } = updated!;
+  res.json({ part: safePart });
+});
+
 // DELETE /parts/:id (soft delete)
 partsRouter.delete('/:id', async (req: Request, res: Response): Promise<void> => {
   const part = await getPartWithEnsemble(req.params.id);
@@ -555,6 +614,7 @@ partsRouter.get('/:id/diff', async (req: Request, res: Response): Promise<void> 
       changeDescriptions?: Record<string, string>;
       changedMeasureBounds?: Record<string, { x: number; y: number; w: number; h: number; page: number }>;
       structuralChanges?: { insertedMeasures?: number[]; deletedMeasures?: number[] };
+      musicdiff?: { noteOperations?: Array<{ measure: number; operation: string; description: string }> };
     };
 
     const descriptions = diff.changeDescriptions ?? {};
@@ -576,6 +636,7 @@ partsRouter.get('/:id/diff', async (req: Request, res: Response): Promise<void> 
       changedMeasureBounds: diff.changedMeasureBounds ?? {},
       changelog,
       computedAt: row.computedAt?.toISOString() ?? null,
+      noteOperations: diff.musicdiff?.noteOperations ?? [],
     };
   });
 
