@@ -1,5 +1,0 @@
-/* PdfViewer — styles are inline in the component */
-
-@keyframes spin {
-  to { transform: rotate(360deg); }
-}
