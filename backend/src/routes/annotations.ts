@@ -1,6 +1,6 @@
 import { Router, Request, Response } from 'express';
 import { z } from 'zod';
-import { eq, and, isNull, asc } from 'drizzle-orm';
+import { eq, and, isNull, asc, sql } from 'drizzle-orm';
 import { dz } from '../db';
 import { annotations, parts, versions, charts, users } from '../schema';
 import { requireAuth } from '../middleware/auth';
@@ -51,6 +51,11 @@ annotationsRouter.get('/:partId/annotations', async (req: Request, res: Response
     scope: annotations.scope,
     layerId: annotations.layerId,
     migratedFromAnnotationId: annotations.migratedFromAnnotationId,
+    migrationSourceKind: annotations.migrationSourceKind,
+    needsReview: annotations.needsReview,
+    migratable: annotations.migratable,
+    sourceAnnotationId: annotations.sourceAnnotationId,
+    sourceVersionId: annotations.sourceVersionId,
     createdAt: annotations.createdAt,
     updatedAt: annotations.updatedAt,
     ownerName: users.displayName,
@@ -60,7 +65,43 @@ annotationsRouter.get('/:partId/annotations', async (req: Request, res: Response
     .where(and(eq(annotations.partId, req.params.partId), isNull(annotations.deletedAt)))
     .orderBy(asc(annotations.createdAt));
 
-  res.json({ annotations: rows });
+  // Resolve provenance for migrated annotations (sourcePartName, sourceVersionLabel, sourceAuthorName)
+  const migratedRows = rows.filter(r => r.migrationSourceKind != null && r.sourceAnnotationId != null);
+  const provenanceMap = new Map<string, { sourcePartName?: string; sourceVersionLabel?: string; sourceAuthorName?: string }>();
+
+  if (migratedRows.length > 0) {
+    const sourceAnnotationIds = migratedRows.map(r => r.sourceAnnotationId!);
+    // Join source annotation → part → version, plus source annotation owner for author name
+    const provenanceRows = await dz.select({
+      annotationId: sql<string>`${annotations.id}`.as('annotation_id'),
+      partName: parts.name,
+      versionName: versions.name,
+      authorName: users.displayName,
+    })
+      .from(annotations)
+      .innerJoin(parts, eq(parts.id, annotations.partId))
+      .innerJoin(versions, eq(versions.id, parts.versionId))
+      .innerJoin(users, eq(users.id, annotations.ownerUserId))
+      .where(sql`${annotations.id} IN (${sql.join(sourceAnnotationIds.map(id => sql`${id}`), sql`,`)})`);
+
+    for (const pr of provenanceRows) {
+      provenanceMap.set(pr.annotationId, {
+        sourcePartName: pr.partName,
+        sourceVersionLabel: pr.versionName,
+        sourceAuthorName: pr.authorName ?? undefined,
+      });
+    }
+  }
+
+  const enrichedRows = rows.map(r => {
+    const provenance = r.sourceAnnotationId ? provenanceMap.get(r.sourceAnnotationId) : undefined;
+    return {
+      ...r,
+      ...(provenance ?? {}),
+    };
+  });
+
+  res.json({ annotations: enrichedRows });
 });
 
 // Order: most-specific first so z.union's first-match + strip() doesn't swallow fields.
