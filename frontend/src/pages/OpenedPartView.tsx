@@ -187,12 +187,12 @@ export function OpenedPartView() {
     // Cmd/Ctrl zoom (prevent browser zoom)
     if ((e.metaKey || e.ctrlKey) && (e.key === '=' || e.key === '+')) {
       e.preventDefault();
-      setZoom(z => Math.min(200, z + 10));
+      setZoom(z => Math.min(400, z + 25));
       return;
     }
     if ((e.metaKey || e.ctrlKey) && e.key === '-') {
       e.preventDefault();
-      setZoom(z => Math.max(50, z - 10));
+      setZoom(z => Math.max(25, z - 25));
       return;
     }
     if ((e.metaKey || e.ctrlKey) && e.key === '0') {
@@ -206,9 +206,9 @@ export function OpenedPartView() {
       e.preventDefault();
       setAskOpen(true);
     } else if (e.key === '=' || e.key === '+') {
-      setZoom(z => Math.min(200, z + 10));
+      setZoom(z => Math.min(400, z + 25));
     } else if (e.key === '-') {
-      setZoom(z => Math.max(50, z - 10));
+      setZoom(z => Math.max(25, z - 25));
     } else if (e.key === 'ArrowRight' || e.key === 'ArrowDown') {
       setCurrentPage(p => Math.min(totalPages, p + 1));
     } else if (e.key === 'ArrowLeft' || e.key === 'ArrowUp') {
@@ -463,17 +463,17 @@ export function OpenedPartView() {
               <button onClick={() => setCurrentPage(p => Math.min(totalPages, p + 1))}>&rsaquo;</button>
             </div>
             <div className="pv-fs-zoom">
-              <button onClick={() => setZoom(z => Math.max(50, z - 10))}>−</button>
+              <button onClick={() => setZoom(z => Math.max(25, z - 25))}>−</button>
               <input
                 type="range"
-                min={50}
-                max={200}
-                step={10}
+                min={25}
+                max={400}
+                step={25}
                 value={zoom}
                 onChange={e => setZoom(Number(e.target.value))}
                 className="pv-zoom-slider"
               />
-              <button onClick={() => setZoom(z => Math.min(200, z + 10))}>+</button>
+              <button onClick={() => setZoom(z => Math.min(400, z + 25))}>+</button>
               <span className="pv-zoom-pct">{zoom}%</span>
             </div>
           </div>

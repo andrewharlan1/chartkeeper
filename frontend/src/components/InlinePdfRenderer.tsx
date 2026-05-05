@@ -97,6 +97,7 @@ export function InlinePdfRenderer({
   const drawCanvasRef = useRef<HTMLCanvasElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
   const renderingRef = useRef(false);
+  const fitScaleRef = useRef(1);
 
   const [loading, setLoading] = useState(true);
   const [measureLayout, setMeasureLayout] = useState<MeasureLayoutItem[]>([]);
@@ -344,12 +345,12 @@ export function InlinePdfRenderer({
         const container = containerRef.current;
         if (!container) return;
 
-        // Fit page to container, then multiply by zoom
+        // Compute fitScale on first render / page change, cache for zoom steps
         const availW = container.clientWidth - 40;
         const availH = container.clientHeight - 24;
         const vp1 = page.getViewport({ scale: 1 });
-        const fitScale = Math.min(availW / vp1.width, availH / vp1.height, 2.0);
-        const scale = fitScale * (zoomPercent / 100);
+        fitScaleRef.current = Math.min(availW / vp1.width, availH / vp1.height, 2.0);
+        const scale = fitScaleRef.current * (zoomPercent / 100);
         const vp = page.getViewport({ scale });
 
         const pdfC = pdfCanvasRef.current!;
@@ -379,7 +380,7 @@ export function InlinePdfRenderer({
     if (!container) return;
     const ro = new ResizeObserver(() => {
       if (!loading && pdfDocRef.current) {
-        // Trigger re-render by forcing the effect deps — just re-run the render
+        // Recompute fitScale on resize, then re-render
         renderingRef.current = false;
         const render = async () => {
           if (renderingRef.current) return;
@@ -389,8 +390,8 @@ export function InlinePdfRenderer({
             const availW = container.clientWidth - 40;
             const availH = container.clientHeight - 24;
             const vp1 = page.getViewport({ scale: 1 });
-            const fitScale = Math.min(availW / vp1.width, availH / vp1.height, 2.0);
-            const scale = fitScale * (zoomPercent / 100);
+            fitScaleRef.current = Math.min(availW / vp1.width, availH / vp1.height, 2.0);
+            const scale = fitScaleRef.current * (zoomPercent / 100);
             const vp = page.getViewport({ scale });
             const pdfC = pdfCanvasRef.current!;
             const drawC = drawCanvasRef.current!;
@@ -439,7 +440,7 @@ export function InlinePdfRenderer({
         e.preventDefault();
         const dist = getDistance(e.touches);
         const ratio = dist / startDist;
-        const newZoom = Math.round(Math.min(200, Math.max(50, startZoom * ratio)));
+        const newZoom = Math.round(Math.min(400, Math.max(25, startZoom * ratio)));
         onZoomChange(newZoom);
       }
     };
