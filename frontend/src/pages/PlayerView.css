@@ -183,10 +183,19 @@
 
 /* ── Main content area (PDF viewer) ── */
 .pv-content {
-  flex: 1;
-  position: relative;
+  position: absolute;
+  inset: 0;
   overflow: auto;
   padding: 0;
+  z-index: 1;
+}
+.pv.revealed .pv-content {
+  top: 44px;
+  left: 52px;
+  bottom: 44px;
+}
+.pv.revealed.has-strip .pv-content {
+  top: 70px;
 }
 
 /* ── Footer (auto-hide via .pv-chrome wrapper) ── */
@@ -424,7 +433,10 @@
 
 /* ── Top bar ── */
 .pv-topbar {
-  position: relative;
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
   height: 44px;
   background: var(--card-2);
   border-bottom: 1px solid var(--line-2);
@@ -433,7 +445,6 @@
   gap: 12px;
   padding: 0 14px;
   z-index: 6;
-  flex-shrink: 0;
 }
 .pv-crumbs {
   display: flex;
@@ -536,7 +547,10 @@
 
 /* ── Slim diff strip (under topbar when revealed) ── */
 .pv-strip {
-  position: relative;
+  position: absolute;
+  top: 44px;
+  left: 0;
+  right: 0;
   height: 26px;
   background: var(--mod-bg, #fdf3d2);
   display: flex;
@@ -547,7 +561,6 @@
   color: var(--ink-2);
   z-index: 5;
   border-bottom: 1px solid rgba(181, 130, 0, 0.18);
-  flex-shrink: 0;
 }
 .pv-strip .pv-st-dot {
   width: 5px;
@@ -572,7 +585,7 @@
 .pv-rail {
   position: absolute;
   left: 0;
-  top: 0;
+  top: 44px;
   bottom: 44px;
   width: 52px;
   background: var(--card-2);
@@ -887,6 +900,7 @@
 
 /* Chrome wrapper — contains all auto-hideable elements */
 .pv-chrome {
+  z-index: 4;
   transition: opacity 200ms ease;
 }
 .pv-chrome.hidden {
@@ -924,18 +938,7 @@
   background: var(--mod);
 }
 
-/* ── Content area shift when revealed ── */
-.pv-revealed-body {
-  flex: 1;
-  position: relative;
-  overflow: hidden;
-}
-.pv-revealed-content {
-  position: absolute;
-  left: 52px;
-  right: 0;
-  top: 0;
-  bottom: 44px;
-  overflow: auto;
-  padding: 0;
+/* ── Rail top offset when diff strip is visible ── */
+.pv.has-strip .pv-rail {
+  top: 70px;
 }

@@ -306,71 +306,87 @@ export function OpenedPartView() {
     />
   ) : null;
 
-  // ── Revealed (annotation mode) ──
-  if (revealed) {
-    return (
-      <div className="pv revealed">
-        {/* Top bar */}
-        <div className="pv-topbar">
-          <div className="pv-crumbs">
-            <Link to={`/charts/${chartId}`}>{chartName}</Link>
-            <span className="pv-sep">/</span>
-            <span className="pv-cur">{part.name}</span>
-          </div>
-          <span className="pv-ver-pill">
-            <span className="pv-vp-dot" />
-            {version.name}
-          </span>
-          <span className="pv-tb-grow" />
-          <div className="pv-tb-group">
-            <span className="pv-tb-lbl">mode</span>
-            <button className="pv-tbtn on">Edit</button>
-            <button className="pv-tbtn" onClick={() => toggleRevealed(false)}>View</button>
-          </div>
-          <div className="pv-tb-group">
-            <button
-              className={`pv-tbtn${darkScore ? ' on' : ''}`}
-              onClick={() => setDarkScore(v => !v)}
-              title={darkScore ? 'Light score' : 'Dark score'}
-            >
-              {darkScore ? 'Light' : 'Dark'}
-            </button>
-            <button
-              className={`pv-tbtn${!annotationsVisible ? ' on' : ''}`}
-              onClick={() => setAnnotationsVisible(v => !v)}
-              title={annotationsVisible ? 'Hide annotations' : 'Show annotations'}
-            >
-              {annotationsVisible ? 'Hide ann.' : 'Show ann.'}
-            </button>
-            <button
-              className={`pv-tbtn${notesOpen ? ' on' : ''}`}
-              onClick={() => setNotesOpen(v => !v)}
-            >
-              Notes
-            </button>
-          </div>
-          <button className="pv-tb-close" onClick={() => toggleRevealed(false)}>
-            Done
-          </button>
-        </div>
+  const hasDiffStrip = !!(revealed && diffData && diffData.changedMeasures.length > 0);
 
-        {/* Diff strip */}
-        {diffData && diffData.changedMeasures.length > 0 && (
-          <div className="pv-strip">
-            <span className="pv-st-dot" />
-            <span>{diffSummary} vs {diffData.comparedToVersionName}</span>
-            <span className="pv-st-grow" />
-            <button
-              className="pv-st-cta"
-              onClick={() => navigate(`/charts/${chartId}/versions/${vId}/diff`)}
-            >
-              View diff
+  // Shortened version name for badge (resting state)
+  const badgeLabel = diffData
+    ? `${diffData.comparedToVersionName || 'prev'} · ${diffData.changedMeasures.length}\u2193`
+    : '';
+
+  // ── Single return — pdfRenderer always at stable tree position (child 0) ──
+  return (
+    <div
+      className={`pv${revealed ? ' revealed' : ''}${hasDiffStrip ? ' has-strip' : ''}`}
+      onPointerDown={handlePointerDown}
+      onPointerUp={handlePointerUp}
+    >
+      {/* PDF content — always first child, stable React tree position */}
+      <div className="pv-content">
+        {pdfRenderer}
+      </div>
+
+      {/* ── Revealed chrome (annotation mode) ── */}
+      {revealed && (
+        <>
+          {/* Top bar */}
+          <div className="pv-topbar">
+            <div className="pv-crumbs">
+              <Link to={`/charts/${chartId}`}>{chartName}</Link>
+              <span className="pv-sep">/</span>
+              <span className="pv-cur">{part.name}</span>
+            </div>
+            <span className="pv-ver-pill">
+              <span className="pv-vp-dot" />
+              {version.name}
+            </span>
+            <span className="pv-tb-grow" />
+            <div className="pv-tb-group">
+              <span className="pv-tb-lbl">mode</span>
+              <button className="pv-tbtn on">Edit</button>
+              <button className="pv-tbtn" onClick={() => toggleRevealed(false)}>View</button>
+            </div>
+            <div className="pv-tb-group">
+              <button
+                className={`pv-tbtn${darkScore ? ' on' : ''}`}
+                onClick={() => setDarkScore(v => !v)}
+                title={darkScore ? 'Light score' : 'Dark score'}
+              >
+                {darkScore ? 'Light' : 'Dark'}
+              </button>
+              <button
+                className={`pv-tbtn${!annotationsVisible ? ' on' : ''}`}
+                onClick={() => setAnnotationsVisible(v => !v)}
+                title={annotationsVisible ? 'Hide annotations' : 'Show annotations'}
+              >
+                {annotationsVisible ? 'Hide ann.' : 'Show ann.'}
+              </button>
+              <button
+                className={`pv-tbtn${notesOpen ? ' on' : ''}`}
+                onClick={() => setNotesOpen(v => !v)}
+              >
+                Notes
+              </button>
+            </div>
+            <button className="pv-tb-close" onClick={() => toggleRevealed(false)}>
+              Done
             </button>
           </div>
-        )}
 
-        {/* Body: rail + content + footstrip */}
-        <div className="pv-revealed-body">
+          {/* Diff strip */}
+          {diffData && diffData.changedMeasures.length > 0 && (
+            <div className="pv-strip">
+              <span className="pv-st-dot" />
+              <span>{diffSummary} vs {diffData.comparedToVersionName}</span>
+              <span className="pv-st-grow" />
+              <button
+                className="pv-st-cta"
+                onClick={() => navigate(`/charts/${chartId}/versions/${vId}/diff`)}
+              >
+                View diff
+              </button>
+            </div>
+          )}
+
           {/* Left rail */}
           <div className="pv-rail">
             <button
@@ -428,11 +444,6 @@ export function OpenedPartView() {
             </div>
           </div>
 
-          {/* PDF content area — InlinePdfRenderer fills this */}
-          <div className="pv-revealed-content">
-            {pdfRenderer}
-          </div>
-
           {/* Bottom strip */}
           <div className="pv-footstrip">
             <div className="pv-thumbs">
@@ -466,165 +477,145 @@ export function OpenedPartView() {
               <span className="pv-zoom-pct">{zoom}%</span>
             </div>
           </div>
-        </div>
-
-        {/* Ask palette overlay */}
-        {askPalette}
-      </div>
-    );
-  }
-
-  // Shortened version name for badge
-  const badgeLabel = diffData
-    ? `${diffData.comparedToVersionName || 'prev'} · ${diffData.changedMeasures.length}\u2193`
-    : '';
-
-  // ── Resting state ──
-  return (
-    <div
-      className="pv"
-      onPointerDown={handlePointerDown}
-      onPointerUp={handlePointerUp}
-    >
-      {/* ── Auto-hide chrome wrapper (top) ── */}
-      <div className={`pv-chrome${chromeVisible ? '' : ' hidden'}`}>
-        {/* Diff banner (full) — shown until collapsed or dismissed */}
-        {showDiffBanner && diffData && !diffBannerCollapsed && (
-          <div className="pv-diff-banner">
-            <span className="pv-db-dot" />
-            <span className="pv-db-version">{diffData.comparedToVersionName || 'New version'}</span>
-            <span className="pv-db-text">{diffSummary}</span>
-            <span className="pv-db-grow" />
-            <button
-              className="pv-db-cta"
-              onClick={() => navigate(`/charts/${chartId}/versions/${vId}/diff`)}
-            >
-              View changes
-            </button>
-            <button className="pv-db-dismiss" onClick={() => setShowDiffBanner(false)}>
-              &times;
-            </button>
-          </div>
-        )}
-
-        {/* Event context bar */}
-        {eventId && eventName && eventCharts.length > 0 && (
-          <div className="pv-event-bar">
-            <span className="pv-eb-pill">setlist</span>
-            <span className="pv-eb-name">{eventName}</span>
-            <span className="pv-eb-pos">{eventPosition + 1} of {eventCharts.length}</span>
-            {eventPosition < eventCharts.length - 1 && (
-              <button
-                className="pv-eb-next"
-                onClick={() => {
-                  const next = eventCharts[eventPosition + 1];
-                  navigate(`/charts/${next.chartId}?event=${eventId}`);
-                }}
-              >
-                next: {eventCharts[eventPosition + 1].chartName} &rsaquo;
-              </button>
-            )}
-          </div>
-        )}
-
-        {/* Migration banner */}
-        {showMigBanner && migratedCount > 0 && (
-          <div className="pv-mig-banner">
-            <div className="pv-mb-icon">
-              <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5">
-                <path d="M3 8 a5 5 0 0 1 10 0" />
-                <path d="M13 8 L15 6 M13 8 L11 6" strokeLinecap="round" />
-              </svg>
-            </div>
-            <div className="pv-mb-body">
-              <div className="pv-mb-title">
-                {migratedCount} annotation{migratedCount !== 1 ? 's' : ''} migrated
-              </div>
-              <div className="pv-mb-sub">
-                Director&rsquo;s proposal. You have final say.
-              </div>
-              <div className="pv-mb-actions">
-                <button className="primary" onClick={() => setShowMigBanner(false)}>Keep all</button>
-                <button onClick={() => setShowMigBanner(false)}>Dismiss</button>
-              </div>
-            </div>
-          </div>
-        )}
-
-        {/* Back button */}
-        <Link className="pv-back" to={`/charts/${chartId}/versions/${vId}`}>
-          &lsaquo; {chartName}
-        </Link>
-
-        {/* Title overlay (floating, centered) */}
-        <div className="pv-title-overlay">
-          <h1>{chartName}</h1>
-          <div className="pv-meta">{part.name} &middot; {version.name}</div>
-        </div>
-
-        {/* Pills: Ask + Tools */}
-        <div className="pv-pills">
-          <button className="pv-pill ask" onClick={() => setAskOpen(true)}>
-            <span className="pv-pill-glyph">
-              <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinejoin="round">
-                <path d="M 3 3 H 13 A 1.6 1.6 0 0 1 14.6 4.6 V 9.5 A 1.6 1.6 0 0 1 13 11.1 H 7.6 L 5 14 L 5.7 11.1 H 3 A 1.6 1.6 0 0 1 1.4 9.5 V 4.6 A 1.6 1.6 0 0 1 3 3 Z" />
-                <line x1="4.5" y1="6.3" x2="11.4" y2="6.3" strokeWidth="1.1" strokeLinecap="round" />
-                <line x1="4.5" y1="8.5" x2="9.5" y2="8.5" strokeWidth="1.1" strokeLinecap="round" />
-              </svg>
-            </span>
-            <span className="pv-pill-label">Ask</span>
-            <span className="pv-pill-kbd">/</span>
-          </button>
-          <button className="pv-pill tools" onClick={() => toggleRevealed(true)}>
-            <span className="pv-pill-glyph">
-              <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinejoin="round" strokeLinecap="round">
-                <path d="M 11 2.5 L 13.5 5 L 5 13.5 L 2 14 L 2.5 11 Z" />
-                <line x1="9.5" y1="4" x2="12" y2="6.5" />
-              </svg>
-            </span>
-            <span className="pv-pill-label">Tools</span>
-            <span className="pv-pill-kbd">T</span>
-          </button>
-        </div>
-      </div>
-      {/* ── End auto-hide chrome (top) ── */}
-
-      {/* Diff badge pill (collapsed banner — always visible, outside chrome wrapper) */}
-      {showDiffBanner && diffData && diffBannerCollapsed && (
-        <button
-          className="pv-diff-badge"
-          onClick={() => setDiffBannerCollapsed(false)}
-          title="Expand diff banner"
-        >
-          <span className="pv-dbb-dot" />
-          <span>{badgeLabel}</span>
-        </button>
+        </>
       )}
 
-      {/* Main content: inline PDF renderer fills the viewport */}
-      <div className="pv-content">
-        {pdfRenderer}
-      </div>
+      {/* ── Resting chrome (auto-hide) ── */}
+      {!revealed && (
+        <>
+          <div className={`pv-chrome${chromeVisible ? '' : ' hidden'}`}>
+            {/* Diff banner (full) — shown until collapsed or dismissed */}
+            {showDiffBanner && diffData && !diffBannerCollapsed && (
+              <div className="pv-diff-banner">
+                <span className="pv-db-dot" />
+                <span className="pv-db-version">{diffData.comparedToVersionName || 'New version'}</span>
+                <span className="pv-db-text">{diffSummary}</span>
+                <span className="pv-db-grow" />
+                <button
+                  className="pv-db-cta"
+                  onClick={() => navigate(`/charts/${chartId}/versions/${vId}/diff`)}
+                >
+                  View changes
+                </button>
+                <button className="pv-db-dismiss" onClick={() => setShowDiffBanner(false)}>
+                  &times;
+                </button>
+              </div>
+            )}
 
-      {/* ── Auto-hide chrome wrapper (bottom) ── */}
-      <div className={`pv-chrome${chromeVisible ? '' : ' hidden'}`}>
-        <div className="pv-footer">
-          <span>page {currentPage} of {totalPages}</span>
-          <span>{part.name}</span>
-        </div>
-      </div>
+            {/* Event context bar */}
+            {eventId && eventName && eventCharts.length > 0 && (
+              <div className="pv-event-bar">
+                <span className="pv-eb-pill">setlist</span>
+                <span className="pv-eb-name">{eventName}</span>
+                <span className="pv-eb-pos">{eventPosition + 1} of {eventCharts.length}</span>
+                {eventPosition < eventCharts.length - 1 && (
+                  <button
+                    className="pv-eb-next"
+                    onClick={() => {
+                      const next = eventCharts[eventPosition + 1];
+                      navigate(`/charts/${next.chartId}?event=${eventId}`);
+                    }}
+                  >
+                    next: {eventCharts[eventPosition + 1].chartName} &rsaquo;
+                  </button>
+                )}
+              </div>
+            )}
 
-      {/* Page-turn zones (always active, outside chrome wrapper) */}
-      <div
-        className="pv-turnzone left"
-        title="Previous page"
-        onClick={() => setCurrentPage(p => Math.max(1, p - 1))}
-      />
-      <div
-        className="pv-turnzone right"
-        title="Next page"
-        onClick={() => setCurrentPage(p => Math.min(totalPages, p + 1))}
-      />
+            {/* Migration banner */}
+            {showMigBanner && migratedCount > 0 && (
+              <div className="pv-mig-banner">
+                <div className="pv-mb-icon">
+                  <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5">
+                    <path d="M3 8 a5 5 0 0 1 10 0" />
+                    <path d="M13 8 L15 6 M13 8 L11 6" strokeLinecap="round" />
+                  </svg>
+                </div>
+                <div className="pv-mb-body">
+                  <div className="pv-mb-title">
+                    {migratedCount} annotation{migratedCount !== 1 ? 's' : ''} migrated
+                  </div>
+                  <div className="pv-mb-sub">
+                    Director&rsquo;s proposal. You have final say.
+                  </div>
+                  <div className="pv-mb-actions">
+                    <button className="primary" onClick={() => setShowMigBanner(false)}>Keep all</button>
+                    <button onClick={() => setShowMigBanner(false)}>Dismiss</button>
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {/* Back button */}
+            <Link className="pv-back" to={`/charts/${chartId}/versions/${vId}`}>
+              &lsaquo; {chartName}
+            </Link>
+
+            {/* Title overlay (floating, centered) */}
+            <div className="pv-title-overlay">
+              <h1>{chartName}</h1>
+              <div className="pv-meta">{part.name} &middot; {version.name}</div>
+            </div>
+
+            {/* Pills: Ask + Tools */}
+            <div className="pv-pills">
+              <button className="pv-pill ask" onClick={() => setAskOpen(true)}>
+                <span className="pv-pill-glyph">
+                  <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinejoin="round">
+                    <path d="M 3 3 H 13 A 1.6 1.6 0 0 1 14.6 4.6 V 9.5 A 1.6 1.6 0 0 1 13 11.1 H 7.6 L 5 14 L 5.7 11.1 H 3 A 1.6 1.6 0 0 1 1.4 9.5 V 4.6 A 1.6 1.6 0 0 1 3 3 Z" />
+                    <line x1="4.5" y1="6.3" x2="11.4" y2="6.3" strokeWidth="1.1" strokeLinecap="round" />
+                    <line x1="4.5" y1="8.5" x2="9.5" y2="8.5" strokeWidth="1.1" strokeLinecap="round" />
+                  </svg>
+                </span>
+                <span className="pv-pill-label">Ask</span>
+                <span className="pv-pill-kbd">/</span>
+              </button>
+              <button className="pv-pill tools" onClick={() => toggleRevealed(true)}>
+                <span className="pv-pill-glyph">
+                  <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinejoin="round" strokeLinecap="round">
+                    <path d="M 11 2.5 L 13.5 5 L 5 13.5 L 2 14 L 2.5 11 Z" />
+                    <line x1="9.5" y1="4" x2="12" y2="6.5" />
+                  </svg>
+                </span>
+                <span className="pv-pill-label">Tools</span>
+                <span className="pv-pill-kbd">T</span>
+              </button>
+            </div>
+          </div>
+
+          {/* Diff badge pill (collapsed banner — always visible, outside chrome wrapper) */}
+          {showDiffBanner && diffData && diffBannerCollapsed && (
+            <button
+              className="pv-diff-badge"
+              onClick={() => setDiffBannerCollapsed(false)}
+              title="Expand diff banner"
+            >
+              <span className="pv-dbb-dot" />
+              <span>{badgeLabel}</span>
+            </button>
+          )}
+
+          <div className={`pv-chrome${chromeVisible ? '' : ' hidden'}`}>
+            <div className="pv-footer">
+              <span>page {currentPage} of {totalPages}</span>
+              <span>{part.name}</span>
+            </div>
+          </div>
+
+          {/* Page-turn zones (always active, outside chrome wrapper) */}
+          <div
+            className="pv-turnzone left"
+            title="Previous page"
+            onClick={() => setCurrentPage(p => Math.max(1, p - 1))}
+          />
+          <div
+            className="pv-turnzone right"
+            title="Next page"
+            onClick={() => setCurrentPage(p => Math.min(totalPages, p + 1))}
+          />
+        </>
+      )}
 
       {/* Ask palette overlay */}
       {askPalette}
