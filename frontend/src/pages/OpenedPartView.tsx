@@ -98,7 +98,7 @@ export function OpenedPartView() {
       getPart(pId),
       getVersion(vId),
       getChart(chartId),
-      getAnnotations(pId),
+      getAnnotations(pId).catch(() => ({ annotations: [] as Annotation[] })),
       getPartDiff(pId).catch(() => null),
     ]).then(([{ part: p }, { version: v }, { chart }, { annotations: anns }, diff]) => {
       setPart(p);
