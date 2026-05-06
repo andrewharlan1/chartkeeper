@@ -2,7 +2,7 @@ import { Router, Request, Response } from 'express';
 import { z } from 'zod';
 import { eq, and, isNull, sql } from 'drizzle-orm';
 import { dz } from '../db';
-import { ensembles, workspaces, charts, versions, parts, annotations, partSlotAssignments, instrumentSlots } from '../schema';
+import { ensembles, workspaces, charts, versions, parts, annotations, partSlotAssignments, instrumentSlots, workspaceMembers } from '../schema';
 import { requireAuth } from '../middleware/auth';
 import {
   requireWorkspaceMember,
@@ -10,6 +10,7 @@ import {
   requireEnsembleMember,
   requireEnsembleAdmin,
 } from '../lib/ensembleAuth';
+import { sendNotification } from '../notifications/send';
 
 export const ensemblesRouter = Router();
 ensemblesRouter.use(requireAuth);
@@ -114,6 +115,10 @@ ensemblesRouter.patch('/:id', async (req: Request, res: Response): Promise<void>
     return;
   }
 
+  // Capture old name for notification
+  const [old] = await dz.select({ name: ensembles.name, workspaceId: ensembles.workspaceId })
+    .from(ensembles).where(eq(ensembles.id, req.params.id));
+
   const [updated] = await dz.update(ensembles)
     .set({ name: parsed.data.name, updatedAt: new Date() })
     .where(eq(ensembles.id, req.params.id))
@@ -121,6 +126,28 @@ ensemblesRouter.patch('/:id', async (req: Request, res: Response): Promise<void>
   if (!updated) { res.status(404).json({ error: 'Ensemble not found' }); return; }
 
   res.json({ ensemble: updated });
+
+  // Fire-and-forget: notify all workspace members about the rename
+  if (old && old.name !== parsed.data.name) {
+    dz.select({ userId: workspaceMembers.userId })
+      .from(workspaceMembers)
+      .where(eq(workspaceMembers.workspaceId, old.workspaceId))
+      .then(members => {
+        for (const m of members) {
+          if (m.userId === req.user!.id) continue; // Skip the renamer
+          sendNotification(m.userId, {
+            eventType: 'ensemble_renamed',
+            ensembleId: req.params.id,
+            payload: {
+              oldName: old.name,
+              newName: parsed.data.name,
+              ensembleId: req.params.id,
+              ensembleName: parsed.data.name,
+            },
+          }).catch(() => {});
+        }
+      }).catch(() => {});
+  }
 });
 
 // DELETE /ensembles/:id (soft delete)

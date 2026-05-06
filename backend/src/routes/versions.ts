@@ -2,12 +2,13 @@ import { Router, Request, Response } from 'express';
 import { z } from 'zod';
 import { eq, and, isNull, sql } from 'drizzle-orm';
 import { db, dz } from '../db';
-import { versions, charts, parts, annotations } from '../schema';
+import { versions, charts, parts, annotations, workspaceMembers, ensembles, users } from '../schema';
 import { requireAuth } from '../middleware/auth';
 import { requireEnsembleMember, requireEnsembleAdmin } from '../lib/ensembleAuth';
 import { getChartEnsembleId } from './charts';
 import { getAnnotationSources, migratePartAnnotations } from '../lib/annotation-migration';
 import { enqueueJob } from '../lib/queue';
+import { sendNotification } from '../notifications/send';
 
 export const versionsRouter = Router();
 versionsRouter.use(requireAuth);
@@ -383,4 +384,62 @@ versionsRouter.get('/:id/migration-status', async (req: Request, res: Response):
       updatedAt: r.updated_at,
     })),
   });
+});
+
+// POST /versions/:id/opened
+// Record that the current user opened this version. Fires version_opened notification to directors.
+versionsRouter.post('/:id/opened', async (req: Request, res: Response): Promise<void> => {
+  const ensembleId = await getVersionEnsembleId(req.params.id);
+  if (!ensembleId) { res.status(404).json({ error: 'Version not found' }); return; }
+
+  try {
+    await requireEnsembleMember(ensembleId, req.user!.id);
+  } catch (err) {
+    handleError(err, res);
+    return;
+  }
+
+  // Look up version + chart info for payload
+  const [ver] = await dz.select({
+    name: versions.name,
+    chartId: versions.chartId,
+    chartName: charts.name,
+  })
+    .from(versions)
+    .innerJoin(charts, eq(charts.id, versions.chartId))
+    .where(eq(versions.id, req.params.id));
+  if (!ver) { res.status(404).json({ error: 'Version not found' }); return; }
+
+  const [opener] = await dz.select({ displayName: users.displayName })
+    .from(users).where(eq(users.id, req.user!.id));
+
+  // Find all workspace members who are directors (owner/admin) — they receive version_opened
+  const [ens] = await dz.select({ workspaceId: ensembles.workspaceId })
+    .from(ensembles).where(eq(ensembles.id, ensembleId));
+  if (ens) {
+    const directors = await dz.select({ userId: workspaceMembers.userId })
+      .from(workspaceMembers)
+      .where(and(
+        eq(workspaceMembers.workspaceId, ens.workspaceId),
+        sql`${workspaceMembers.role} IN ('owner', 'admin')`,
+      ));
+
+    for (const d of directors) {
+      if (d.userId === req.user!.id) continue; // Don't notify yourself
+      sendNotification(d.userId, {
+        eventType: 'version_opened',
+        ensembleId,
+        payload: {
+          chartId: ver.chartId,
+          chartName: ver.chartName,
+          versionId: req.params.id,
+          versionName: ver.name,
+          openerName: opener?.displayName ?? 'A player',
+          ensembleId,
+        },
+      }).catch(() => {});
+    }
+  }
+
+  res.json({ ok: true });
 });

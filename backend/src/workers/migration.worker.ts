@@ -4,8 +4,9 @@ dotenv.config();
 import { eq, and, isNull, sql } from 'drizzle-orm';
 import { claimNextJob, completeJob, failJob } from '../lib/queue';
 import { dz } from '../db';
-import { annotations, parts, partSlotAssignments, versionDiffs } from '../schema';
+import { annotations, parts, partSlotAssignments, versionDiffs, versions, charts } from '../schema';
 import type { PartDiff, MeasureBounds } from '../lib/diff';
+import { sendNotification } from '../notifications/send';
 
 const POLL_INTERVAL_MS = parseInt(process.env.MIGRATION_POLL_INTERVAL_MS ?? '5000');
 const MAX_ATTEMPTS = parseInt(process.env.MIGRATION_MAX_ATTEMPTS ?? '3');
@@ -236,7 +237,79 @@ async function processMigrationJob(jobId: string, payload: MigrationJobPayload):
   }
 
   if (anyFailed && results.every(r => r.failed)) {
+    // All failed — send migration_failed notification, then throw
+    try {
+      const targetPartId = sources[0]?.targetPartId;
+      if (targetPartId) {
+        const [part] = await dz.select({
+          versionId: parts.versionId,
+          chartId: versions.chartId,
+          chartName: charts.name,
+          versionName: versions.name,
+          ensembleId: charts.ensembleId,
+        })
+          .from(parts)
+          .innerJoin(versions, eq(versions.id, parts.versionId))
+          .innerJoin(charts, eq(charts.id, versions.chartId))
+          .where(eq(parts.id, targetPartId));
+        if (part) {
+          await sendNotification(userId, {
+            eventType: 'migration_failed',
+            ensembleId: part.ensembleId,
+            payload: {
+              partId: targetPartId,
+              versionId: part.versionId,
+              chartId: part.chartId,
+              chartName: part.chartName,
+              versionName: part.versionName,
+              error: results[0]?.error ?? 'All sources failed',
+            },
+          });
+        }
+      }
+    } catch (notifErr) {
+      console.error('[migration.worker] Failed to send migration_failed notification:', notifErr);
+    }
     throw new Error(`All ${sources.length} migration sources failed`);
+  }
+
+  // Send migration_complete notification
+  try {
+    const targetPartId = sources[0]?.targetPartId;
+    if (targetPartId) {
+      const [part] = await dz.select({
+        versionId: parts.versionId,
+        chartId: versions.chartId,
+        chartName: charts.name,
+        versionName: versions.name,
+        ensembleId: charts.ensembleId,
+      })
+        .from(parts)
+        .innerJoin(versions, eq(versions.id, parts.versionId))
+        .innerJoin(charts, eq(charts.id, versions.chartId))
+        .where(eq(parts.id, targetPartId));
+      if (part) {
+        const sourcesSucceeded = results.filter(r => !r.failed).length;
+        const sourcesFailed = results.filter(r => r.failed).length;
+        const annotationsAdded = results.reduce((sum, r) => sum + r.migrated + r.flagged, 0);
+        await sendNotification(userId, {
+          eventType: 'migration_complete',
+          ensembleId: part.ensembleId,
+          payload: {
+            partId: targetPartId,
+            versionId: part.versionId,
+            chartId: part.chartId,
+            chartName: part.chartName,
+            versionName: part.versionName,
+            sourcesSucceeded,
+            sourcesFailed,
+            annotationsAdded,
+          },
+        });
+      }
+    }
+  } catch (notifErr) {
+    console.error('[migration.worker] Failed to send migration_complete notification:', notifErr);
   }
 
   await completeJob(jobId);

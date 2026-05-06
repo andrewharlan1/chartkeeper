@@ -51,11 +51,18 @@ export const eventTypeEnum = pgEnum('event_type', [
   'workshop',
   'other',
 ]);
-export const notificationKindEnum = pgEnum('notification_kind', [
-  'new_part_version',
-  'assignment_added',
+export const notificationEventTypes = [
+  'version_published',
   'migration_complete',
-]);
+  'migration_failed',
+  'annotation_flagged',
+  'member_added',
+  'role_changed',
+  'ensemble_renamed',
+  'version_opened',
+] as const;
+
+export type NotificationEventType = (typeof notificationEventTypes)[number];
 
 // ── Users ──────────────────────────────────────────────────────────────────
 
@@ -65,6 +72,7 @@ export const users = pgTable('users', {
   passwordHash: text('password_hash').notNull(),
   displayName: text('display_name'),
   isDummy: boolean('is_dummy').notNull().default(false),
+  notificationEmailEnabled: boolean('notification_email_enabled').notNull().default(true),
   ...timestamps,
 });
 
@@ -310,14 +318,33 @@ export const notifications = pgTable(
   'notifications',
   {
     id: uuid('id').primaryKey().defaultRandom(),
-    userId: uuid('user_id').notNull().references(() => users.id, { onDelete: 'cascade' }),
-    kind: notificationKindEnum('kind').notNull(),
+    recipientUserId: uuid('recipient_user_id').notNull().references(() => users.id, { onDelete: 'cascade' }),
+    eventType: text('event_type').notNull(),
+    ensembleId: uuid('ensemble_id').references(() => ensembles.id, { onDelete: 'set null' }),
     payload: jsonb('payload').notNull().$type<Record<string, unknown>>(),
+    clusterCount: integer('cluster_count').notNull().default(1),
+    clusterWindowStartedAt: timestamp('cluster_window_started_at', { withTimezone: true }).notNull().defaultNow(),
     readAt: timestamp('read_at'),
+    deliveredEmailAt: timestamp('delivered_email_at'),
     createdAt: timestamp('created_at').notNull().defaultNow(),
   },
   (t) => ({
-    userIdx: index('notifications_user_idx').on(t.userId),
+    recipientCreatedIdx: index('idx_notifications_recipient_created').on(t.recipientUserId, t.createdAt),
+  }),
+);
+
+// ── User Notification Preferences ─────────────────────────────────────────
+
+export const userNotificationPreferences = pgTable(
+  'user_notification_preferences',
+  {
+    userId: uuid('user_id').notNull().references(() => users.id, { onDelete: 'cascade' }),
+    eventType: text('event_type').notNull(),
+    inAppEnabled: boolean('in_app_enabled').notNull().default(true),
+    emailEnabled: boolean('email_enabled').notNull().default(true),
+  },
+  (t) => ({
+    pk: unique('user_notification_preferences_pk').on(t.userId, t.eventType),
   }),
 );
 

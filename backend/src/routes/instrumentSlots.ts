@@ -2,9 +2,10 @@ import { Router, Request, Response } from 'express';
 import { z } from 'zod';
 import { eq, and, isNull, sql } from 'drizzle-orm';
 import { dz } from '../db';
-import { instrumentSlots, instrumentSlotAssignments, users } from '../schema';
+import { instrumentSlots, instrumentSlotAssignments, users, ensembles } from '../schema';
 import { requireAuth } from '../middleware/auth';
 import { requireEnsembleMember, requireEnsembleAdmin } from '../lib/ensembleAuth';
+import { notifyAssignmentAdded } from '../lib/notify';
 
 export const instrumentSlotsRouter = Router();
 instrumentSlotsRouter.use(requireAuth);
@@ -239,6 +240,19 @@ instrumentSlotsRouter.post('/:id/assignments', async (req: Request, res: Respons
       userId: parsed.data.userId,
     }).returning();
     res.status(201).json({ assignment });
+
+    // Fire-and-forget notification
+    const [ens] = await dz.select({ id: ensembles.id, name: ensembles.name })
+      .from(ensembles)
+      .where(eq(ensembles.id, slot.ensembleId));
+    if (ens) {
+      notifyAssignmentAdded({
+        userId: parsed.data.userId,
+        instrumentName: slot.name,
+        ensembleId: ens.id,
+        ensembleName: ens.name,
+      });
+    }
   } catch (err: any) {
     if (err?.code === '23505') {
       res.status(409).json({ error: 'User is already assigned to this instrument' });

@@ -1,10 +1,11 @@
-import { eq, and, isNull, sql } from 'drizzle-orm';
+import { eq, and, sql } from 'drizzle-orm';
 import { dz } from '../db';
-import { notifications, instrumentSlotAssignments, partSlotAssignments, parts, users } from '../schema';
+import { instrumentSlotAssignments, partSlotAssignments, users, ensembles, charts, versions } from '../schema';
+import { sendNotification } from '../notifications/send';
 
 /**
- * Create notifications for users assigned to instruments that received new content.
- * Called asynchronously after a part upload — should never block the upload response.
+ * Notify users assigned to the uploaded part's instrument slots.
+ * Uses sendNotification for smart clustering and preference checks.
  */
 export async function notifyPartUploaded(opts: {
   partId: string;
@@ -16,6 +17,12 @@ export async function notifyPartUploaded(opts: {
   uploadedByUserId: string;
 }): Promise<void> {
   try {
+    // Resolve ensemble ID from chart
+    const [chart] = await dz.select({ ensembleId: charts.ensembleId })
+      .from(charts)
+      .where(eq(charts.id, opts.chartId));
+    const ensembleId = chart?.ensembleId;
+
     // Find instrument slots this part is assigned to
     const slotRows = await dz.select({ slotId: partSlotAssignments.instrumentSlotId })
       .from(partSlotAssignments)
@@ -24,9 +31,7 @@ export async function notifyPartUploaded(opts: {
     if (slotRows.length === 0) return;
 
     // Find users assigned to those slots (excluding the uploader and dummy users)
-    const userRows = await dz.select({
-      userId: instrumentSlotAssignments.userId,
-    })
+    const userRows = await dz.select({ userId: instrumentSlotAssignments.userId })
       .from(instrumentSlotAssignments)
       .innerJoin(users, eq(users.id, instrumentSlotAssignments.userId))
       .where(and(
@@ -37,14 +42,12 @@ export async function notifyPartUploaded(opts: {
 
     if (userRows.length === 0) return;
 
-    // Deduplicate user IDs
     const uniqueUserIds = [...new Set(userRows.map(r => r.userId))];
 
-    // Create notifications
-    await dz.insert(notifications).values(
-      uniqueUserIds.map(userId => ({
-        userId,
-        kind: 'new_part_version' as const,
+    for (const userId of uniqueUserIds) {
+      await sendNotification(userId, {
+        eventType: 'version_published',
+        ensembleId,
         payload: {
           chartId: opts.chartId,
           chartName: opts.chartName,
@@ -53,10 +56,9 @@ export async function notifyPartUploaded(opts: {
           partId: opts.partId,
           partName: opts.partName,
         },
-      })),
-    );
+      });
+    }
   } catch (err) {
-    // Log but don't throw — notifications are non-critical
     console.error('Failed to create notifications for part upload:', err);
   }
 }
@@ -71,9 +73,9 @@ export async function notifyAssignmentAdded(opts: {
   ensembleName: string;
 }): Promise<void> {
   try {
-    await dz.insert(notifications).values({
-      userId: opts.userId,
-      kind: 'assignment_added' as const,
+    await sendNotification(opts.userId, {
+      eventType: 'member_added',
+      ensembleId: opts.ensembleId,
       payload: {
         instrumentName: opts.instrumentName,
         ensembleId: opts.ensembleId,

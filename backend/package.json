@@ -6,6 +6,7 @@
     "dev": "ts-node-dev --respawn src/index.ts",
     "worker:omr": "ts-node-dev --respawn src/workers/omr.worker.ts",
     "worker:diff": "ts-node-dev --respawn src/workers/diff.worker.ts",
+    "worker:email": "ts-node-dev --respawn src/workers/notificationEmail.worker.ts",
     "build": "tsc",
     "start": "node dist/index.js",
     "test": "jest --runInBand --forceExit"

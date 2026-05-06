@@ -1,5 +1,6 @@
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
 import { AuthProvider } from './contexts/AuthContext';
+import { NotificationProvider } from './contexts/NotificationContext';
 import { ToastProvider } from './components/Toast';
 import { useAuth } from './hooks/useAuth';
 import { Login } from './pages/Login';
@@ -15,6 +16,7 @@ import { OpenedPartView } from './pages/OpenedPartView';
 import { PartHistoryPage } from './pages/PartHistory';
 import { DiffLogPage } from './pages/DiffLog';
 import { NotificationsPage } from './pages/Notifications';
+import { NotificationPreferencesPage } from './pages/NotificationPreferences';
 import { EventDetailPage } from './pages/EventDetail';
 
 function RequireAuth({ children }: { children: JSX.Element }) {
@@ -40,6 +42,7 @@ function AppRoutes() {
       <Route path="/charts/:id/migration-sources" element={<RequireAuth><MigrationSourcesPage /></RequireAuth>} />
       <Route path="/my-parts" element={<RequireAuth><PlayerView /></RequireAuth>} />
       <Route path="/notifications" element={<RequireAuth><NotificationsPage /></RequireAuth>} />
+      <Route path="/settings/notifications" element={<RequireAuth><NotificationPreferencesPage /></RequireAuth>} />
       <Route path="*" element={<Navigate to="/" replace />} />
     </Routes>
   );
@@ -48,11 +51,13 @@ function AppRoutes() {
 export function App() {
   return (
     <AuthProvider>
-      <ToastProvider>
-        <BrowserRouter>
-          <AppRoutes />
-        </BrowserRouter>
-      </ToastProvider>
+      <NotificationProvider>
+        <ToastProvider>
+          <BrowserRouter>
+            <AppRoutes />
+          </BrowserRouter>
+        </ToastProvider>
+      </NotificationProvider>
     </AuthProvider>
   );
 }

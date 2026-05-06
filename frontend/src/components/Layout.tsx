@@ -4,7 +4,8 @@ import { useAuth } from '../hooks/useAuth';
 import { useDarkMode } from '../hooks/useDarkMode';
 import { getEnsembles, createEnsemble } from '../api/ensembles';
 import { getWorkspaceMembers } from '../api/workspaces';
-import { getUnreadCount, getNotifications, markNotificationsRead, Notification as NotifType } from '../api/notifications';
+import { useNotifications } from '../contexts/NotificationContext';
+import { getNotificationTitle } from './notifications/NotificationRow';
 import { Ensemble, WorkspaceMember } from '../types';
 import { Breadcrumbs, BreadcrumbItem } from './Breadcrumbs';
 import { BackButton } from './BackButton';
@@ -78,10 +79,8 @@ export function Layout({ children, title, back, backTo, breadcrumbs, actions }: 
   const fetchedRef = useRef(false);
   const [viewAsMembers, setViewAsMembers] = useState<WorkspaceMember[]>([]);
   const [showViewAs, setShowViewAs] = useState(false);
-  const [unreadCount, setUnreadCount] = useState(0);
+  const { notifications: notifs, unreadCount, markAsRead, markAllAsRead } = useNotifications();
   const [showNotifPanel, setShowNotifPanel] = useState(false);
-  const [notifs, setNotifs] = useState<NotifType[]>([]);
-  const [notifsLoaded, setNotifsLoaded] = useState(false);
 
   useEffect(() => {
     if (!user || !workspaceId) return;
@@ -106,45 +105,21 @@ export function Layout({ children, title, back, backTo, breadcrumbs, actions }: 
     getWorkspaceMembers(workspaceId).then(r => setViewAsMembers(r.members)).catch(() => {});
   }, [workspaceId]);
 
-  // Poll unread notification count
-  useEffect(() => {
-    if (!user) return;
-    const fetchCount = () => getUnreadCount().then(r => setUnreadCount(r.count)).catch(() => {});
-    fetchCount();
-    const timer = setInterval(fetchCount, 60_000);
-    return () => clearInterval(timer);
-  }, [user]);
-
-  async function handleOpenNotifPanel() {
+  function handleOpenNotifPanel() {
     setShowNotifPanel(prev => !prev);
-    if (!notifsLoaded) {
-      try {
-        const r = await getNotifications(20);
-        setNotifs(r.notifications);
-        setNotifsLoaded(true);
-      } catch { /* ignore */ }
-    }
   }
 
-  async function handleMarkAllRead() {
-    await markNotificationsRead().catch(() => {});
-    setNotifs(prev => prev.map(n => ({ ...n, readAt: n.readAt || new Date().toISOString() })));
-    setUnreadCount(0);
+  function handleMarkAllRead() {
+    markAllAsRead();
   }
 
-  async function handleNotifClick(notif: NotifType) {
+  function handleNotifClick(notif: typeof notifs[number]) {
     if (!notif.readAt) {
-      markNotificationsRead([notif.id]).catch(() => {});
-      setNotifs(prev => prev.map(n => n.id === notif.id ? { ...n, readAt: new Date().toISOString() } : n));
-      setUnreadCount(prev => Math.max(0, prev - 1));
+      markAsRead(notif.id);
     }
     setShowNotifPanel(false);
-    // Navigate to the relevant chart/version
-    const payload = notif.payload as { chartId?: string; versionId?: string; ensembleId?: string };
-    if (payload.chartId && payload.versionId) {
-      navigate(`/charts/${payload.chartId}/versions/${payload.versionId}`);
-    } else if (payload.ensembleId) {
-      navigate(`/ensembles/${payload.ensembleId}`);
+    if (notif.deepLink) {
+      navigate(notif.deepLink);
     }
   }
 
@@ -541,17 +516,9 @@ export function Layout({ children, title, back, backTo, breadcrumbs, actions }: 
                         No notifications
                       </div>
                     ) : (
-                      notifs.map(n => {
-                        const payload = n.payload as Record<string, string>;
+                      notifs.slice(0, 20).map(n => {
                         const isUnread = !n.readAt;
-                        let message = '';
-                        if (n.kind === 'new_part_version') {
-                          message = `${payload.chartName} updated — ${payload.partName}`;
-                        } else if (n.kind === 'assignment_added') {
-                          message = `You were assigned to ${payload.instrumentName}`;
-                        } else {
-                          message = 'Notification';
-                        }
+                        const message = getNotificationTitle(n);
                         return (
                           <button
                             key={n.id}
@@ -580,6 +547,18 @@ export function Layout({ children, title, back, backTo, breadcrumbs, actions }: 
                         );
                       })
                     )}
+                    <button
+                      onClick={() => { setShowNotifPanel(false); navigate('/notifications'); }}
+                      style={{
+                        display: 'block', width: '100%', textAlign: 'center',
+                        padding: '10px 16px', background: 'none', border: 'none',
+                        borderTop: '1px solid var(--border)',
+                        fontSize: 12, color: 'var(--accent)', cursor: 'pointer',
+                        fontFamily: 'inherit', fontWeight: 500,
+                      }}
+                    >
+                      View all notifications
+                    </button>
                   </div>
                 )}
               </div>
