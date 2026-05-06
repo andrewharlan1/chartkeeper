@@ -19,12 +19,16 @@ import { join } from 'path';
 const execFileAsync = promisify(execFile);
 const POLL_INTERVAL_MS = 5_000;
 
-// Try common MuseScore binary paths
+// Configurable binary name — Homebrew on macOS installs as 'mscore'
+const MUSESCORE_BIN = process.env.MUSESCORE_BIN || 'mscore';
+
+// Try env-configured binary first, then common install paths
 const MUSESCORE_PATHS = [
-  'musescore',
+  MUSESCORE_BIN,
+  '/opt/homebrew/bin/mscore',
   '/Applications/MuseScore 4.app/Contents/MacOS/mscore',
-  '/usr/bin/musescore',
-  '/usr/local/bin/musescore',
+  '/usr/bin/mscore',
+  '/usr/local/bin/mscore',
 ];
 
 async function findMuseScore(): Promise<string | null> {
