@@ -185,10 +185,35 @@ export const versions = pgTable(
     seededFromVersionId: uuid('seeded_from_version_id').references((): any => versions.id),
     notes: text('notes'),
     isCurrent: boolean('is_current').notNull().default(false),
+    // Score editor (slice 1)
+    privateOwnerUserId: uuid('private_owner_user_id').references(() => users.id, { onDelete: 'cascade' }),
+    branchLabel: text('branch_label'),
+    parentVersionId: uuid('parent_version_id').references((): any => versions.id, { onDelete: 'set null' }),
+    editOrigin: text('edit_origin').notNull().default('upload'),
+    musicxmlBlob: text('musicxml_blob'),
+    pdfRenderStatus: text('pdf_render_status').default('complete'),
     ...timestamps,
   },
   (t) => ({
     chartIdx: index('versions_chart_idx').on(t.chartId),
+  }),
+);
+
+// ── Edit Operations (audit log) ──────────────────────────────────────────
+
+export const editOperations = pgTable(
+  'edit_operations',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    versionId: uuid('version_id').notNull().references(() => versions.id, { onDelete: 'cascade' }),
+    parentVersionId: uuid('parent_version_id').notNull().references(() => versions.id),
+    userId: uuid('user_id').notNull().references(() => users.id),
+    naturalLanguageInput: text('natural_language_input'),
+    operationJson: jsonb('operation_json').notNull(),
+    appliedAt: timestamp('applied_at').notNull().defaultNow(),
+  },
+  (t) => ({
+    versionIdx: index('idx_edit_operations_version').on(t.versionId),
   }),
 );
 

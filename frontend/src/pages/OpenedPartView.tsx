@@ -9,6 +9,7 @@ import { getEvent, EventChart } from '../api/events';
 import { Part, Version, MeasureBounds, Annotation } from '../types';
 import { InlinePdfRenderer } from '../components/InlinePdfRenderer';
 import { MigrationProgressBadge } from '../components/MigrationProgressBadge';
+import { EditorPanel } from '../components/editor/EditorPanel';
 import { useAnnotationMode, AnnotationMode } from '../hooks/useAnnotationMode';
 import './PlayerView.css';
 
@@ -38,6 +39,9 @@ export function OpenedPartView() {
 
   // Annotation state — single source of truth
   const annState = useAnnotationMode();
+
+  // Score editor mode
+  const [scoreEditMode, setScoreEditMode] = useState(false);
 
   // View mode
   const [revealed, setRevealed] = useState(false);
@@ -595,6 +599,11 @@ export function OpenedPartView() {
                 <span className="pv-pill-label">Tools</span>
                 <span className="pv-pill-kbd">T</span>
               </button>
+              <button className="pv-pill" onClick={() => setScoreEditMode(true)}>
+                <span className="pv-pill-glyph">{'\u266B'}</span>
+                <span className="pv-pill-label">Edit</span>
+                <span className="pv-pill-kbd">E</span>
+              </button>
             </div>
           </div>
 
@@ -633,6 +642,29 @@ export function OpenedPartView() {
 
       {/* Ask palette overlay */}
       {askPalette}
+
+      {/* Score editor overlay */}
+      {scoreEditMode && part && vId && pId && (
+        <div style={{
+          position: 'fixed', inset: 0, zIndex: 80,
+          background: 'var(--bg, #f8f9fa)',
+          display: 'flex', flexDirection: 'column',
+          padding: 24,
+          overflowY: 'auto',
+        }}>
+          <EditorPanel
+            partId={pId}
+            versionId={vId}
+            partName={part.name}
+            isDirector={true}
+            onSaved={(newVersionId) => {
+              setScoreEditMode(false);
+              navigate(`/charts/${chartId}/versions/${newVersionId}/parts/${pId}`);
+            }}
+            onExit={() => setScoreEditMode(false)}
+          />
+        </div>
+      )}
     </div>
   );
 }

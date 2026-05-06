@@ -14,6 +14,7 @@ import { partsRouter, playerRouter } from './routes/parts';
 import { notificationsRouter } from './routes/notifications';
 import { annotationsRouter } from './routes/annotations';
 import { eventsRouter } from './routes/events';
+import { editsRouter } from './routes/edits';
 
 const app = express();
 
@@ -35,6 +36,7 @@ app.use('/notifications', notificationsRouter);
 app.use('/parts', annotationsRouter);
 app.use('/annotations', annotationsRouter);
 app.use('/', eventsRouter);
+app.use('/edits', editsRouter);
 
 const PORT = process.env.PORT ?? 3000;
 

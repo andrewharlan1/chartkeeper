@@ -177,13 +177,18 @@ chartsRouter.get('/:id/annotation-sources', async (req: Request, res: Response):
   }
 
   // Get all versions for this chart
+  // Visibility filter for personal versions
   const versionRows = await dz.select({
     id: versions.id,
     name: versions.name,
     sortOrder: versions.sortOrder,
   })
     .from(versions)
-    .where(and(eq(versions.chartId, req.params.id), isNull(versions.deletedAt)))
+    .where(and(
+      eq(versions.chartId, req.params.id),
+      isNull(versions.deletedAt),
+      sql`(${versions.privateOwnerUserId} IS NULL OR ${versions.privateOwnerUserId} = ${req.user!.id})`,
+    ))
     .orderBy(versions.sortOrder);
 
   // Get all parts across all versions with annotation counts
@@ -259,7 +264,7 @@ chartsRouter.get('/:id/migration-sources', async (req: Request, res: Response): 
     return;
   }
 
-  // Get all versions for this chart
+  // Get all versions for this chart (visibility filter for personal versions)
   const versionRows = await dz.select({
     id: versions.id,
     name: versions.name,
@@ -267,7 +272,11 @@ chartsRouter.get('/:id/migration-sources', async (req: Request, res: Response): 
     createdAt: versions.createdAt,
   })
     .from(versions)
-    .where(and(eq(versions.chartId, req.params.id), isNull(versions.deletedAt)))
+    .where(and(
+      eq(versions.chartId, req.params.id),
+      isNull(versions.deletedAt),
+      sql`(${versions.privateOwnerUserId} IS NULL OR ${versions.privateOwnerUserId} = ${req.user!.id})`,
+    ))
     .orderBy(versions.sortOrder);
 
   // Get all parts across all versions with annotation counts
@@ -388,7 +397,11 @@ chartsRouter.get('/:id/versions/:vId/instruments', async (req: Request, res: Res
   if (!chart) { res.status(404).json({ error: 'Chart not found' }); return; }
 
   const [version] = await dz.select().from(versions)
-    .where(and(eq(versions.id, req.params.vId), isNull(versions.deletedAt)));
+    .where(and(
+      eq(versions.id, req.params.vId),
+      isNull(versions.deletedAt),
+      sql`(${versions.privateOwnerUserId} IS NULL OR ${versions.privateOwnerUserId} = ${req.user!.id})`,
+    ));
   if (!version) { res.status(404).json({ error: 'Version not found' }); return; }
 
   // All instrument slots for the ensemble
@@ -492,13 +505,14 @@ chartsRouter.get('/:id/versions/:vId/instruments', async (req: Request, res: Res
     }
   }
 
-  // Previous version parts (for fallback state B)
+  // Previous version parts (for fallback state B) — visibility filter for personal versions
   const previousVersions = await dz.select({ id: versions.id, name: versions.name })
     .from(versions)
     .where(and(
       eq(versions.chartId, req.params.id),
       isNull(versions.deletedAt),
       sql`${versions.sortOrder} < ${version.sortOrder}`,
+      sql`(${versions.privateOwnerUserId} IS NULL OR ${versions.privateOwnerUserId} = ${req.user!.id})`,
     ))
     .orderBy(desc(versions.sortOrder));
 
@@ -611,10 +625,32 @@ chartsRouter.get('/:id/versions/:vId/instruments', async (req: Request, res: Res
       };
     });
 
+  // Unassigned parts — non-score parts that have no slot assignment
+  const assignedPartIds = new Set(Object.values(slotToParts).flat());
+  const scorePartIds = new Set(scoreParts.map(p => p.partId));
+  const unassignedParts = currentParts
+    .filter(p => !assignedPartIds.has(p.id) && !scorePartIds.has(p.id))
+    .map(p => {
+      const diff = partDiffMap[p.id];
+      return {
+        partId: p.id,
+        name: p.name,
+        kind: p.kind,
+        annotationCount: annCountMap[p.id] || 0,
+        diffStatus: diff ? {
+          slotId: null as string | null,
+          sourceVersionName: diff.sourceVersionName,
+          changedMeasureCount: diff.changedMeasureCount,
+          hasChangelog: diff.hasChangelog,
+        } : null,
+      };
+    });
+
   res.json({
     chart: { id: chart.id, name: chart.name, composer: chart.composer, ensembleId },
     version: { id: version.id, name: version.name, isCurrent: version.isCurrent },
     instruments: instrumentRows,
     scoreParts,
+    unassignedParts,
   });
 });

@@ -52,9 +52,14 @@ versionsRouter.get('/', async (req: Request, res: Response): Promise<void> => {
     return;
   }
 
+  // Visibility filter: ensemble versions + current user's personal versions
   const rows = await dz.select()
     .from(versions)
-    .where(and(eq(versions.chartId, chartId), isNull(versions.deletedAt)))
+    .where(and(
+      eq(versions.chartId, chartId),
+      isNull(versions.deletedAt),
+      sql`(${versions.privateOwnerUserId} IS NULL OR ${versions.privateOwnerUserId} = ${req.user!.id})`,
+    ))
     .orderBy(versions.sortOrder);
 
   res.json({ versions: rows });
@@ -122,7 +127,11 @@ versionsRouter.post('/', async (req: Request, res: Response): Promise<void> => {
 // GET /versions/:id
 versionsRouter.get('/:id', async (req: Request, res: Response): Promise<void> => {
   const [ver] = await dz.select().from(versions)
-    .where(and(eq(versions.id, req.params.id), isNull(versions.deletedAt)));
+    .where(and(
+      eq(versions.id, req.params.id),
+      isNull(versions.deletedAt),
+      sql`(${versions.privateOwnerUserId} IS NULL OR ${versions.privateOwnerUserId} = ${req.user!.id})`,
+    ));
   if (!ver) {
     res.status(404).json({ error: 'Version not found' });
     return;
