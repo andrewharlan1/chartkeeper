@@ -109,7 +109,7 @@ editsRouter.post('/parse', async (req: Request, res: Response): Promise<void> =>
 
   try {
     const response = await client.messages.create({
-      model: 'claude-sonnet-4-7',
+      model: process.env.ANTHROPIC_MODEL || 'claude-sonnet-4-5',
       max_tokens: 500,
       system: systemPrompt,
       messages: [{ role: 'user', content: naturalLanguage }],
@@ -140,8 +140,9 @@ editsRouter.post('/parse', async (req: Request, res: Response): Promise<void> =>
 
     res.json({ op: result.data });
   } catch (err) {
-    console.error('LLM parse error:', err);
-    res.status(502).json({ error: 'LLM call failed' });
+    const message = err instanceof Error ? err.message : String(err);
+    console.error(`[edits/parse] Anthropic API error: ${message}`, err);
+    res.status(502).json({ error: `LLM call failed: ${message}` });
   }
 });
 
